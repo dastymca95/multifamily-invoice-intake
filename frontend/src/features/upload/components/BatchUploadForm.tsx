@@ -29,7 +29,7 @@ export function BatchUploadForm() {
       const batch = await batchesApi.create({ name: batchName.trim() });
 
       setState("uploading");
-      const uploadResults = await documentsApi.upload(batch.id, files);
+      const uploadResults = await documentsApi.uploadMany(batch.id, files);
       setResults(uploadResults);
       setState("done");
     } catch (err: unknown) {
@@ -56,7 +56,10 @@ export function BatchUploadForm() {
               )}
               <span className="text-sm text-gray-800 flex-1 truncate">{r.original_filename}</span>
               {r.duplicate && <Badge color="yellow">Duplicate</Badge>}
-              <Badge color="gray">{r.document_kind}</Badge>
+              <Badge color="gray">{r.route_used}</Badge>
+              <Badge color={r.extraction_status === "extracted" ? "green" : "yellow"}>
+                {r.extraction_status}
+              </Badge>
             </div>
           ))}
         </div>

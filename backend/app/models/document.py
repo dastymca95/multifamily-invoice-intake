@@ -26,10 +26,11 @@ class Document(Base, UUIDPrimaryKey, TimestampMixin):
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
-    # Routing classification set during ingest
-    document_kind: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="unknown"
-    )  # native_pdf | scanned_pdf | image | unknown
+    # Routing decision set by app.domain.routing.route_document at ingest time.
+    # Values: native_pdf | scanned_or_image | unsupported
+    route_used: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unsupported"
+    )
 
     extraction_status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="pending"
@@ -44,9 +45,16 @@ class Document(Base, UUIDPrimaryKey, TimestampMixin):
     # Relationships
     batch: Mapped["Batch"] = relationship("Batch", back_populates="documents")
     extraction_runs: Mapped[list["ExtractionRun"]] = relationship(
-        "ExtractionRun", back_populates="document"
+        "ExtractionRun",
+        back_populates="document",
+        order_by="ExtractionRun.created_at.desc()",
     )
-    invoice: Mapped["Invoice | None"] = relationship("Invoice", back_populates="document", uselist=False)
+    invoice: Mapped["Invoice | None"] = relationship(
+        "Invoice", back_populates="document", uselist=False
+    )
 
     def __repr__(self) -> str:
-        return f"<Document id={self.id} filename={self.original_filename!r} status={self.extraction_status}>"
+        return (
+            f"<Document id={self.id} filename={self.original_filename!r} "
+            f"route={self.route_used} status={self.extraction_status}>"
+        )

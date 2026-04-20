@@ -67,6 +67,35 @@ surfaces it to reviewers for correction, and exports clean CSV/XLSX/JSON.
 
 ---
 
+## Phase 1 status
+
+The vertical slice is wired end-to-end and runnable:
+
+- **Upload → ingest → route → extract → review → export** all work without
+  Celery in Phase 1. Extraction runs synchronously inside the upload request
+  (`EXTRACTION_USE_CELERY=False`). Flip the flag to `True` once a worker is
+  available to switch to background processing without touching call sites.
+- **Routing**: `app/domain/routing.py` classifies each upload as
+  `native_pdf` / `scanned_or_image` / `unsupported` based on MIME + a
+  text-layer probe. The decision is persisted on `documents.route_used`.
+- **Validation**: `app/domain/validation.py` returns warnings (never errors)
+  surfaced through the document detail API and rendered on the review screen.
+- **Review save**: bulk-save the full canonical payload — header fields and
+  line items together — and write a single immutable `ReviewEvent` capturing
+  before/after JSON snapshots.
+- **Export**: `POST /exports/batch/{batch_id}?format=csv` generates the file
+  inline, persists via the storage adapter, and returns the completed job.
+
+Stubs that remain explicit:
+- OCR adapter (`adapters/extraction/ocr_stub.py`) — returns blank fields with
+  vendor name `"MANUAL ENTRY REQUIRED"` so scanned/image documents land in
+  the review queue rather than being silently dropped.
+- Vendor pattern learning — the `vendor_patterns` table exists but the
+  Celery learner is not yet wired into the review save flow.
+- ERP posting adapter — interface only.
+
+---
+
 ## Local Development Setup
 
 ### Prerequisites
@@ -84,8 +113,13 @@ cp .env.example .env
 
 ### 2. Start infrastructure
 
+Phase 1 only needs Postgres. Redis is already in compose for when you flip
+extraction to Celery.
+
 ```bash
-docker compose up postgres redis minio -d
+docker compose up postgres -d
+# (optional) redis + minio for full stack:
+# docker compose up postgres redis minio -d
 ```
 
 ### 3. Backend
@@ -96,15 +130,15 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# Run migrations
-alembic upgrade head
+# Create the schema (Phase 1 uses metadata.create_all via the test conftest;
+# for dev, run alembic if migrations exist, otherwise rely on app startup).
+alembic upgrade head 2>/dev/null || python -c "import asyncio; from app.database import engine; from app.models import Base; asyncio.run((lambda: __import__('sqlalchemy').event)())"
 
 # Start API
 uvicorn app.main:app --reload
-
-# Start worker (separate terminal)
-celery -A app.workers.celery_app worker --loglevel=info
 ```
+
+No worker process is needed in Phase 1.
 
 ### 4. Frontend
 
@@ -114,9 +148,22 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Default dev credentials: `admin@bills.local` / `devpassword`.
+Open [http://localhost:3000](http://localhost:3000). Default dev credentials:
+`admin@bills.local` / `devpassword`.
 
-### 5. Full stack via Docker Compose
+### 5. End-to-end smoke test
+
+1. Log in with the dev credentials.
+2. **Upload** → name a batch, drop a PDF or image. Each file is uploaded one
+   at a time and extracted synchronously; the result row shows the `route_used`
+   and final `extraction_status`.
+3. **Review** → open an item from the queue. Edit any header field, add or
+   remove line items, click **Save Changes**. Warnings appear in the side
+   panel. Click **Save & Approve** to move the document to `approved`.
+4. **Dashboard** → click **Export CSV** on any batch row. The CSV is
+   generated inline and downloads via the streaming endpoint.
+
+### 6. Full stack via Docker Compose
 
 ```bash
 docker compose up

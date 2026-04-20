@@ -22,18 +22,18 @@ class LineItemOut(BaseModel):
 class InvoiceOut(BaseModel):
     id: uuid.UUID
     document_id: uuid.UUID
-    vendor_name: str
+    vendor_name: str | None
     vendor_address: str | None
     property_name: str | None
     property_code: str | None
-    invoice_number: str
+    invoice_number: str | None
     invoice_date: date | None
     due_date: date | None
     service_period_start: date | None
     service_period_end: date | None
     subtotal: Decimal | None
     tax_amount: Decimal | None
-    total_amount: Decimal
+    total_amount: Decimal | None
     currency: str
     invoice_type: str
     utility_type: str | None

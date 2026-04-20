@@ -63,7 +63,7 @@ def extract_document(self, document_id: str) -> dict:
 
         # Determine adapter
         adapter = next(
-            (a for a in adapters if a.can_handle(doc.mime_type, doc.document_kind)), None
+            (a for a in adapters if a.can_handle(doc.mime_type, doc.route_used)), None
         )
         if adapter is None:
             doc.extraction_status = "failed"
@@ -89,8 +89,9 @@ def extract_document(self, document_id: str) -> dict:
             document_id=doc_uuid,
             adapter_name=adapter.name,
             status="completed",
-            confidence=result.confidence,
-            raw_output=result.structured,
+            confidence_score=result.confidence,
+            raw_output_json=result.structured,
+            review_required=True,
         )
         session.add(run)
         session.flush()

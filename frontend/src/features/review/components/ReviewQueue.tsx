@@ -53,7 +53,7 @@ export function ReviewQueue() {
               <td className="px-5 py-3 text-gray-600">{formatDate(inv.invoice_date)}</td>
               <td className="px-5 py-3 text-gray-500">{inv.property_name || "—"}</td>
               <td className="px-5 py-3 text-right font-medium">
-                {formatCurrency(inv.total_amount, inv.currency)}
+                {formatCurrency(Number(inv.total_amount ?? 0), inv.currency)}
               </td>
               <td className="px-5 py-3">
                 <span className={confidenceColor(inv.extraction_confidence)}>
@@ -64,7 +64,7 @@ export function ReviewQueue() {
               </td>
               <td className="px-5 py-3 text-right">
                 <Link
-                  href={`/review/${inv.id}`}
+                  href={`/review/${inv.document_id}`}
                   className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-xs font-medium"
                 >
                   Review <ArrowRight className="h-3 w-3" />

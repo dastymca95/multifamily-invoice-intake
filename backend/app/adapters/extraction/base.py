@@ -35,8 +35,8 @@ class ExtractionAdapter(ABC):
         ...
 
     @abstractmethod
-    def can_handle(self, mime_type: str, document_kind: str) -> bool:
-        """Return True if this adapter can process the given file type."""
+    def can_handle(self, mime_type: str, route: str) -> bool:
+        """Return True if this adapter can process the given mime / route classification."""
         ...
 
     @abstractmethod

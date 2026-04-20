@@ -32,8 +32,8 @@ class NativePdfAdapter(ExtractionAdapter):
     def name(self) -> str:
         return "native_pdf"
 
-    def can_handle(self, mime_type: str, document_kind: str) -> bool:
-        return mime_type == "application/pdf" and document_kind == "native_pdf"
+    def can_handle(self, mime_type: str, route: str) -> bool:
+        return mime_type == "application/pdf" and route == "native_pdf"
 
     def extract(
         self,

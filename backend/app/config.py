@@ -35,6 +35,20 @@ class Settings(BaseSettings):
 
     # Extraction
     EXTRACTION_BACKEND: str = "native_pdf"
+    # Phase 1: extraction runs synchronously inside the upload request.
+    # Set to True once Celery infrastructure is operational.
+    EXTRACTION_USE_CELERY: bool = False
+
+    # Upload limits
+    MAX_FILE_SIZE_MB: int = 25
+    ALLOWED_MIME_TYPES: list[str] = [
+        "application/pdf",
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/tiff",
+        "image/webp",
+    ]
 
     # Logging
     LOG_LEVEL: str = "INFO"
@@ -42,6 +56,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
+
+    @property
+    def max_file_size_bytes(self) -> int:
+        return self.MAX_FILE_SIZE_MB * 1024 * 1024
 
 
 @lru_cache

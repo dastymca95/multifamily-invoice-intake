@@ -1,18 +1,29 @@
 """
-Export workflow: collect approved invoices, run the requested export adapter,
-persist the output to storage, and update the ExportJob record.
+Export workflow.
+
+Phase 1: exports run synchronously inside the API request. The job record still
+exists so the UI can show history and so we can flip to async (Celery) later
+without changing the request/response shape.
+
+The collection rule is intentionally permissive in Phase 1: any invoice in the
+batch whose document has finished extraction is included. This lets users
+export-then-correct rather than forcing approval-before-export.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import structlog
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.adapters.export.base import ExportAdapter
 from app.adapters.storage.base import StorageAdapter
 from app.domain.invoice import CanonicalInvoice, CanonicalLineItem
+from app.models.document import Document
 from app.models.export_job import ExportJob
 from app.models.invoice import Invoice
 from app.repositories.export_job_repo import ExportJobRepository
@@ -38,14 +49,14 @@ def _to_canonical(invoice: Invoice) -> CanonicalInvoice:
         id=invoice.id,
         document_id=invoice.document_id,
         extraction_run_id=invoice.extraction_run_id,
-        vendor_name=invoice.vendor_name,
+        vendor_name=invoice.vendor_name or "UNKNOWN",
         vendor_address=invoice.vendor_address,
         vendor_tax_id=invoice.vendor_tax_id,
         bill_to_name=invoice.bill_to_name,
         bill_to_address=invoice.bill_to_address,
         property_name=invoice.property_name,
         property_code=invoice.property_code,
-        invoice_number=invoice.invoice_number,
+        invoice_number=invoice.invoice_number or "UNKNOWN",
         invoice_date=invoice.invoice_date,
         due_date=invoice.due_date,
         service_period_start=invoice.service_period_start,
@@ -53,9 +64,9 @@ def _to_canonical(invoice: Invoice) -> CanonicalInvoice:
         payment_terms=invoice.payment_terms,
         subtotal=invoice.subtotal,
         tax_amount=invoice.tax_amount,
-        total_amount=invoice.total_amount,
-        currency=invoice.currency,
-        invoice_type=invoice.invoice_type,
+        total_amount=invoice.total_amount or Decimal("0"),
+        currency=invoice.currency or "USD",
+        invoice_type=invoice.invoice_type or "unknown",
         utility_type=invoice.utility_type,
         account_number=invoice.account_number,
         meter_number=invoice.meter_number,
@@ -80,29 +91,41 @@ class ExportWorkflow:
         self._export_job_repo = export_job_repo
         self._session = session
 
-    async def run(self, job_id: uuid.UUID) -> ExportJob:
-        job = await self._export_job_repo.get_or_raise(job_id)
-        job.status = "processing"
+    async def run_for_batch_sync(
+        self,
+        batch_id: uuid.UUID,
+        format: str,
+        requested_by: uuid.UUID,
+    ) -> ExportJob:
+        """Generate an export inline and return the completed (or failed) job."""
+        adapter = self._adapters.get(format)
+        if adapter is None:
+            raise ValueError(f"Unknown export format: {format}")
+
+        job = ExportJob(
+            batch_id=batch_id,
+            requested_by=requested_by,
+            format=format,
+            status="processing",
+            filters={"batch_id": str(batch_id)},
+        )
+        self._session.add(job)
         await self._session.flush()
 
-        adapter = self._adapters.get(job.format)
-        if adapter is None:
-            return await self._fail(job, f"Unknown export format: {job.format}")
-
-        filters = job.filters or {}
-        batch_id = uuid.UUID(filters["batch_id"]) if "batch_id" in filters else None
-
-        invoices = await self._invoice_repo.get_approved_for_export(batch_id=batch_id)
+        invoices = await self._fetch_extracted_for_batch(batch_id)
         canonicals = [_to_canonical(inv) for inv in invoices]
 
         try:
             file_obj = adapter.export(canonicals)
         except Exception as exc:
-            log.exception("export_render_failed", job_id=str(job_id))
-            return await self._fail(job, str(exc))
+            log.exception("export_render_failed", job_id=str(job.id))
+            job.status = "failed"
+            job.error_message = str(exc)
+            await self._session.flush()
+            return job
 
         ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-        key = f"exports/{job_id}/{ts}_export.{adapter.file_extension}"
+        key = f"exports/{job.id}/{ts}_export.{adapter.file_extension}"
         self._storage.put(key, file_obj, adapter.content_type)
 
         job.status = "completed"
@@ -110,11 +133,25 @@ class ExportWorkflow:
         job.row_count = len(canonicals)
         await self._session.flush()
 
-        log.info("export_completed", job_id=str(job_id), format=job.format, rows=len(canonicals))
+        log.info(
+            "export_completed",
+            job_id=str(job.id),
+            batch_id=str(batch_id),
+            format=format,
+            rows=len(canonicals),
+        )
         return job
 
-    async def _fail(self, job: ExportJob, message: str) -> ExportJob:
-        job.status = "failed"
-        job.error_message = message
-        await self._session.flush()
-        return job
+    async def _fetch_extracted_for_batch(self, batch_id: uuid.UUID) -> list[Invoice]:
+        stmt = (
+            select(Invoice)
+            .join(Document, Invoice.document_id == Document.id)
+            .where(
+                Document.batch_id == batch_id,
+                Document.extraction_status == "extracted",
+            )
+            .options(selectinload(Invoice.lines))
+            .order_by(Document.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())

@@ -3,10 +3,12 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from app.dependencies import DB, CurrentUser
+from app.domain.invoice import CanonicalInvoice, CanonicalLineItem
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.invoice_repo import InvoiceRepository
 from app.repositories.review_repo import ReviewRepository
-from app.schemas.invoice import InvoiceFieldEdit, InvoiceOut
+from app.schemas.document import CanonicalInvoicePayload
+from app.schemas.invoice import InvoiceOut
 from app.schemas.review import ApproveRequest, RejectRequest, ReviewEventOut
 from app.workflows.review import ReviewWorkflow
 
@@ -36,7 +38,7 @@ async def review_queue(db: DB, user: CurrentUser, limit: int = 50) -> list[Invoi
         .join(Document, Invoice.document_id == Document.id)
         .where(
             Document.extraction_status == "extracted",
-            Document.review_status == "pending",
+            Document.review_status.in_(("pending", "in_review")),
         )
         .options(selectinload(Invoice.lines))
         .order_by(Document.created_at.asc())
@@ -46,59 +48,97 @@ async def review_queue(db: DB, user: CurrentUser, limit: int = 50) -> list[Invoi
     return [InvoiceOut.model_validate(inv) for inv in invoices]
 
 
-@router.get("/{invoice_id}", response_model=InvoiceOut)
-async def get_invoice_for_review(invoice_id: uuid.UUID, db: DB, user: CurrentUser) -> InvoiceOut:
-    repo = InvoiceRepository(db)
-    invoice = await repo.get_with_lines(invoice_id)
-    if invoice is None:
-        raise HTTPException(status_code=404, detail="Invoice not found")
-    return InvoiceOut.model_validate(invoice)
-
-
-@router.patch("/{invoice_id}/fields", response_model=ReviewEventOut)
-async def edit_field(
-    invoice_id: uuid.UUID,
-    body: InvoiceFieldEdit,
+@router.post("/{document_id}/save", response_model=ReviewEventOut)
+async def save_review(
+    document_id: uuid.UUID,
+    payload: CanonicalInvoicePayload,
     db: DB,
     user: CurrentUser,
 ) -> ReviewEventOut:
-    wf = _workflow(db)
-    event = await wf.apply_field_edit(
-        invoice_id=invoice_id,
-        reviewer_id=uuid.UUID(user["sub"]),
-        field_name=body.field_name,
-        new_value=body.new_value,
-        note=body.note,
+    """
+    Bulk-save reviewer corrections for the document's invoice.
+
+    Replaces header fields and the line items wholesale and writes a single
+    immutable ReviewEvent capturing before/after JSON snapshots.
+    """
+    canonical = CanonicalInvoice(
+        document_id=document_id,
+        vendor_name=payload.vendor_name or "UNKNOWN",
+        vendor_address=payload.vendor_address,
+        vendor_tax_id=payload.vendor_tax_id,
+        bill_to_name=payload.bill_to_name,
+        bill_to_address=payload.bill_to_address,
+        property_name=payload.property_name,
+        property_code=payload.property_code,
+        invoice_number=payload.invoice_number or "UNKNOWN",
+        invoice_date=payload.invoice_date,
+        due_date=payload.due_date,
+        service_period_start=payload.service_period_start,
+        service_period_end=payload.service_period_end,
+        payment_terms=payload.payment_terms,
+        subtotal=payload.subtotal,
+        tax_amount=payload.tax_amount,
+        total_amount=payload.total_amount or 0,
+        currency=payload.currency or "USD",
+        invoice_type=payload.invoice_type or "unknown",
+        utility_type=payload.utility_type,
+        account_number=payload.account_number,
+        meter_number=payload.meter_number,
+        line_items=[
+            CanonicalLineItem(
+                line_number=li.line_number,
+                description=li.description,
+                quantity=li.quantity,
+                unit=li.unit,
+                unit_price=li.unit_price,
+                amount=li.amount,
+                gl_code=li.gl_code,
+            )
+            for li in payload.line_items
+        ],
     )
+
+    wf = _workflow(db)
+    try:
+        event = await wf.save_invoice(
+            document_id=document_id,
+            payload=canonical,
+            reviewer_id=uuid.UUID(user["sub"]),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return ReviewEventOut.model_validate(event)
 
 
-@router.post("/{invoice_id}/approve", response_model=ReviewEventOut)
+@router.post("/{document_id}/approve", response_model=ReviewEventOut)
 async def approve_invoice(
-    invoice_id: uuid.UUID,
+    document_id: uuid.UUID,
     body: ApproveRequest,
     db: DB,
     user: CurrentUser,
 ) -> ReviewEventOut:
+    invoice = await InvoiceRepository(db).get_by_document(document_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found for document")
+
     wf = _workflow(db)
-    event = await wf.approve(invoice_id, uuid.UUID(user["sub"]))
-
-    # Trigger async vendor pattern learning
-    from app.workers.tasks_vendor import update_vendor_pattern
-    update_vendor_pattern.delay(str(invoice_id))
-
+    event = await wf.approve(invoice.id, uuid.UUID(user["sub"]))
     return ReviewEventOut.model_validate(event)
 
 
-@router.post("/{invoice_id}/reject", response_model=ReviewEventOut)
+@router.post("/{document_id}/reject", response_model=ReviewEventOut)
 async def reject_invoice(
-    invoice_id: uuid.UUID,
+    document_id: uuid.UUID,
     body: RejectRequest,
     db: DB,
     user: CurrentUser,
 ) -> ReviewEventOut:
+    invoice = await InvoiceRepository(db).get_by_document(document_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found for document")
+
     wf = _workflow(db)
-    event = await wf.reject(invoice_id, uuid.UUID(user["sub"]), body.note)
+    event = await wf.reject(invoice.id, uuid.UUID(user["sub"]), body.note)
     return ReviewEventOut.model_validate(event)
 
 

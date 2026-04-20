@@ -1,11 +1,13 @@
 "use client";
 
+import { Button } from "@/components/ui/Button";
 import { batchesApi } from "@/lib/api/batches";
-import { useEffect, useState } from "react";
-import type { Batch } from "@/types/batch";
+import { exportsApi } from "@/lib/api/exports";
 import { formatDate } from "@/lib/utils";
-import { Badge, statusBadgeColor } from "@/components/ui/Badge";
+import type { Batch } from "@/types/batch";
+import { Download } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -20,6 +22,8 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 export function DashboardStats() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     batchesApi.list({ limit: 10 }).then(setBatches).finally(() => setLoading(false));
@@ -28,6 +32,24 @@ export function DashboardStats() {
   const totalDocs = batches.reduce((s, b) => s + b.total_documents, 0);
   const processed = batches.reduce((s, b) => s + b.processed_documents, 0);
   const failed = batches.reduce((s, b) => s + b.failed_documents, 0);
+
+  const handleExport = async (batchId: string) => {
+    setExportingId(batchId);
+    setError(null);
+    try {
+      const job = await exportsApi.createForBatch(batchId, "csv");
+      if (job.status !== "completed") {
+        setError(`Export ${job.status}${job.error_message ? `: ${job.error_message}` : ""}`);
+        return;
+      }
+      const { url } = await exportsApi.getDownloadUrl(job.id);
+      window.open(url, "_blank");
+    } catch (e) {
+      setError("Export failed. Please try again.");
+    } finally {
+      setExportingId(null);
+    }
+  };
 
   if (loading) return <div className="text-sm text-gray-400">Loading…</div>;
 
@@ -39,6 +61,12 @@ export function DashboardStats() {
         <StatCard label="Failed" value={failed} />
       </div>
 
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border">
         <div className="px-5 py-4 border-b">
           <h2 className="text-sm font-semibold text-gray-700">Recent Batches</h2>
@@ -49,6 +77,7 @@ export function DashboardStats() {
               <th className="text-left px-5 py-3 font-medium">Name</th>
               <th className="text-left px-5 py-3 font-medium">Documents</th>
               <th className="text-left px-5 py-3 font-medium">Created</th>
+              <th className="px-5 py-3" />
             </tr>
           </thead>
           <tbody>
@@ -63,11 +92,23 @@ export function DashboardStats() {
                   {b.processed_documents} / {b.total_documents}
                 </td>
                 <td className="px-5 py-3 text-gray-400">{formatDate(b.created_at)}</td>
+                <td className="px-5 py-3 text-right">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={exportingId === b.id}
+                    onClick={() => handleExport(b.id)}
+                    disabled={b.total_documents === 0}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Export CSV
+                  </Button>
+                </td>
               </tr>
             ))}
             {batches.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-5 py-6 text-center text-gray-400">
+                <td colSpan={4} className="px-5 py-6 text-center text-gray-400">
                   No batches yet. Start by uploading documents.
                 </td>
               </tr>

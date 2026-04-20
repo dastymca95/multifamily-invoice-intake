@@ -10,7 +10,7 @@ export default function ReviewDetailPage({ params }: Props) {
     <div className="flex flex-col h-full">
       <TopBar title="Review Invoice" />
       <div className="flex-1 overflow-hidden">
-        <InvoiceReviewPanel invoiceId={params.documentId} />
+        <InvoiceReviewPanel documentId={params.documentId} />
       </div>
     </div>
   );

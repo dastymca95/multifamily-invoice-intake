@@ -30,8 +30,8 @@ class OcrStubAdapter(ExtractionAdapter):
     def name(self) -> str:
         return "ocr_stub"
 
-    def can_handle(self, mime_type: str, document_kind: str) -> bool:
-        return document_kind in ("scanned_pdf", "image")
+    def can_handle(self, mime_type: str, route: str) -> bool:
+        return route == "scanned_or_image"
 
     def extract(
         self,

@@ -1,13 +1,24 @@
 """
-Extraction workflow: route a document to the right adapter, run extraction,
-persist the ExtractionRun, and upsert the Invoice record.
+Extraction workflow.
+
+For a single document:
+  1. Pick an adapter that matches the routed document type.
+  2. Run the adapter against the stored bytes.
+  3. Persist an ExtractionRun with raw_output_json + normalized_output_json.
+  4. Upsert the Invoice (and replace its lines) using the normalized payload.
+  5. Move the document to extraction_status="extracted" (or "failed").
+
+Validation runs as part of the document detail API, not here. Extraction never
+fails because of missing/blank fields — those are surfaced to the reviewer.
 """
 
 from __future__ import annotations
 
 import time
 import uuid
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
 import structlog
 
@@ -25,13 +36,48 @@ from app.repositories.vendor_pattern_repo import VendorPatternRepository
 log = structlog.get_logger()
 
 
+_HEADER_FIELDS = (
+    "vendor_name", "vendor_address", "vendor_tax_id", "bill_to_name",
+    "bill_to_address", "property_name", "property_code", "invoice_number",
+    "invoice_date", "due_date", "service_period_start", "service_period_end",
+    "payment_terms", "subtotal", "tax_amount", "total_amount", "currency",
+    "invoice_type", "utility_type", "account_number", "meter_number",
+    "raw_text_hash",
+)
+
+
 def _select_adapter(
-    adapters: list[ExtractionAdapter], mime_type: str, document_kind: str
+    adapters: list[ExtractionAdapter], mime_type: str, route: str
 ) -> ExtractionAdapter | None:
     for adapter in adapters:
-        if adapter.can_handle(mime_type, document_kind):
+        if adapter.can_handle(mime_type, route):
             return adapter
     return None
+
+
+def _parse_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_decimal(value: Any) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value).replace(",", "").replace("$", "").strip())
+    except (InvalidOperation, ValueError):
+        return None
 
 
 class ExtractionWorkflow:
@@ -42,7 +88,7 @@ class ExtractionWorkflow:
         document_repo: DocumentRepository,
         invoice_repo: InvoiceRepository,
         vendor_pattern_repo: VendorPatternRepository,
-        session,  # AsyncSession — passed for direct ORM flushes
+        session,
     ) -> None:
         self._adapters = adapters
         self._storage = storage
@@ -56,16 +102,15 @@ class ExtractionWorkflow:
         doc.extraction_status = "processing"
         await self._session.flush()
 
-        adapter = _select_adapter(self._adapters, doc.mime_type, doc.document_kind)
+        adapter = _select_adapter(self._adapters, doc.mime_type, doc.route_used)
         if adapter is None:
-            return await self._fail(doc, None, "No adapter available for this document type")
-
-        vendor_hints = await self._load_vendor_hints(doc)
+            return await self._fail(doc, None, f"No adapter available for route '{doc.route_used}'")
 
         run = ExtractionRun(
             document_id=document_id,
             adapter_name=adapter.name,
             status="processing",
+            review_required=True,
         )
         self._session.add(run)
         await self._session.flush()
@@ -73,7 +118,7 @@ class ExtractionWorkflow:
         start = time.monotonic()
         try:
             with self._storage.get(doc.storage_key) as file:
-                result = adapter.extract(file, doc.original_filename, vendor_hints)
+                result = adapter.extract(file, doc.original_filename, vendor_hints={})
         except ExtractionError as exc:
             return await self._fail(doc, run, str(exc))
         except Exception as exc:
@@ -82,12 +127,16 @@ class ExtractionWorkflow:
 
         duration_ms = int((time.monotonic() - start) * 1000)
 
-        run.status = "completed"
-        run.confidence = result.confidence
-        run.raw_output = result.structured
-        run.duration_ms = duration_ms
+        normalized = self._normalize(doc.id, run.id, result.structured)
 
-        await self._upsert_invoice(doc, run, result.structured)
+        run.status = "completed"
+        run.confidence_score = result.confidence
+        run.raw_output_json = result.structured
+        run.normalized_output_json = normalized.model_dump(mode="json")
+        run.duration_ms = duration_ms
+        run.review_required = True
+
+        await self._upsert_invoice(doc, run, normalized)
 
         doc.extraction_status = "extracted"
         await self._session.flush()
@@ -101,56 +150,89 @@ class ExtractionWorkflow:
         )
         return run
 
-    async def _load_vendor_hints(self, doc: Document) -> dict:
-        # Attempt to pre-load vendor hints if vendor name is inferrable.
-        # For first-time vendors this will be None.
-        return {}
+    def _normalize(
+        self, document_id: uuid.UUID, run_id: uuid.UUID, structured: dict
+    ) -> CanonicalInvoice:
+        """Coerce an adapter's raw dict into a CanonicalInvoice with safe fallbacks."""
+        line_items = []
+        for i, li in enumerate(structured.get("line_items") or []):
+            amount = _parse_decimal(li.get("amount")) or Decimal("0")
+            line_items.append(CanonicalLineItem(
+                line_number=int(li.get("line_number", i)),
+                description=str(li.get("description") or "").strip() or "—",
+                quantity=_parse_decimal(li.get("quantity")),
+                unit=li.get("unit"),
+                unit_price=_parse_decimal(li.get("unit_price")),
+                amount=amount,
+                gl_code=li.get("gl_code"),
+            ))
+
+        invoice_date = _parse_date(structured.get("invoice_date"))
+        total_amount = _parse_decimal(structured.get("total_amount")) or Decimal("0")
+
+        return CanonicalInvoice(
+            document_id=document_id,
+            extraction_run_id=run_id,
+            vendor_name=str(structured.get("vendor_name") or "UNKNOWN"),
+            vendor_address=structured.get("vendor_address"),
+            vendor_tax_id=structured.get("vendor_tax_id"),
+            bill_to_name=structured.get("bill_to_name"),
+            bill_to_address=structured.get("bill_to_address"),
+            property_name=structured.get("property_name"),
+            property_code=structured.get("property_code"),
+            invoice_number=str(structured.get("invoice_number") or "UNKNOWN"),
+            invoice_date=invoice_date,
+            due_date=_parse_date(structured.get("due_date")),
+            service_period_start=_parse_date(structured.get("service_period_start")),
+            service_period_end=_parse_date(structured.get("service_period_end")),
+            payment_terms=structured.get("payment_terms"),
+            subtotal=_parse_decimal(structured.get("subtotal")),
+            tax_amount=_parse_decimal(structured.get("tax_amount")),
+            total_amount=total_amount,
+            currency=structured.get("currency") or "USD",
+            invoice_type=structured.get("invoice_type") or "unknown",
+            utility_type=structured.get("utility_type"),
+            account_number=structured.get("account_number"),
+            meter_number=structured.get("meter_number"),
+            line_items=line_items,
+            extraction_confidence=structured.get("extraction_confidence"),
+            raw_text_hash=structured.get("raw_text_hash"),
+        )
 
     async def _upsert_invoice(
-        self, doc: Document, run: ExtractionRun, structured: dict
+        self, doc: Document, run: ExtractionRun, normalized: CanonicalInvoice
     ) -> Invoice:
         existing = await self._invoice_repo.get_by_document(doc.id)
         if existing is not None:
-            # Re-extraction: remove old lines, refresh header fields
-            for line in existing.lines:
+            invoice = await self._invoice_repo.get_with_lines(existing.id)
+            for line in list(invoice.lines):
                 await self._session.delete(line)
-            invoice = existing
         else:
             invoice = Invoice(document_id=doc.id)
             self._session.add(invoice)
 
         invoice.extraction_run_id = run.id
-        self._apply_structured(invoice, structured)
+        payload = normalized.model_dump()
+        for field in _HEADER_FIELDS:
+            if field in payload:
+                setattr(invoice, field, payload[field])
+        invoice.extraction_confidence = run.confidence_score
         await self._session.flush()
 
-        for i, li_data in enumerate(structured.get("line_items", [])):
-            line = InvoiceLine(
+        for li in normalized.line_items:
+            self._session.add(InvoiceLine(
                 invoice_id=invoice.id,
-                line_number=li_data.get("line_number", i),
-                description=li_data.get("description", ""),
-                quantity=li_data.get("quantity"),
-                unit=li_data.get("unit"),
-                unit_price=li_data.get("unit_price"),
-                amount=Decimal(str(li_data.get("amount", 0))),
-                gl_code=li_data.get("gl_code"),
-            )
-            self._session.add(line)
+                line_number=li.line_number,
+                description=li.description,
+                quantity=li.quantity,
+                unit=li.unit,
+                unit_price=li.unit_price,
+                amount=li.amount,
+                gl_code=li.gl_code,
+            ))
 
         await self._session.flush()
         return invoice
-
-    def _apply_structured(self, invoice: Invoice, data: dict) -> None:
-        for field in [
-            "vendor_name", "vendor_address", "vendor_tax_id", "bill_to_name",
-            "bill_to_address", "property_name", "property_code", "invoice_number",
-            "invoice_date", "due_date", "service_period_start", "service_period_end",
-            "payment_terms", "subtotal", "tax_amount", "total_amount", "currency",
-            "invoice_type", "utility_type", "account_number", "meter_number",
-            "extraction_confidence", "raw_text_hash",
-        ]:
-            val = data.get(field)
-            if val is not None:
-                setattr(invoice, field, val)
 
     async def _fail(
         self, doc: Document, run: ExtractionRun | None, message: str
@@ -165,6 +247,7 @@ class ExtractionWorkflow:
                 document_id=doc.id,
                 adapter_name="none",
                 status="failed",
+                review_required=True,
                 error_message=message,
             )
             self._session.add(run)

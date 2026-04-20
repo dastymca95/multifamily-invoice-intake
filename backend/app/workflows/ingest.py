@@ -1,45 +1,39 @@
 """
-Ingest workflow: accept uploaded files, store them, create Document records,
-classify them, and enqueue extraction tasks.
+Ingest workflow.
+
+Validates an uploaded file, routes it, stores the original via the storage
+adapter, and creates the Document record. Extraction is kicked off separately
+by the API handler (sync in Phase 1, queued later).
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import uuid
+from dataclasses import dataclass
 from typing import BinaryIO
 
 import structlog
 
 from app.adapters.storage.base import StorageAdapter
-from app.models.batch import Batch
+from app.config import settings
+from app.domain.routing import route_document
 from app.models.document import Document
 from app.repositories.batch_repo import BatchRepository
 from app.repositories.document_repo import DocumentRepository
 
 log = structlog.get_logger()
 
-_NATIVE_PDF_MIME = "application/pdf"
-_IMAGE_MIMES = {"image/jpeg", "image/png", "image/tiff", "image/webp"}
+
+class FileValidationError(ValueError):
+    """Raised when an uploaded file violates size or type rules."""
 
 
-def _classify_document(mime_type: str, raw_bytes: bytes) -> str:
-    """
-    Route a file to an extraction path.
-
-    Native PDFs: contain a text layer — pdfplumber can extract directly.
-    Scanned PDFs / images: require OCR.
-    """
-    if mime_type == _NATIVE_PDF_MIME:
-        # A scanned PDF has very little or no text. We use a simple heuristic:
-        # check for the presence of text-layer markers in the first 4 KB.
-        snippet = raw_bytes[:4096]
-        if b"BT" in snippet and b"ET" in snippet:
-            return "native_pdf"
-        return "scanned_pdf"
-    if mime_type in _IMAGE_MIMES:
-        return "image"
-    return "unknown"
+@dataclass
+class IngestedFile:
+    document: Document
+    duplicate: bool
 
 
 class IngestWorkflow:
@@ -53,26 +47,47 @@ class IngestWorkflow:
         self._batch_repo = batch_repo
         self._document_repo = document_repo
 
+    def _validate(self, raw_bytes: bytes, mime_type: str, filename: str) -> None:
+        if len(raw_bytes) == 0:
+            raise FileValidationError(f"{filename}: file is empty")
+
+        max_bytes = settings.max_file_size_bytes
+        if len(raw_bytes) > max_bytes:
+            raise FileValidationError(
+                f"{filename}: file size {len(raw_bytes)} bytes exceeds limit of "
+                f"{settings.MAX_FILE_SIZE_MB} MB"
+            )
+
+        if mime_type not in settings.ALLOWED_MIME_TYPES:
+            raise FileValidationError(
+                f"{filename}: MIME type {mime_type!r} is not supported. "
+                f"Allowed: {', '.join(settings.ALLOWED_MIME_TYPES)}"
+            )
+
     async def ingest_file(
         self,
         batch_id: uuid.UUID,
         file: BinaryIO,
         original_filename: str,
         mime_type: str,
-    ) -> Document:
+    ) -> IngestedFile:
         raw_bytes = file.read()
+        self._validate(raw_bytes, mime_type, original_filename)
+
         checksum = hashlib.sha256(raw_bytes).hexdigest()
-        file_size = len(raw_bytes)
 
         existing = await self._document_repo.get_by_checksum(checksum)
         if existing is not None:
-            log.info("ingest_duplicate_skipped", checksum=checksum, existing_id=str(existing.id))
-            return existing
+            log.info(
+                "ingest_duplicate_skipped",
+                checksum=checksum,
+                existing_id=str(existing.id),
+                filename=original_filename,
+            )
+            return IngestedFile(document=existing, duplicate=True)
 
-        document_kind = _classify_document(mime_type, raw_bytes)
+        route = route_document(mime_type, raw_bytes)
         storage_key = f"documents/{batch_id}/{checksum[:8]}_{original_filename}"
-
-        import io
         self._storage.put(storage_key, io.BytesIO(raw_bytes), mime_type)
 
         doc = Document(
@@ -80,9 +95,9 @@ class IngestWorkflow:
             original_filename=original_filename,
             storage_key=storage_key,
             mime_type=mime_type,
-            file_size_bytes=file_size,
+            file_size_bytes=len(raw_bytes),
             checksum_sha256=checksum,
-            document_kind=document_kind,
+            route_used=route,
             extraction_status="pending",
             review_status="pending",
         )
@@ -92,7 +107,8 @@ class IngestWorkflow:
         log.info(
             "ingest_document_created",
             document_id=str(doc.id),
-            kind=document_kind,
+            route=route,
             filename=original_filename,
+            size_bytes=len(raw_bytes),
         )
-        return doc
+        return IngestedFile(document=doc, duplicate=False)

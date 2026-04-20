@@ -33,8 +33,8 @@ class Invoice(Base, UUIDPrimaryKey, TimestampMixin):
         nullable=True,
     )
 
-    # Vendor
-    vendor_name: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    # Vendor — nullable because the reviewer may save partial state mid-review.
+    vendor_name: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
     vendor_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     vendor_tax_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
@@ -44,9 +44,9 @@ class Invoice(Base, UUIDPrimaryKey, TimestampMixin):
     property_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     property_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
-    # Invoice metadata
-    invoice_number: Mapped[str] = mapped_column(String(128), nullable=False)
-    invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Invoice metadata — invoice_number / invoice_date may be blank until review.
+    invoice_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     service_period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     service_period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -55,7 +55,7 @@ class Invoice(Base, UUIDPrimaryKey, TimestampMixin):
     # Amounts (NUMERIC to avoid floating-point rounding)
     subtotal: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
     tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
-    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
+    total_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
 
     # Classification
