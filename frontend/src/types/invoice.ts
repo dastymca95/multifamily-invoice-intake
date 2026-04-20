@@ -1,31 +1,40 @@
 import type { InvoiceType, ReviewStatus, UtilityType } from "./api";
 
+/**
+ * Numeric fields backed by Postgres NUMERIC are serialized by FastAPI/Pydantic
+ * as JSON strings to preserve column scale (e.g. "1284.0000"). Treat them as
+ * strings on the wire and parse with Number()/Decimal at the call site.
+ */
+export type DecimalString = string;
+
 export interface LineItem {
   id: string;
   line_number: number;
   description: string;
-  quantity: number | null;
+  quantity: DecimalString | null;
   unit: string | null;
-  unit_price: number | null;
-  amount: number;
+  unit_price: DecimalString | null;
+  amount: DecimalString;
   gl_code: string | null;
 }
 
 export interface Invoice {
   id: string;
   document_id: string;
-  vendor_name: string;
+  // Phase 1 review-first schema: header fields are reviewer-fillable and
+  // therefore nullable until saved.
+  vendor_name: string | null;
   vendor_address: string | null;
   property_name: string | null;
   property_code: string | null;
-  invoice_number: string;
+  invoice_number: string | null;
   invoice_date: string | null;
   due_date: string | null;
   service_period_start: string | null;
   service_period_end: string | null;
-  subtotal: number | null;
-  tax_amount: number | null;
-  total_amount: number;
+  subtotal: DecimalString | null;
+  tax_amount: DecimalString | null;
+  total_amount: DecimalString | null;
   currency: string;
   invoice_type: InvoiceType;
   utility_type: UtilityType | null;

@@ -84,7 +84,7 @@ export function DashboardStats() {
             {batches.map((b) => (
               <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
                 <td className="px-5 py-3">
-                  <Link href={`/upload?batch=${b.id}`} className="font-medium text-brand-600 hover:underline">
+                  <Link href={`/batches/${b.id}`} className="font-medium text-brand-600 hover:underline">
                     {b.name}
                   </Link>
                 </td>
