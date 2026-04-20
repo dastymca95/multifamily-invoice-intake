@@ -5,6 +5,7 @@ import { Download, RotateCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { InlineAlert } from "@/components/ui/InlineAlert";
 import { cn } from "@/lib/utils";
 import type { ExportFormat } from "@/types/api";
 
@@ -18,10 +19,10 @@ interface BatchExportPanelProps {
   pendingReviewCount: number;
 }
 
-const FORMATS: Array<{ key: ExportFormat; label: string }> = [
-  { key: "csv", label: "CSV" },
-  { key: "xlsx", label: "Excel" },
-  { key: "json", label: "JSON" },
+const FORMATS: Array<{ key: ExportFormat; label: string; hint: string }> = [
+  { key: "csv", label: "CSV", hint: "Comma-separated, opens in any spreadsheet app." },
+  { key: "xlsx", label: "Excel", hint: "Native Excel workbook with one sheet per section." },
+  { key: "json", label: "JSON", hint: "Raw structured data for downstream systems." },
 ];
 
 export function BatchExportPanel({
@@ -35,6 +36,7 @@ export function BatchExportPanel({
   const noneToExport = exportableCount === 0;
   const creating = phase === "creating";
   const downloading = phase === "downloading";
+  const activeFormatHint = FORMATS.find((f) => f.key === format)?.hint;
 
   return (
     <div className="bg-white rounded-xl border">
@@ -42,7 +44,8 @@ export function BatchExportPanel({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-700">Export Batch</h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Generate a downloadable file containing all extracted invoices in this batch.
+            Generate a downloadable file containing every extracted invoice in
+            this batch.
           </p>
         </div>
         {job && (
@@ -58,26 +61,31 @@ export function BatchExportPanel({
         {!job && (
           <>
             {noneToExport ? (
-              <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-                No extracted invoices in this batch yet. Upload and extract documents first.
-              </div>
+              <InlineAlert tone="warning">
+                No extracted invoices in this batch yet. Upload and process
+                documents before exporting.
+              </InlineAlert>
             ) : pendingReviewCount > 0 ? (
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                {pendingReviewCount} document{pendingReviewCount === 1 ? "" : "s"} still need review.
-                Export will include all extracted invoices regardless — review can continue afterward.
-              </div>
+              <InlineAlert tone="info">
+                {pendingReviewCount} document{pendingReviewCount === 1 ? "" : "s"}{" "}
+                still need review. Export will include all extracted invoices
+                regardless — review can continue afterward.
+              </InlineAlert>
             ) : null}
 
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5" role="radiogroup" aria-label="Export format">
                 {FORMATS.map((f) => {
                   const active = format === f.key;
                   return (
                     <button
                       key={f.key}
                       type="button"
+                      role="radio"
+                      aria-checked={active}
                       onClick={() => setFormat(f.key)}
                       disabled={creating}
+                      title={f.hint}
                       className={cn(
                         "rounded-md px-3 py-1.5 text-xs font-medium border transition-colors",
                         active
@@ -99,7 +107,15 @@ export function BatchExportPanel({
               >
                 Create export
               </Button>
+              {!creating && exportableCount > 0 && (
+                <span className="text-xs text-gray-400">
+                  {exportableCount} invoice{exportableCount === 1 ? "" : "s"} will be included
+                </span>
+              )}
             </div>
+            {activeFormatHint && (
+              <p className="text-[11px] text-gray-400">{activeFormatHint}</p>
+            )}
           </>
         )}
 
@@ -113,8 +129,8 @@ export function BatchExportPanel({
                   job.status === "completed"
                     ? "green"
                     : job.status === "failed"
-                    ? "red"
-                    : "yellow"
+                      ? "red"
+                      : "yellow"
                 }
               >
                 {job.status}
@@ -134,19 +150,20 @@ export function BatchExportPanel({
               </div>
             </div>
 
+            {job.status === "completed" && (
+              <p className="text-[11px] text-gray-400">
+                Click <strong>Download</strong> to save the file. Use{" "}
+                <strong>New export</strong> above to start over with a different format.
+              </p>
+            )}
+
             {job.status === "failed" && job.error_message && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {job.error_message}
-              </div>
+              <InlineAlert tone="error">{job.error_message}</InlineAlert>
             )}
           </div>
         )}
 
-        {error && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <InlineAlert tone="error">{error}</InlineAlert>}
       </div>
     </div>
   );

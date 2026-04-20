@@ -1,15 +1,27 @@
 "use client";
 
 import { Button } from "@/components/ui/Button";
+import { InlineAlert } from "@/components/ui/InlineAlert";
 import { batchesApi } from "@/lib/api/batches";
 import { exportsApi } from "@/lib/api/exports";
+import { getApiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { displayBatchStatus } from "@/lib/status";
+import { Badge } from "@/components/ui/Badge";
 import type { Batch } from "@/types/batch";
-import { Download } from "lucide-react";
+import { ArrowRight, Download, Upload } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+function StatCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
   return (
     <div className="bg-white rounded-xl border p-5 space-y-1">
       <p className="text-sm text-gray-500">{label}</p>
@@ -22,12 +34,32 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 export function DashboardStats() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
-    batchesApi.list({ limit: 10 }).then(setBatches).finally(() => setLoading(false));
-  }, []);
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    batchesApi
+      .list({ limit: 10 })
+      .then((rows) => {
+        if (!cancelled) setBatches(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(getApiErrorMessage(err, "Failed to load batches."));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   const totalDocs = batches.reduce((s, b) => s + b.total_documents, 0);
   const processed = batches.reduce((s, b) => s + b.processed_documents, 0);
@@ -35,11 +67,13 @@ export function DashboardStats() {
 
   const handleExport = async (batchId: string) => {
     setExportingId(batchId);
-    setError(null);
+    setExportError(null);
     try {
       const job = await exportsApi.createForBatch(batchId, "csv");
       if (job.status !== "completed") {
-        setError(`Export ${job.status}${job.error_message ? `: ${job.error_message}` : ""}`);
+        setExportError(
+          `Export ${job.status}${job.error_message ? `: ${job.error_message}` : ""}`,
+        );
         return;
       }
       // Use the auth-aware download helper. `window.open` on the local
@@ -47,13 +81,29 @@ export function DashboardStats() {
       // tab without our `Authorization` header and silently 401s.
       await exportsApi.download(job.id, job.format);
     } catch (e) {
-      setError("Export failed. Please try again.");
+      setExportError(getApiErrorMessage(e, "Export failed. Please try again."));
     } finally {
       setExportingId(null);
     }
   };
 
-  if (loading) return <div className="text-sm text-gray-400">Loading…</div>;
+  if (loading) return <div className="text-sm text-gray-400">Loading dashboard…</div>;
+
+  if (loadError) {
+    return (
+      <InlineAlert
+        tone="error"
+        title="Could not load batches."
+        action={
+          <Button variant="secondary" size="sm" onClick={reload}>
+            Try again
+          </Button>
+        }
+      >
+        {loadError}
+      </InlineAlert>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -63,60 +113,94 @@ export function DashboardStats() {
         <StatCard label="Failed" value={failed} />
       </div>
 
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {exportError && <InlineAlert tone="error">{exportError}</InlineAlert>}
 
       <div className="bg-white rounded-xl border">
-        <div className="px-5 py-4 border-b">
-          <h2 className="text-sm font-semibold text-gray-700">Recent Batches</h2>
+        <div className="px-5 py-4 border-b flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700">Recent Batches</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Open a batch to review documents or create exports.
+            </p>
+          </div>
+          <Link
+            href="/upload"
+            className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            New batch
+          </Link>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-gray-500 text-xs">
-              <th className="text-left px-5 py-3 font-medium">Name</th>
-              <th className="text-left px-5 py-3 font-medium">Documents</th>
-              <th className="text-left px-5 py-3 font-medium">Created</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {batches.map((b) => (
-              <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
-                <td className="px-5 py-3">
-                  <Link href={`/batches/${b.id}`} className="font-medium text-brand-600 hover:underline">
-                    {b.name}
-                  </Link>
-                </td>
-                <td className="px-5 py-3 text-gray-600">
-                  {b.processed_documents} / {b.total_documents}
-                </td>
-                <td className="px-5 py-3 text-gray-400">{formatDate(b.created_at)}</td>
-                <td className="px-5 py-3 text-right">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={exportingId === b.id}
-                    onClick={() => handleExport(b.id)}
-                    disabled={b.total_documents === 0}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Export CSV
-                  </Button>
-                </td>
+        {batches.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <p className="text-sm font-medium text-gray-700">No batches yet</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Upload your first batch of invoices to get started.
+            </p>
+            <Link
+              href="/upload"
+              className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+            >
+              Upload documents <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-gray-500 text-xs">
+                <th className="text-left px-5 py-3 font-medium">Name</th>
+                <th className="text-left px-5 py-3 font-medium">Status</th>
+                <th className="text-left px-5 py-3 font-medium">Documents</th>
+                <th className="text-left px-5 py-3 font-medium">Created</th>
+                <th className="px-5 py-3" />
               </tr>
-            ))}
-            {batches.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-6 text-center text-gray-400">
-                  No batches yet. Start by uploading documents.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {batches.map((b) => {
+                const status = displayBatchStatus(b);
+                return (
+                  <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
+                    <td className="px-5 py-3">
+                      <Link
+                        href={`/batches/${b.id}`}
+                        className="font-medium text-brand-600 hover:underline"
+                      >
+                        {b.name}
+                      </Link>
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge color={status.tone}>{status.label}</Badge>
+                    </td>
+                    <td className="px-5 py-3 text-gray-600">
+                      {b.processed_documents} / {b.total_documents}
+                    </td>
+                    <td className="px-5 py-3 text-gray-400">{formatDate(b.created_at)}</td>
+                    <td className="px-5 py-3 text-right">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        loading={exportingId === b.id}
+                        onClick={() => handleExport(b.id)}
+                        disabled={
+                          b.total_documents === 0 ||
+                          (exportingId !== null && exportingId !== b.id)
+                        }
+                        title={
+                          b.total_documents === 0
+                            ? "No documents in this batch"
+                            : "Generate and download a CSV of all extracted invoices"
+                        }
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Export CSV
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { InlineAlert } from "@/components/ui/InlineAlert";
 import { BatchExportPanel } from "@/features/exports/components/BatchExportPanel";
 import {
   documentHasProblem,
@@ -70,13 +71,18 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
 
   if (error && !batch) {
     return (
-      <div className="p-6 space-y-3">
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="p-6 max-w-md">
+        <InlineAlert
+          tone="error"
+          title="Could not load this batch."
+          action={
+            <Button variant="secondary" size="sm" onClick={reload}>
+              Try again
+            </Button>
+          }
+        >
           {error}
-        </div>
-        <Button variant="secondary" size="sm" onClick={reload}>
-          Try again
-        </Button>
+        </InlineAlert>
       </div>
     );
   }
@@ -94,21 +100,25 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
         <div className="flex items-center justify-between gap-3">
           <DocumentQueueFilters value={filter} counts={counts} onChange={setFilter} />
           <span className="text-xs text-gray-400">
-            {filteredRows.length} of {rows.length} documents
+            Showing {filteredRows.length} of {rows.length} document
+            {rows.length === 1 ? "" : "s"}
           </span>
         </div>
 
         {error && (
-          <div className="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
+          <InlineAlert
+            tone="warning"
+            action={
+              <Button variant="secondary" size="sm" onClick={reload}>
+                Retry
+              </Button>
+            }
+          >
             {error}
-          </div>
+          </InlineAlert>
         )}
 
-        {rows.length === 0 ? (
-          <EmptyBatchState />
-        ) : (
-          <DocumentQueueTable rows={filteredRows} />
-        )}
+        {rows.length === 0 ? <EmptyBatchState /> : <DocumentQueueTable rows={filteredRows} />}
 
         <BatchExportPanel
           batchId={batchId}
@@ -122,9 +132,14 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
 
 function EmptyBatchState() {
   return (
-    <div className="bg-white rounded-xl border py-16 text-center text-gray-400">
-      <p className="text-sm font-medium text-gray-600">No documents in this batch yet.</p>
-      <p className="text-xs mt-1">Upload documents from the Upload page to see them here.</p>
+    <div className="bg-white rounded-xl border py-16 text-center">
+      <p className="text-sm font-medium text-gray-700">
+        No documents in this batch yet.
+      </p>
+      <p className="text-xs text-gray-500 mt-1">
+        Upload documents from the Upload page and they&apos;ll appear here as they
+        finish processing.
+      </p>
     </div>
   );
 }

@@ -2,19 +2,26 @@
 
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { InlineAlert } from "@/components/ui/InlineAlert";
 import { documentsApi } from "@/lib/api/documents";
 import { reviewApi } from "@/lib/api/review";
 import { getApiErrorMessage } from "@/lib/api";
 import { displayDocumentStatus } from "@/lib/status";
 import { confidenceColor, formatCurrency, formatDate } from "@/lib/utils";
+import {
+  computeReviewIssues,
+  lineItemsSum,
+  mergeIssues,
+  type ReviewIssue,
+} from "@/lib/validation";
 import type {
   CanonicalInvoicePayload,
   DocumentDetailResponse,
   ValidationWarning,
 } from "@/types/document";
-import { AlertTriangle, CheckCircle2, FileText } from "lucide-react";
+import { CheckCircle2, FileText } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LineItemTable } from "./LineItemTable";
 
 interface InvoiceReviewPanelProps {
@@ -69,6 +76,8 @@ const EMPTY_PAYLOAD: CanonicalInvoicePayload = {
   line_items: [],
 };
 
+const MONEY_TOLERANCE = 0.01;
+
 export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
   const router = useRouter();
   const [detail, setDetail] = useState<DocumentDetailResponse | null>(null);
@@ -80,8 +89,11 @@ export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
     documentsApi
       .get(documentId)
       .then((d) => {
@@ -97,13 +109,15 @@ export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
       })
       .catch((err) => setLoadError(getApiErrorMessage(err, "Failed to load document.")))
       .finally(() => setLoading(false));
-  }, [documentId]);
+  }, [documentId, reloadKey]);
 
   const setHeader = <K extends keyof CanonicalInvoicePayload>(
     key: K,
     value: CanonicalInvoicePayload[K],
   ) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
+    // Any edit invalidates the "Saved at" indicator — keep the UI honest.
+    if (savedAt) setSavedAt(null);
   };
 
   // Refresh the document so the post-save badge / warnings / timestamps
@@ -170,14 +184,36 @@ export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
     }
   };
 
+  // Issues = backend warnings (authoritative) ∪ client soft checks (responsive).
+  // Recomputed from the live draft so reviewers see the impact of edits
+  // without a round-trip.
+  const issues: ReviewIssue[] = useMemo(
+    () => mergeIssues(warnings, computeReviewIssues(draft)),
+    [warnings, draft],
+  );
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  const infoCount = issues.filter((i) => i.severity === "info").length;
+
   // ---- Top-level states --------------------------------------------------
   if (loading) return <div className="p-6 text-sm text-gray-400">Loading invoice…</div>;
   if (!detail) {
     return (
-      <div className="p-6">
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="p-6 max-w-md">
+        <InlineAlert
+          tone="error"
+          title="Could not load this invoice."
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setReloadKey((k) => k + 1)}
+            >
+              Retry
+            </Button>
+          }
+        >
           {loadError ?? "Document not found."}
-        </div>
+        </InlineAlert>
       </div>
     );
   }
@@ -202,25 +238,15 @@ export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
           )}
         </div>
 
-        {warnings.length > 0 && (
-          <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3 space-y-1">
-            <div className="flex items-center gap-2 text-yellow-800 text-xs font-semibold">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              {warnings.length} warning{warnings.length !== 1 ? "s" : ""}
-            </div>
-            <ul className="text-xs text-yellow-700 space-y-0.5 ml-5 list-disc">
-              {warnings.map((w) => (
-                <li key={w.code}>{w.message}</li>
-              ))}
-            </ul>
-          </div>
+        {issues.length > 0 && (
+          <IssueList
+            issues={issues}
+            warningCount={warningCount}
+            infoCount={infoCount}
+          />
         )}
 
-        {error && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <InlineAlert tone="error">{error}</InlineAlert>}
 
         {HEADER_FIELDS.map(({ key, label, type, nullable }) => (
           <div key={key}>
@@ -279,6 +305,9 @@ export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
               Reject
             </Button>
           </div>
+          <p className="text-[11px] text-gray-400 pt-1 text-center leading-snug">
+            Warnings are advisory. You can approve or reject regardless.
+          </p>
         </div>
       </div>
 
@@ -305,15 +334,136 @@ export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Line Items</h3>
+        <div className="bg-white rounded-xl border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700">Line Items</h3>
+            <span className="text-xs text-gray-400">
+              {draft.line_items.length} line
+              {draft.line_items.length === 1 ? "" : "s"}
+            </span>
+          </div>
           <LineItemTable
             lines={draft.line_items}
             currency={draft.currency}
             onChange={(lines) => setHeader("line_items", lines)}
           />
+          <ReconciliationSummary draft={draft} />
         </div>
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Inline subcomponents
+// ---------------------------------------------------------------------------
+
+function IssueList({
+  issues,
+  warningCount,
+  infoCount,
+}: {
+  issues: ReviewIssue[];
+  warningCount: number;
+  infoCount: number;
+}) {
+  // Pick the box tone from the highest severity present so the panel reads at
+  // a glance: yellow if anything is a warning, blue if only informational.
+  const tone = warningCount > 0 ? "warning" : "info";
+  const summary =
+    warningCount > 0 && infoCount > 0
+      ? `${warningCount} warning${warningCount === 1 ? "" : "s"} · ${infoCount} note${infoCount === 1 ? "" : "s"}`
+      : warningCount > 0
+        ? `${warningCount} warning${warningCount === 1 ? "" : "s"}`
+        : `${infoCount} note${infoCount === 1 ? "" : "s"}`;
+
+  return (
+    <InlineAlert tone={tone} title={summary}>
+      <ul className="ml-4 mt-1 list-disc space-y-0.5">
+        {issues.map((issue) => (
+          <li key={issue.code}>{issue.message}</li>
+        ))}
+      </ul>
+    </InlineAlert>
+  );
+}
+
+/**
+ * Compact reconciliation summary so the reviewer doesn't have to mentally
+ * tally line items vs the invoice total. Greys out rows that aren't
+ * applicable (e.g. no subtotal entered) so it never feels noisy.
+ */
+function ReconciliationSummary({ draft }: { draft: CanonicalInvoicePayload }) {
+  const total = toNum(draft.total_amount);
+  const subtotal = toNum(draft.subtotal);
+  const tax = toNum(draft.tax_amount);
+  const subPlusTax = subtotal != null ? subtotal + (tax ?? 0) : null;
+  const liSum = lineItemsSum(draft.line_items);
+  const currency = draft.currency || "USD";
+
+  const subOk =
+    total != null && subPlusTax != null && Math.abs(subPlusTax - total) <= MONEY_TOLERANCE;
+  const liOk =
+    total != null &&
+    liSum != null &&
+    Number.isFinite(liSum) &&
+    Math.abs(liSum - total) <= MONEY_TOLERANCE;
+
+  return (
+    <div className="border-t pt-3 grid grid-cols-3 gap-3 text-xs">
+      <ReconCell
+        label="Subtotal + tax"
+        value={subPlusTax != null ? formatCurrency(subPlusTax, currency) : "—"}
+        ok={subPlusTax == null || total == null ? null : subOk}
+      />
+      <ReconCell
+        label="Line items sum"
+        value={
+          liSum == null
+            ? "—"
+            : Number.isFinite(liSum)
+              ? formatCurrency(liSum, currency)
+              : "…"
+        }
+        ok={liSum == null || total == null || !Number.isFinite(liSum) ? null : liOk}
+      />
+      <ReconCell
+        label="Invoice total"
+        value={total != null ? formatCurrency(total, currency) : "—"}
+        emphasize
+      />
+    </div>
+  );
+}
+
+function ReconCell({
+  label,
+  value,
+  ok,
+  emphasize,
+}: {
+  label: string;
+  value: string;
+  ok?: boolean | null;
+  emphasize?: boolean;
+}) {
+  const valueClass = emphasize
+    ? "text-gray-900 font-semibold"
+    : ok === true
+      ? "text-green-700 font-medium"
+      : ok === false
+        ? "text-yellow-700 font-medium"
+        : "text-gray-700";
+  return (
+    <div>
+      <p className="text-gray-500">{label}</p>
+      <p className={valueClass}>{value}</p>
+    </div>
+  );
+}
+
+function toNum(v: number | string | null | undefined): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
