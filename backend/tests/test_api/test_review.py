@@ -1,5 +1,7 @@
 """Review save flow: bulk-save canonical payload + immutable ReviewEvent."""
 
+from decimal import Decimal
+
 import pytest
 
 
@@ -66,7 +68,9 @@ async def test_review_save_persists_corrections_and_records_event(
     detail = res.json()
     assert detail["document"]["review_status"] == "in_review"
     assert detail["invoice"]["vendor_name"] == "Pacific Power & Light"
-    assert detail["invoice"]["total_amount"] == "1284.00"
+    # Postgres NUMERIC(14,4) round-trips with the column's scale (e.g. "1284.0000"),
+    # so compare decimal-equivalent rather than string-exact.
+    assert Decimal(detail["invoice"]["total_amount"]) == Decimal("1284.00")
     codes = {w["code"] for w in detail["warnings"]}
     assert "missing_vendor_name" not in codes
     assert "missing_invoice_number" not in codes

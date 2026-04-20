@@ -112,7 +112,11 @@ class ReviewWorkflow:
             ))
         await self._session.flush()
 
-        # Refresh lines for the snapshot
+        # Refresh `lines` for the snapshot. The Invoice instance is already in
+        # the session's identity map, so a fresh `get_with_lines` returns the
+        # cached object whose `lines` collection still reflects the pre-edit
+        # state. Expire that one relationship to force a reload.
+        self._session.expire(invoice, ["lines"])
         invoice = await self._invoice_repo.get_with_lines(invoice.id)
         after = _invoice_snapshot(invoice)
 

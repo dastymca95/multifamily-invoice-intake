@@ -40,12 +40,14 @@ class OcrStubAdapter(ExtractionAdapter):
         vendor_hints: dict | None = None,
     ) -> ExtractionResult:
         log.info("ocr_stub_invoked", filename=filename, note="OCR not yet implemented")
-        # STUB: return an empty-but-valid result so the review UI opens with blank fields
+        # STUB: every review-fillable field returns None so the review UI opens
+        # with blank inputs and validation surfaces the missing-field warnings.
+        # Aligns with the review-first canonical schema (no placeholder strings).
         return ExtractionResult(
             raw_text="",
             structured={
-                "vendor_name": "MANUAL ENTRY REQUIRED",
-                "invoice_number": "",
+                "vendor_name": None,
+                "invoice_number": None,
                 "invoice_date": None,
                 "total_amount": None,
                 "currency": "USD",
@@ -54,5 +56,5 @@ class OcrStubAdapter(ExtractionAdapter):
             },
             confidence=0.0,
             adapter_name=self.name,
-            metadata={"stub": True, "filename": filename},
+            metadata={"stub": True, "filename": filename, "needs_manual_entry": True},
         )

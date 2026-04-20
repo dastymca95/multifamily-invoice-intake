@@ -4,13 +4,13 @@
   "title": "CanonicalInvoice",
   "description": "Structured invoice extracted from utility bills and vendor invoices for multifamily accounting review.",
   "type": "object",
-  "required": ["id", "document_id", "vendor_name", "invoice_number", "invoice_date", "total_amount", "currency", "invoice_type", "line_items"],
+  "required": ["id", "document_id", "currency", "invoice_type", "line_items"],
   "properties": {
     "id": { "type": "string", "format": "uuid" },
     "document_id": { "type": "string", "format": "uuid" },
     "extraction_run_id": { "type": ["string", "null"], "format": "uuid" },
 
-    "vendor_name": { "type": "string", "minLength": 1 },
+    "vendor_name": { "type": ["string", "null"] },
     "vendor_address": { "type": ["string", "null"] },
     "vendor_tax_id": { "type": ["string", "null"] },
 
@@ -19,8 +19,8 @@
     "property_name": { "type": ["string", "null"] },
     "property_code": { "type": ["string", "null"] },
 
-    "invoice_number": { "type": "string", "minLength": 1 },
-    "invoice_date": { "type": "string", "format": "date" },
+    "invoice_number": { "type": ["string", "null"] },
+    "invoice_date": { "type": ["string", "null"], "format": "date" },
     "due_date": { "type": ["string", "null"], "format": "date" },
     "service_period_start": { "type": ["string", "null"], "format": "date" },
     "service_period_end": { "type": ["string", "null"], "format": "date" },
@@ -28,7 +28,7 @@
 
     "subtotal": { "type": ["number", "null"] },
     "tax_amount": { "type": ["number", "null"] },
-    "total_amount": { "type": "number" },
+    "total_amount": { "type": ["number", "null"] },
     "currency": { "type": "string", "default": "USD", "pattern": "^[A-Z]{3}$" },
 
     "invoice_type": {

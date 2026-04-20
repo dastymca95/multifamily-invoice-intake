@@ -16,8 +16,6 @@ _SyncSession = sessionmaker(bind=_sync_engine, autoflush=False)
 @celery_app.task(name="tasks.run_export_job", bind=True, max_retries=2)
 def run_export_job(self, job_id: str) -> dict:
     """Render an export file and upload it to storage."""
-    from decimal import Decimal
-
     from app.adapters.export.csv_exporter import CsvExportAdapter
     from app.adapters.export.json_exporter import JsonExportAdapter
     from app.adapters.export.xlsx_exporter import XlsxExportAdapter
@@ -81,10 +79,10 @@ def run_export_job(self, job_id: str) -> dict:
             canonicals.append(CanonicalInvoice(
                 id=inv.id,
                 document_id=inv.document_id,
-                vendor_name=inv.vendor_name or "UNKNOWN",
-                invoice_number=inv.invoice_number or "",
+                vendor_name=inv.vendor_name,
+                invoice_number=inv.invoice_number,
                 invoice_date=inv.invoice_date,
-                total_amount=inv.total_amount or Decimal("0"),
+                total_amount=inv.total_amount,
                 currency=inv.currency or "USD",
                 invoice_type=inv.invoice_type or "unknown",
                 line_items=lines,

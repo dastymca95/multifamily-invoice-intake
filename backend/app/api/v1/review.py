@@ -61,16 +61,18 @@ async def save_review(
     Replaces header fields and the line items wholesale and writes a single
     immutable ReviewEvent capturing before/after JSON snapshots.
     """
+    # Preserve the reviewer's intent — save None when they cleared a field.
+    # Validation runs on read and surfaces any remaining gaps as warnings.
     canonical = CanonicalInvoice(
         document_id=document_id,
-        vendor_name=payload.vendor_name or "UNKNOWN",
+        vendor_name=payload.vendor_name,
         vendor_address=payload.vendor_address,
         vendor_tax_id=payload.vendor_tax_id,
         bill_to_name=payload.bill_to_name,
         bill_to_address=payload.bill_to_address,
         property_name=payload.property_name,
         property_code=payload.property_code,
-        invoice_number=payload.invoice_number or "UNKNOWN",
+        invoice_number=payload.invoice_number,
         invoice_date=payload.invoice_date,
         due_date=payload.due_date,
         service_period_start=payload.service_period_start,
@@ -78,7 +80,7 @@ async def save_review(
         payment_terms=payload.payment_terms,
         subtotal=payload.subtotal,
         tax_amount=payload.tax_amount,
-        total_amount=payload.total_amount or 0,
+        total_amount=payload.total_amount,
         currency=payload.currency or "USD",
         invoice_type=payload.invoice_type or "unknown",
         utility_type=payload.utility_type,

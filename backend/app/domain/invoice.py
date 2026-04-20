@@ -70,9 +70,15 @@ class CanonicalInvoice(BaseModel):
     """
     Canonical invoice — the lingua franca between extraction, review, and export.
 
-    Fields marked Optional may be absent from a source document. Extraction
-    adapters should populate as many as possible; the review UI surfaces gaps
-    to the reviewer.
+    Review-first product philosophy: initial extraction is allowed to be
+    incomplete. Every review-fillable field (vendor_name, invoice_number,
+    invoice_date, total_amount, all amounts, all dates) is optional so the
+    pipeline never crashes on partial first-pass data. `validate_invoice`
+    surfaces gaps as advisory warnings, never hard failures. Only structural
+    identity (`document_id`) is required.
+
+    Adapters should populate as many fields as they can. Anything they can't
+    read stays None and lands in the review queue.
     """
 
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -83,7 +89,9 @@ class CanonicalInvoice(BaseModel):
     extraction_run_id: uuid.UUID | None = None
 
     # ── Vendor ─────────────────────────────────────────────────
-    vendor_name: str
+    # vendor_name is review-fillable: OCR and partial native-PDF runs may
+    # leave it blank. Validation emits `missing_vendor_name` warning.
+    vendor_name: str | None = None
     vendor_address: str | None = None
     vendor_tax_id: str | None = None
 
@@ -94,8 +102,10 @@ class CanonicalInvoice(BaseModel):
     property_code: str | None = None
 
     # ── Invoice metadata ───────────────────────────────────────
-    invoice_number: str
-    invoice_date: date
+    # All date/number fields optional — initial extraction may miss any of
+    # them on a given vendor layout. Reviewer fills them in.
+    invoice_number: str | None = None
+    invoice_date: date | None = None
     due_date: date | None = None
     service_period_start: date | None = None
     service_period_end: date | None = None
@@ -104,7 +114,7 @@ class CanonicalInvoice(BaseModel):
     # ── Amounts ────────────────────────────────────────────────
     subtotal: Decimal | None = None
     tax_amount: Decimal | None = None
-    total_amount: Decimal
+    total_amount: Decimal | None = None
     currency: str = "USD"
 
     # ── Classification ─────────────────────────────────────────
@@ -132,6 +142,9 @@ class CanonicalInvoice(BaseModel):
         return sum((li.amount for li in self.line_items), Decimal("0"))
 
     def has_line_item_discrepancy(self, tolerance: Decimal = Decimal("0.02")) -> bool:
-        if not self.line_items or self.subtotal is None:
+        if not self.line_items:
             return False
-        return abs(self.computed_subtotal() - self.subtotal) > tolerance
+        reference = self.subtotal if self.subtotal is not None else self.total_amount
+        if reference is None:
+            return False
+        return abs(self.computed_subtotal() - reference) > tolerance

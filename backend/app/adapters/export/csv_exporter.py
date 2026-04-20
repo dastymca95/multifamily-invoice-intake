@@ -51,17 +51,23 @@ class CsvExportAdapter(ExportAdapter):
         ]
         writer.writerow(flat_header)
 
+        # Review-first: any header field can be None on a partially-reviewed
+        # invoice. Render None as empty string so the CSV stays clean (no
+        # literal "None" cells for downstream accounting imports).
+        def _s(v: object) -> str:
+            return "" if v is None else str(v)
+
         for inv in invoices:
             base = [
-                str(inv.id), inv.vendor_name, inv.property_name or "", inv.property_code or "",
-                inv.invoice_number, inv.invoice_date, inv.due_date or "", inv.invoice_type,
-                inv.utility_type or "", inv.account_number or "", inv.total_amount, inv.currency,
+                str(inv.id), _s(inv.vendor_name), _s(inv.property_name), _s(inv.property_code),
+                _s(inv.invoice_number), _s(inv.invoice_date), _s(inv.due_date), _s(inv.invoice_type),
+                _s(inv.utility_type), _s(inv.account_number), _s(inv.total_amount), _s(inv.currency),
             ]
             if inv.line_items:
                 for li in inv.line_items:
                     writer.writerow(base + [
-                        li.line_number, li.description, li.quantity or "", li.unit or "",
-                        li.unit_price or "", li.amount, li.gl_code or "",
+                        li.line_number, _s(li.description), _s(li.quantity), _s(li.unit),
+                        _s(li.unit_price), _s(li.amount), _s(li.gl_code),
                     ])
             else:
                 writer.writerow(base + ["", "", "", "", "", "", ""])

@@ -18,7 +18,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # DEV ONLY — replace with DB lookup in production
 _DEV_USERS: dict[str, dict] = {
-    "admin@bills.local": {
+    "admin@example.com": {
         "id": "00000000-0000-0000-0000-000000000001",
         "password": "devpassword",
         "full_name": "Dev Admin",

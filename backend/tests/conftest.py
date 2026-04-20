@@ -19,6 +19,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.database import get_db
@@ -30,7 +31,11 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://bills_user:bills_pass@localhost:5432/bills_test",
 )
 
-_test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+# NullPool: don't cache asyncpg connections across event loops. pytest-asyncio
+# creates a fresh loop per test and asyncpg connections are bound to the loop
+# they were opened on; pooling causes "Future attached to a different loop"
+# errors. NullPool opens a new connection per checkout — fine for tests.
+_test_engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
 _TestSession = async_sessionmaker(_test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -49,6 +54,13 @@ async def setup_test_db(tmp_path_factory):
 
 @pytest.fixture
 async def db_session():
+    # Truncate before each test so checksum-based dedup, sequence numbering,
+    # and per-batch counts start clean. The schema itself is created once
+    # per session by `setup_test_db`.
+    async with _test_engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
+
     async with _TestSession() as session:
         yield session
         await session.rollback()

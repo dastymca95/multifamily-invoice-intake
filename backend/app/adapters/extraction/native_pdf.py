@@ -83,9 +83,11 @@ class NativePdfAdapter(ExtractionAdapter):
         total_amount = self._find_total_amount(text, amounts)
         vendor_name = self._find_vendor_name(lines, hints)
 
+        # Emit None (not "UNKNOWN") for fields we couldn't read — the review
+        # UI and validation warnings handle the empty state cleanly.
         return {
-            "vendor_name": vendor_name or "UNKNOWN",
-            "invoice_number": invoice_number or "UNKNOWN",
+            "vendor_name": vendor_name,
+            "invoice_number": invoice_number,
             "invoice_date": invoice_date,
             "due_date": due_date,
             "total_amount": total_amount,
@@ -128,9 +130,9 @@ class NativePdfAdapter(ExtractionAdapter):
 
     def _score_confidence(self, fields: dict) -> float:
         score = 0.0
-        if fields.get("vendor_name") not in (None, "UNKNOWN"):
+        if fields.get("vendor_name"):
             score += 0.25
-        if fields.get("invoice_number") not in (None, "UNKNOWN"):
+        if fields.get("invoice_number"):
             score += 0.25
         if fields.get("invoice_date"):
             score += 0.25

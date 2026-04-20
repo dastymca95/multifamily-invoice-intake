@@ -1,7 +1,6 @@
 import io
 import uuid
 from typing import Any
-from decimal import Decimal
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
@@ -169,14 +168,14 @@ def _invoice_to_canonical(invoice) -> CanonicalInvoice:
         id=invoice.id,
         document_id=invoice.document_id,
         extraction_run_id=invoice.extraction_run_id,
-        vendor_name=invoice.vendor_name or "UNKNOWN",
+        vendor_name=invoice.vendor_name,
         vendor_address=invoice.vendor_address,
         vendor_tax_id=invoice.vendor_tax_id,
         bill_to_name=invoice.bill_to_name,
         bill_to_address=invoice.bill_to_address,
         property_name=invoice.property_name,
         property_code=invoice.property_code,
-        invoice_number=invoice.invoice_number or "UNKNOWN",
+        invoice_number=invoice.invoice_number,
         invoice_date=invoice.invoice_date,
         due_date=invoice.due_date,
         service_period_start=invoice.service_period_start,
@@ -184,7 +183,7 @@ def _invoice_to_canonical(invoice) -> CanonicalInvoice:
         payment_terms=invoice.payment_terms,
         subtotal=invoice.subtotal,
         tax_amount=invoice.tax_amount,
-        total_amount=invoice.total_amount or Decimal("0"),
+        total_amount=invoice.total_amount,
         currency=invoice.currency or "USD",
         invoice_type=invoice.invoice_type or "unknown",
         utility_type=invoice.utility_type,

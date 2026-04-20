@@ -153,9 +153,18 @@ class ExtractionWorkflow:
     def _normalize(
         self, document_id: uuid.UUID, run_id: uuid.UUID, structured: dict
     ) -> CanonicalInvoice:
-        """Coerce an adapter's raw dict into a CanonicalInvoice with safe fallbacks."""
+        """
+        Coerce an adapter's raw dict into a CanonicalInvoice.
+
+        Review-first: every review-fillable field flows through as None if the
+        adapter couldn't read it. No "UNKNOWN" placeholders — the reviewer sees
+        an empty field and fills it in. Validation warnings guide their attention.
+        """
         line_items = []
         for i, li in enumerate(structured.get("line_items") or []):
+            # Line-item amount stays required by the canonical shape; if the
+            # adapter couldn't read it, default to 0 so the line is still
+            # reviewable (reviewer will overwrite).
             amount = _parse_decimal(li.get("amount")) or Decimal("0")
             line_items.append(CanonicalLineItem(
                 line_number=int(li.get("line_number", i)),
@@ -167,28 +176,36 @@ class ExtractionWorkflow:
                 gl_code=li.get("gl_code"),
             ))
 
-        invoice_date = _parse_date(structured.get("invoice_date"))
-        total_amount = _parse_decimal(structured.get("total_amount")) or Decimal("0")
+        def _clean_str(v: Any) -> str | None:
+            if v is None:
+                return None
+            s = str(v).strip()
+            # Treat legacy "UNKNOWN" placeholders from older adapters as None
+            # so the reviewer sees an empty field to fill rather than a string
+            # they have to delete first.
+            if not s or s.upper() == "UNKNOWN":
+                return None
+            return s
 
         return CanonicalInvoice(
             document_id=document_id,
             extraction_run_id=run_id,
-            vendor_name=str(structured.get("vendor_name") or "UNKNOWN"),
+            vendor_name=_clean_str(structured.get("vendor_name")),
             vendor_address=structured.get("vendor_address"),
             vendor_tax_id=structured.get("vendor_tax_id"),
             bill_to_name=structured.get("bill_to_name"),
             bill_to_address=structured.get("bill_to_address"),
             property_name=structured.get("property_name"),
             property_code=structured.get("property_code"),
-            invoice_number=str(structured.get("invoice_number") or "UNKNOWN"),
-            invoice_date=invoice_date,
+            invoice_number=_clean_str(structured.get("invoice_number")),
+            invoice_date=_parse_date(structured.get("invoice_date")),
             due_date=_parse_date(structured.get("due_date")),
             service_period_start=_parse_date(structured.get("service_period_start")),
             service_period_end=_parse_date(structured.get("service_period_end")),
             payment_terms=structured.get("payment_terms"),
             subtotal=_parse_decimal(structured.get("subtotal")),
             tax_amount=_parse_decimal(structured.get("tax_amount")),
-            total_amount=total_amount,
+            total_amount=_parse_decimal(structured.get("total_amount")),
             currency=structured.get("currency") or "USD",
             invoice_type=structured.get("invoice_type") or "unknown",
             utility_type=structured.get("utility_type"),
