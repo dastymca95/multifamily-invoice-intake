@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://bills.internal/schemas/canonical_invoice/v1",
+  "title": "CanonicalInvoice",
+  "description": "Structured invoice extracted from utility bills and vendor invoices for multifamily accounting review.",
+  "type": "object",
+  "required": ["id", "document_id", "vendor_name", "invoice_number", "invoice_date", "total_amount", "currency", "invoice_type", "line_items"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "document_id": { "type": "string", "format": "uuid" },
+    "extraction_run_id": { "type": ["string", "null"], "format": "uuid" },
+
+    "vendor_name": { "type": "string", "minLength": 1 },
+    "vendor_address": { "type": ["string", "null"] },
+    "vendor_tax_id": { "type": ["string", "null"] },
+
+    "bill_to_name": { "type": ["string", "null"] },
+    "bill_to_address": { "type": ["string", "null"] },
+    "property_name": { "type": ["string", "null"] },
+    "property_code": { "type": ["string", "null"] },
+
+    "invoice_number": { "type": "string", "minLength": 1 },
+    "invoice_date": { "type": "string", "format": "date" },
+    "due_date": { "type": ["string", "null"], "format": "date" },
+    "service_period_start": { "type": ["string", "null"], "format": "date" },
+    "service_period_end": { "type": ["string", "null"], "format": "date" },
+    "payment_terms": { "type": ["string", "null"] },
+
+    "subtotal": { "type": ["number", "null"] },
+    "tax_amount": { "type": ["number", "null"] },
+    "total_amount": { "type": "number" },
+    "currency": { "type": "string", "default": "USD", "pattern": "^[A-Z]{3}$" },
+
+    "invoice_type": {
+      "type": "string",
+      "enum": ["utility", "vendor", "unknown"]
+    },
+    "utility_type": {
+      "type": ["string", "null"],
+      "enum": ["electric", "gas", "water", "sewer", "trash", "telecom", "other", null]
+    },
+    "account_number": { "type": ["string", "null"] },
+    "meter_number": { "type": ["string", "null"] },
+
+    "line_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "amount"],
+        "properties": {
+          "line_number": { "type": "integer", "minimum": 0 },
+          "description": { "type": "string", "minLength": 1 },
+          "quantity": { "type": ["number", "null"] },
+          "unit": { "type": ["string", "null"] },
+          "unit_price": { "type": ["number", "null"] },
+          "amount": { "type": "number" },
+          "gl_code": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+
+    "extraction_confidence": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "raw_text_hash": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}
