@@ -42,8 +42,10 @@ export function DashboardStats() {
         setError(`Export ${job.status}${job.error_message ? `: ${job.error_message}` : ""}`);
         return;
       }
-      const { url } = await exportsApi.getDownloadUrl(job.id);
-      window.open(url, "_blank");
+      // Use the auth-aware download helper. `window.open` on the local
+      // backend's relative `/api/v1/exports/{id}/download` path opens a new
+      // tab without our `Authorization` header and silently 401s.
+      await exportsApi.download(job.id, job.format);
     } catch (e) {
       setError("Export failed. Please try again.");
     } finally {

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { BatchExportPanel } from "@/features/exports/components/BatchExportPanel";
 import {
   documentHasProblem,
   documentIsReviewed,
@@ -50,6 +51,15 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
         return rows;
     }
   }, [rows, filter]);
+
+  // Backend's batch-export workflow includes any document whose extraction
+  // finished (status === "extracted"); reviewer approval is not required.
+  // Mirroring that filter here keeps the panel's "nothing to export" warning
+  // and Create-button enablement honest.
+  const exportableCount = useMemo(
+    () => rows.filter((r) => r.document.extraction_status === "extracted").length,
+    [rows],
+  );
 
   // ---- Top-level states ---------------------------------------------------
   if (loading && !batch) {
@@ -99,6 +109,12 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
         ) : (
           <DocumentQueueTable rows={filteredRows} />
         )}
+
+        <BatchExportPanel
+          batchId={batchId}
+          exportableCount={exportableCount}
+          pendingReviewCount={counts.needs_review}
+        />
       </div>
     </div>
   );

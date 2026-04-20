@@ -16,11 +16,12 @@ export function ExportForm() {
     exportsApi.list().then(setJobs).finally(() => setLoading(false));
   }, []);
 
-  const handleDownload = async (jobId: string) => {
-    setLoadingUrl(jobId);
+  const handleDownload = async (job: ExportJob) => {
+    setLoadingUrl(job.id);
     try {
-      const { url } = await exportsApi.getDownloadUrl(jobId);
-      window.open(url, "_blank");
+      // Auth-aware download helper — handles both S3 presigned URLs and
+      // the local backend's JWT-protected relative path.
+      await exportsApi.download(job.id, job.format);
     } finally {
       setLoadingUrl(null);
     }
@@ -29,8 +30,9 @@ export function ExportForm() {
   return (
     <div className="space-y-6">
       <div className="rounded-xl border bg-blue-50 border-blue-200 p-4 text-sm text-blue-800">
-        Exports are generated per batch. Open the dashboard, find the batch you
-        want, and click <strong>Export CSV</strong>.
+        Exports are generated per batch. Open a batch from the dashboard and
+        use the <strong>Export Batch</strong> panel at the bottom of the batch
+        detail page to choose a format and create an export.
       </div>
 
       <div className="bg-white rounded-xl border">
@@ -56,7 +58,7 @@ export function ExportForm() {
               <Badge color={statusBadgeColor(job.status)}>{job.status}</Badge>
               {job.status === "completed" && (
                 <button
-                  onClick={() => handleDownload(job.id)}
+                  onClick={() => handleDownload(job)}
                   disabled={loadingUrl === job.id}
                   className="text-brand-600 hover:text-brand-700"
                 >
