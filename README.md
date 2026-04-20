@@ -149,7 +149,7 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). Default dev credentials:
-`admin@bills.local` / `devpassword`.
+`admin@example.com` / `devpassword`.
 
 ### 5. End-to-end smoke test
 
@@ -163,7 +163,44 @@ Open [http://localhost:3000](http://localhost:3000). Default dev credentials:
 4. **Dashboard** → click **Export CSV** on any batch row. The CSV is
    generated inline and downloads via the streaming endpoint.
 
-### 6. Full stack via Docker Compose
+### 6. Seed demo data (skip the upload step)
+
+For first-run demos and pilot walkthroughs you can populate the app with a
+realistic, deterministic dataset instead of uploading real PDFs:
+
+```bash
+cd backend
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
+
+# Idempotent — does nothing if the demo batch already exists.
+python -m scripts.seed_demo
+
+# Wipe and re-seed (interactive confirmation).
+python -m scripts.seed_demo --reset
+
+# Wipe and re-seed without prompting.
+python -m scripts.seed_demo --reset --yes
+```
+
+What you get: one batch named **"April 2026 Utilities — Riverside Portfolio
+(DEMO)"** at the stable URL `/batches/11111111-1111-1111-1111-111111111111`
+containing four documents that exercise every state a reviewer will see:
+
+| Document | State | Why it's useful for the demo |
+|---|---|---|
+| Acme Power & Gas | extracted, pending review | Fully populated invoice — drives the happy-path review flow |
+| Hilltop Water | extracted, pending review | Missing invoice number / date / line items — drives the soft validation panel |
+| CitiTrash Removal | approved | Shows a finished/approved row with a review event |
+| ABC Telecom | rejected | Shows a finished/rejected row with the reviewer's note |
+
+Notes:
+- The seed inserts records directly through SQLAlchemy and bypasses live
+  extraction so the dataset is deterministic.
+- A tiny placeholder PDF is written to the storage adapter for each document
+  so download/preview paths work.
+- `--reset` is refused when `APP_ENV=production`.
+
+### 7. Full stack via Docker Compose
 
 ```bash
 docker compose up

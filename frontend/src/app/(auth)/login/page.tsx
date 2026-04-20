@@ -8,7 +8,7 @@ import { useState } from "react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@bills.local");
+  const [email, setEmail] = useState("admin@example.com");
   const [password, setPassword] = useState("devpassword");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -61,6 +61,10 @@ export default function LoginPage() {
           Sign in
         </Button>
       </form>
+
+      <p className="text-[11px] text-gray-400 border-t pt-3">
+        Dev login pre-filled: <code>admin@example.com</code> / <code>devpassword</code>.
+      </p>
     </div>
   );
 }

@@ -1,9 +1,11 @@
 "use client";
 
 import { Button } from "@/components/ui/Button";
-import { Badge, statusBadgeColor } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui/Badge";
+import { InlineAlert } from "@/components/ui/InlineAlert";
 import { batchesApi } from "@/lib/api/batches";
 import { documentsApi } from "@/lib/api/documents";
+import { getApiErrorMessage } from "@/lib/api";
 import { formatFileSize } from "@/lib/utils";
 import type { DocumentUploadResult } from "@/types/document";
 import { CheckCircle, XCircle } from "lucide-react";
@@ -33,19 +35,24 @@ export function BatchUploadForm() {
       setResults(uploadResults);
       setState("done");
     } catch (err: unknown) {
-      setError("Upload failed. Please try again.");
+      setError(getApiErrorMessage(err, "Upload failed. Please try again."));
       setState("idle");
     }
   };
 
   if (state === "done") {
+    const newCount = results.filter((r) => !r.duplicate).length;
+    const dupCount = results.length - newCount;
     return (
       <div className="space-y-4">
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-          <p className="text-sm font-medium text-green-800">
-            {results.length} file{results.length !== 1 ? "s" : ""} submitted for processing.
-          </p>
-        </div>
+        <InlineAlert
+          tone="success"
+          title={`${results.length} file${results.length !== 1 ? "s" : ""} submitted for processing.`}
+        >
+          {dupCount > 0
+            ? `${newCount} new, ${dupCount} skipped as duplicate${dupCount === 1 ? "" : "s"}.`
+            : "Open the dashboard to follow extraction progress, or open the batch directly to start review."}
+        </InlineAlert>
         <div className="bg-white rounded-xl border divide-y">
           {results.map((r) => (
             <div key={r.document_id} className="flex items-center gap-3 px-4 py-3">
@@ -104,7 +111,7 @@ export function BatchUploadForm() {
         </div>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <InlineAlert tone="error">{error}</InlineAlert>}
 
       <Button
         type="submit"
