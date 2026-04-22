@@ -10,30 +10,31 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "14.2.3",
-    "react": "^18",
-    "react-dom": "^18",
-    "axios": "^1.7.2",
-    "@tanstack/react-query": "^5.40.0",
-    "react-dropzone": "^14.2.3",
-    "react-hook-form": "^7.51.5",
-    "zod": "^3.23.8",
     "@hookform/resolvers": "^3.6.0",
+    "@tanstack/react-query": "^5.40.0",
+    "axios": "^1.7.2",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.3.0",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.383.0",
-    "sonner": "^1.5.0"
+    "next": "14.2.3",
+    "pdf-lib": "^1.17.1",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-dropzone": "^14.2.3",
+    "react-hook-form": "^7.51.5",
+    "sonner": "^1.5.0",
+    "tailwind-merge": "^2.3.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "tailwindcss": "^3.4.4",
     "autoprefixer": "^10.4.19",
-    "postcss": "^8",
     "eslint": "^8",
-    "eslint-config-next": "14.2.3"
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5"
   }
 }

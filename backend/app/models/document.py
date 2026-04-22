@@ -43,14 +43,34 @@ class Document(Base, UUIDPrimaryKey, TimestampMixin):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
+    #
+    # `passive_deletes=True` + `cascade="all, delete-orphan"` is required on
+    # the child relationships (extraction_runs, invoice) because:
+    #   1. The child FKs (extraction_runs.document_id, invoices.document_id)
+    #      are NOT NULL.
+    #   2. The DB schema already has ON DELETE CASCADE on those FKs (see the
+    #      models in extraction_run.py / invoice.py).
+    #   3. Without `passive_deletes=True`, SQLAlchemy's default behavior on
+    #      `session.delete(doc)` is to load the related rows and try to
+    #      *nullify* their FK first — which fails the NOT NULL constraint
+    #      and surfaces as an HTTP 500 in the upload workspace's "Remove
+    #      from batch" action. Trusting the DB-level cascade avoids that.
+    #   4. `cascade="all, delete-orphan"` keeps the in-memory ORM graph in
+    #      sync if related objects are mutated in Python before flush.
     batch: Mapped["Batch"] = relationship("Batch", back_populates="documents")
     extraction_runs: Mapped[list["ExtractionRun"]] = relationship(
         "ExtractionRun",
         back_populates="document",
         order_by="ExtractionRun.created_at.desc()",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     invoice: Mapped["Invoice | None"] = relationship(
-        "Invoice", back_populates="document", uselist=False
+        "Invoice",
+        back_populates="document",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:
