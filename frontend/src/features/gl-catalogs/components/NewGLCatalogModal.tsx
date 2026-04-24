@@ -3,7 +3,6 @@
 import {
   ArrowLeft,
   ArrowRight,
-  FileSpreadsheet,
   FileText,
   FileWarning,
   Loader2,
@@ -38,11 +37,15 @@ import {
  *
  * Step 1 — SETUP (size=md):
  *   * Name + description
- *   * Pick a starter mode: default / blank / from_upload
+ *   * Pick a starter mode: default / from_upload (a "from blank" mode
+ *     is intentionally NOT offered — GL catalogs always start from
+ *     either the canonical default or a real chart of accounts, so
+ *     the saved catalog matches BillsIQ's canonical structure from
+ *     row one).
  *   * `from_upload` reveals a session-local upload sub-card. The
  *     parsed result is held in component state ONLY — never persisted
  *     beyond this dialog open.
- *   * Primary button is "Create catalog" for default/blank, but
+ *   * Primary button is "Create catalog" for default, but
  *     "Continue to mapping →" for from_upload (since the canonical
  *     entries don't exist yet — they'll be assembled in step 2 from
  *     the user-confirmed mapping).
@@ -89,7 +92,13 @@ interface NewGLCatalogModalProps {
   onCreate: (body: GLCatalogCreate) => Promise<void>;
 }
 
-type StartMode = "blank" | "default" | "from_upload";
+// Note: "blank" is deliberately NOT a valid start mode for GL
+// catalogs. GL catalogs must always start from either the canonical
+// default or a real uploaded chart of accounts, so the saved catalog
+// conforms to BillsIQ's canonical GL structure from the first row.
+// Already-saved catalogs with `source = "blank"` (created before this
+// restriction) keep working — only the CREATION path is restricted.
+type StartMode = "default" | "from_upload";
 type Step = "setup" | "mapping";
 
 const ACCEPTED_FILE_TYPES = ".xlsx,.xls,.csv";
@@ -213,13 +222,12 @@ export function NewGLCatalogModal({
 
   // For from_upload, the setup step's primary action is "Continue to
   // mapping". Its gate is just "do we have parseable columns?". For
-  // default/blank, the primary action is "Create catalog" and is
-  // gated on having a name + a valid mode + nothing in flight.
+  // default, the primary action is "Create catalog" and is gated on
+  // having a name + a valid mode + nothing in flight.
   const setupReadyForFromUpload =
     mode === "from_upload" && sessionUploadHasColumns;
 
-  const setupReadyForDirectCreate =
-    mode === "default" || mode === "blank";
+  const setupReadyForDirectCreate = mode === "default";
 
   const canAdvanceFromSetup =
     mode != null &&
@@ -233,6 +241,10 @@ export function NewGLCatalogModal({
   // ------------------------------------------------------------------
 
   const buildDirectEntries = (): GLCatalogEntry[] => {
+    // Only "default" reaches here — "from_upload" goes through the
+    // mapping step, and "blank" is no longer an offered start mode.
+    // canAdvanceFromSetup gates so this is never called when
+    // defaultCatalog is null.
     if (mode === "default" && defaultCatalog) {
       return defaultCatalog.entries.map((e) => ({
         ...e,
@@ -242,18 +254,7 @@ export function NewGLCatalogModal({
         id: newEntryId(),
       }));
     }
-    // Blank — start with one empty row so the editor has something to
-    // render. Backend MIN_ENTRIES is 1.
-    return [
-      {
-        id: newEntryId(),
-        code: "",
-        description: "",
-        category: null,
-        active: true,
-        notes: null,
-      },
-    ];
+    return [];
   };
 
   const handleSetupPrimary = async () => {
@@ -268,7 +269,7 @@ export function NewGLCatalogModal({
       name: trimmedName,
       description: description.trim() ? description.trim() : null,
       entries: buildDirectEntries(),
-      source: mode === "default" ? "default" : "blank",
+      source: "default",
     });
   };
 
@@ -431,7 +432,7 @@ function SetupStep({
     sessionUpload != null && sessionUpload.source_columns.length > 0;
 
   // Primary button label depends on mode — from_upload defers to
-  // step 2, default/blank goes straight to create.
+  // step 2, default goes straight to create.
   const primaryLabel =
     mode === "from_upload" ? (
       <>
@@ -484,13 +485,6 @@ function SetupStep({
             selected={mode === "default"}
             disabled={!defaultCatalog}
             onSelect={() => onModeChange("default")}
-          />
-          <StartOption
-            icon={FileSpreadsheet}
-            title="From blank"
-            description="Start with one empty row and build your chart from scratch."
-            selected={mode === "blank"}
-            onSelect={() => onModeChange("blank")}
           />
 
           {/* "From uploaded chart" — option button + a sub-card that

@@ -73,6 +73,11 @@ def _to_summary(row: InvoiceTemplate) -> InvoiceTemplateSummary:
         description=row.description,
         source=row.source,  # type: ignore[arg-type]
         column_count=len(row.columns or []),
+        # Surfaced as a small "N rules" badge in the left rail. Defaults
+        # to 0 for legacy rows whose `rules` column hadn't been added at
+        # save time — the migration backfills it to `[]`, so this is
+        # really only defensive against an in-flight migration window.
+        rule_count=len(row.rules or []),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -136,6 +141,11 @@ async def create_invoice_template(
         # Pydantic columns → list of dicts for JSONB. `mode="json"` keeps
         # us strict about serialisable shapes (no leftover model objects).
         columns=[c.model_dump(mode="json") for c in body.columns],
+        # Same shape contract for rules — list of dicts in JSONB. Empty
+        # list is fine; `body.rules` defaults to `[]` so existing
+        # column-only POST clients continue to work without sending
+        # the new field.
+        rules=[r.model_dump(mode="json") for r in body.rules],
         source=body.source,
         created_by=_user_uuid(user),
     )
@@ -170,8 +180,9 @@ async def update_invoice_template(
 
     Only fields the caller actually sent are applied (we use
     `model_dump(exclude_unset=True)`). To clear the description, PATCH
-    with `description: null`. Sending `columns` REPLACES the array
-    outright — the frontend always sends the full new ordered list.
+    with `description: null`. Sending `columns` or `rules` REPLACES
+    the array outright — the frontend always sends the full new
+    ordered list.
     """
     repo = InvoiceTemplateRepository(db)
     row = await repo.get(template_id)
@@ -189,6 +200,12 @@ async def update_invoice_template(
     if "columns" in updates and updates["columns"] is not None:
         # Replace outright — see schema docstring.
         row.columns = list(updates["columns"])
+    if "rules" in updates and updates["rules"] is not None:
+        # Same replace-not-merge contract as columns. To clear all
+        # rules the client PATCHes `rules: []` (a real empty list,
+        # not omitted/null). Omitting `rules` from the body leaves
+        # the persisted rules untouched.
+        row.rules = list(updates["rules"])
 
     row = await repo.save(row)
     return InvoiceTemplateOut.model_validate(row)

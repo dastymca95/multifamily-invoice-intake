@@ -178,6 +178,10 @@ export function useInvoiceTemplates(): UseInvoiceTemplatesResult {
     description: detail.description,
     source: detail.source,
     column_count: detail.columns.length,
+    // Mirror what the backend `_to_summary` does — count from the
+    // detail so the rail badge reflects the just-saved truth without
+    // a re-fetch.
+    rule_count: detail.rules.length,
     created_at: detail.created_at,
     updated_at: detail.updated_at,
   });

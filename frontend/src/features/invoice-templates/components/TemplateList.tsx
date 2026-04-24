@@ -191,10 +191,21 @@ function TemplateRow({
             {item.description}
           </p>
         )}
-        <p className="text-[10px] text-gray-400 mt-0.5 inline-flex items-center gap-1.5">
+        <p className="text-[10px] text-gray-400 mt-0.5 inline-flex flex-wrap items-center gap-x-1.5">
           <span>
             {item.column_count} column{item.column_count === 1 ? "" : "s"}
           </span>
+          {item.rule_count > 0 && (
+            <>
+              <span className="text-gray-300">·</span>
+              <span
+                className="font-medium text-brand-700"
+                title="Rule rows defined on this template"
+              >
+                {item.rule_count} rule{item.rule_count === 1 ? "" : "s"}
+              </span>
+            </>
+          )}
           <span className="text-gray-300">·</span>
           <span>{SOURCE_LABEL[item.source]}</span>
           <span className="text-gray-300">·</span>

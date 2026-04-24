@@ -1,52 +1,47 @@
 """
-InvoiceTemplate — a saved, named definition of the column shape for a
-ResMan invoice import.
+InvoiceTemplate — a saved, named definition for the Import Builder.
 
-Differs from ImportConfig (the existing "Import Builder preset" model)
-in scope:
+Carries TWO layers:
 
-  * **InvoiceTemplate** owns the COLUMN STRUCTURE itself — which
-    columns exist, what they're called, what order they're in. The
-    user edits this directly in the Invoice Template Builder.
-  * **ImportConfig** owns ROLE OVERRIDES on top of an inferred column
-    structure (today: derived from the uploaded ResMan template's
-    parsed_columns; eventually: derived from a chosen InvoiceTemplate).
+  * `columns` (Layer 1) — the column schema. Which columns exist, in
+    what order, with what label, required flag, source binding,
+    manual-list values, validation hints, and rule role
+    (condition / restriction / action). See `app/schemas/invoice_template.py`
+    for the full shape; the model just persists it as JSONB.
 
-The two models are deliberately decoupled. InvoiceTemplate stores
-columns as an ordered JSONB list of `{id, name, source_column}` objects:
+  * `rules` (Layer 2 — added in the rules phase) — ordered list of
+    rule rows. Each rule has an id, an `is_active` flag, an optional
+    `notes` string, and a `cells` dict keyed by column id. A rule's
+    intent: when its condition cells match invoice context, its
+    restriction cells narrow the matching universe and its action
+    cells suggest values for the final import. The runtime that
+    consumes rules is intentionally deferred — Phase 1 stores the
+    model and the editing surface; the resolver lands incrementally.
 
-  * `id`             — UUID-ish stable key. Survives renames + reorders
-                       so the frontend can use it as a React key without
-                       generating one client-side. The backend doesn't
-                       look at the value beyond uniqueness within the
-                       row.
-  * `name`           — display header (e.g. "Invoice Number"). The
-                       string the user actually sees and renames.
-  * `source_column`  — optional pointer back to the original ResMan
-                       template column name when the template was
-                       created `from_upload`. Lets a future export step
-                       know "this user-named column maps to that
-                       upload column" without re-doing classification.
-                       Null for blank/default-derived columns.
+Both `columns` and `rules` live in JSONB so we can extend the per-row
+shape without a migration. Each layer carries its own bounded payload
+caps (see `MAX_COLUMNS` / `MAX_RULES` in the schema module).
 
 `source` is informational metadata for the frontend — "where did this
 template originate?" It's not enforced by the model and there's no FK
 to `reference_files`: a template that originated `from_upload` keeps
 working even if the upload is later replaced.
 
-Why not just persist the canonical default in the DB on first request?
+Differs from ImportConfig (the older "Import Preview" preset model,
+relocated to /import-preview):
+
+  * **InvoiceTemplate** owns BOTH the column structure and the rule
+    layer. The user edits this directly in the Import Builder.
+  * **ImportConfig** owns ROLE OVERRIDES on top of an inferred column
+    structure for the preview workspace.
+
+Why not seed the canonical default in the DB on first request?
 Because the default is a code-defined constant, not user data. Seeding
 it would force a migration every time we tweak the canonical shape.
 Instead the API exposes the default via a dedicated endpoint and the
 frontend uses it as an unsaved-draft starting point — saving promotes
-the draft to a real row whose columns are then independent of the
-constant.
-
-Future iterations (not in this phase):
-  * Per-column `data_type` / `required` / `default_value`.
-  * Soft-delete / versioning so an "archived" template can still be
-    referenced by historic exports.
-  * Sharing across users; default-template-per-workspace.
+the draft to a real row whose columns and rules are then independent
+of the constant.
 """
 
 import uuid
@@ -71,6 +66,15 @@ class InvoiceTemplate(Base, UUIDPrimaryKey, TimestampMixin):
         JSONB, nullable=False, default=list, server_default="[]"
     )
 
+    # Ordered list of rule rows. JSONB for the same reasons as `columns`:
+    # we want the per-row shape to be extensible without forcing a
+    # migration every time we add a rule attribute. Server default `[]`
+    # so legacy rows (created before this column existed) materialize
+    # as "no rules" rather than null on read.
+    rules: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+
     # How this template was originally seeded — informational for the UI.
     # One of: "default" | "blank" | "from_upload" | "custom". Stored as
     # a free-text column rather than an enum so adding new origins later
@@ -88,5 +92,6 @@ class InvoiceTemplate(Base, UUIDPrimaryKey, TimestampMixin):
     def __repr__(self) -> str:
         return (
             f"<InvoiceTemplate id={self.id} name={self.name!r} "
-            f"cols={len(self.columns or [])}>"
+            f"cols={len(self.columns or [])} "
+            f"rules={len(self.rules or [])}>"
         )

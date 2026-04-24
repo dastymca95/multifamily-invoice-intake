@@ -347,23 +347,49 @@ def parse_property_upload(
     # flatten them BEFORE the rest of the pipeline runs. When a grouping
     # layout is recognized, `_flatten_grouped_units` returns a synthetic
     # header that prepends a "Property Name" column plus the flattened
-    # data rows; downstream code is none the wiser.
+    # data rows; downstream code is none the wiser. The flattener also
+    # applies summary/header-repetition filtering inside its own loop
+    # so its banner detection isn't fooled by total rows — any rows it
+    # returns have already passed the filter.
     flatten_warning: str | None = None
     flattened = _flatten_grouped_units(rows, header_idx, header_cells)
     if flattened is not None:
         header_cells, data_rows_all, flatten_warning = flattened
+        flat_table_path = False
     else:
         data_rows_all = rows[header_idx + 1 :]
+        flat_table_path = True
 
     width = len(header_cells)
 
+    # Universal summary / header-repetition filter.
+    #
+    # The grouped path runs the same filter inside `_flatten_grouped_units`
+    # so this is a no-op there. For FLAT tables (Yardi / AppFolio
+    # property-list exports), this is the ONLY layer that strips
+    # "Total" / "Grand Total" footer rows — without it, a `Total` cell
+    # in the property_name column survives all the way through
+    # `applyMappingToSourceRows` and `mergePropertyFiles`'s PASS-3
+    # mirror, surfacing as a ghost `Total / Total` entry in the saved
+    # catalog. Applying the same `_is_summary_row` heuristic universally
+    # closes that gap at the parse layer.
     source_rows: list[list[str]] = []
     truncated = 0
+    flat_summary_skipped = 0
+    flat_header_repeat_skipped = 0
     for raw_row in data_rows_all:
         # Drop fully-blank rows — Excel pads them and they'd just bloat
         # the preview.
         if not any(c and c.strip() for c in raw_row):
             continue
+        if flat_table_path:
+            cells_for_check = [(c or "").strip() for c in raw_row]
+            if _is_summary_row(cells_for_check):
+                flat_summary_skipped += 1
+                continue
+            if _is_header_repetition(cells_for_check, header_cells):
+                flat_header_repeat_skipped += 1
+                continue
         if len(source_rows) >= MAX_PARSE_ROWS:
             truncated += 1
             continue
@@ -374,6 +400,18 @@ def parse_property_upload(
     warnings: list[str] = []
     if flatten_warning:
         warnings.append(flatten_warning)
+    if flat_summary_skipped:
+        warnings.append(
+            f"Skipped {flat_summary_skipped} summary "
+            f"row{'' if flat_summary_skipped == 1 else 's'} "
+            "(Total / Grand Total / similar footer)."
+        )
+    if flat_header_repeat_skipped:
+        warnings.append(
+            f"Skipped {flat_header_repeat_skipped} repeated header "
+            f"row{'' if flat_header_repeat_skipped == 1 else 's'} "
+            "found between data rows."
+        )
     if truncated:
         warnings.append(
             f"File contained more than {MAX_PARSE_ROWS} data rows; "
@@ -602,6 +640,14 @@ def _suggest_mapping(header_cells: list[str]) -> PropertyUploadMapping:
 #     `_looks_like_property_name` rejects these so they can't be
 #     misread as a new property banner.
 #
+# `_is_summary_row` and `_is_header_repetition` are ALSO applied by
+# `parse_property_upload`'s outer row loop on the FLAT table path
+# (Yardi / AppFolio property-list exports). Without that universal
+# layer, a `Total` footer in a flat property list would survive into
+# the canonical entries and surface as a ghost `Total / Total` row
+# after the merge step's PASS-3 code/name mirror. The grouped path
+# already filters internally, so the outer filter is a no-op there.
+#
 # Layout caveats this DOES NOT handle (kept narrow on purpose):
 #
 #   * Header below first banner ("Pattern B") with NO unit header
@@ -655,6 +701,37 @@ _UNIT_COUNT_RE = re.compile(
 )
 
 
+def _is_summary_token(s: str) -> bool:
+    """
+    True iff `s` is a bare summary label, anchored.
+
+    Matches:
+      * exact equality with a summary prefix ("Total", "Grand Total",
+        "Property Total", "Subtotal", …)
+      * a prefix followed by ":" or "-" continuation ("Total: 50",
+        "Property Total - 12")
+
+    Deliberately does NOT match `"<prefix> <words>"` — that would
+    false-positive on real property names that happen to start with
+    the word "Total" (e.g. "Total Wine Plaza"). Cells that are
+    "<prefix> <something>" without a colon or dash are kept as
+    candidate property names; the count-pattern check downstream
+    catches the actual ResMan-style summary rows by hitting the
+    "N Unit(s)" cell elsewhere on the same row.
+    """
+    norm = (s or "").strip().lower()
+    if not norm:
+        return False
+    for prefix in _SUMMARY_PREFIXES:
+        if norm == prefix:
+            return True
+        if norm.startswith(prefix + ":"):
+            return True
+        if norm.startswith(prefix + "-"):
+            return True
+    return False
+
+
 def _looks_like_property_name(cell: str) -> bool:
     """
     Heuristic: does `cell` look like a human-readable property name?
@@ -665,9 +742,12 @@ def _looks_like_property_name(cell: str) -> bool:
       * very short / single-word strings (< 4 chars and no space),
       * column-name lookalikes (anything that normalizes to a known
         header alias),
-      * total / subtotal / grand-total style strings (so a bare
-        "Total" or "Property Total" row can't be misread as a new
-        property banner),
+      * bare-summary lookalikes ("Total", "Property Total", "Total: 50",
+        "Subtotal- 12") — see `_is_summary_token` for the exact rule.
+        Real property names that just happen to start with the word
+        "Total" (e.g. "Total Wine Plaza") still pass — we deliberately
+        do NOT reject `"<prefix> <words>"` because it would false-
+        positive real names.
       * "N Unit(s)" / "N Units" count fragments.
     """
     s = (cell or "").strip()
@@ -688,15 +768,8 @@ def _looks_like_property_name(cell: str) -> bool:
         if norm in aliases:
             return False
     # Don't mistake a total/footer label for a banner.
-    s_lower = s.lower()
-    for prefix in _SUMMARY_PREFIXES:
-        if (
-            s_lower == prefix
-            or s_lower.startswith(prefix + " ")
-            or s_lower.startswith(prefix + ":")
-            or s_lower.startswith(prefix + "-")
-        ):
-            return False
+    if _is_summary_token(s):
+        return False
     # Don't mistake a count-only string ("267 Unit(s)") for a banner.
     if _UNIT_COUNT_RE.match(s):
         return False
@@ -726,17 +799,23 @@ def _is_summary_row(cells: list[str]) -> bool:
     True iff `cells` is a ResMan-style total/subtotal/footer row.
 
     Detection (either signal is enough):
-      1. The FIRST non-empty cell starts with a known summary prefix
-         ("Total", "Property Total", "Grand Total", "Subtotal", …).
-         Anchored to the first cell so unrelated rows whose middle
-         cell happens to contain "Total Sqft 650" don't false-positive.
+      1. The FIRST non-empty cell IS a bare summary token — exact
+         "Total" / "Property Total" / "Grand Total" / "Subtotal" / …,
+         OR a "<prefix>:..." / "<prefix>-..." continuation. Bare-only
+         on purpose: a real property called "Total Wine Plaza" should
+         NOT be filtered out of the file just because its name starts
+         with the word "Total". See `_is_summary_token`.
       2. ANY cell matches the "N Unit(s)" / "N Units" count pattern.
          ResMan totals carry the count in a non-first column; this
-         is the strongest signal.
+         is the strongest signal and catches summary rows whose label
+         text doesn't match a known prefix.
 
-    Used in `_flatten_grouped_units` to drop these rows BEFORE banner
-    detection, so the count cell ("267 Unit(s)") never lands in the
-    synthesized Unit column.
+    Used both in `_flatten_grouped_units` (to keep the count cell
+    "267 Unit(s)" out of the synthesized Unit column) AND in
+    `parse_property_upload`'s outer row loop (to drop "Total" footer
+    rows from FLAT property-list exports too — without this, a Yardi
+    "Total" row would survive as a name="Total" entry and surface as
+    a ghost "Total / Total" entry after the merge step's PASS-3 mirror).
     """
     first_non_empty: str | None = None
     for c in cells:
@@ -744,16 +823,8 @@ def _is_summary_row(cells: list[str]) -> bool:
         if s:
             first_non_empty = s
             break
-    if first_non_empty is not None:
-        norm = first_non_empty.lower()
-        for prefix in _SUMMARY_PREFIXES:
-            if (
-                norm == prefix
-                or norm.startswith(prefix + " ")
-                or norm.startswith(prefix + ":")
-                or norm.startswith(prefix + "-")
-            ):
-                return True
+    if first_non_empty is not None and _is_summary_token(first_non_empty):
+        return True
     for c in cells:
         s = (c or "").strip()
         if s and _UNIT_COUNT_RE.match(s):

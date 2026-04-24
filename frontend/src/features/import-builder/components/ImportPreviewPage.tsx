@@ -14,7 +14,15 @@ import { NewConfigModal } from "./NewConfigModal";
 import { PreviewSpreadsheet } from "./PreviewSpreadsheet";
 
 /**
- * Import Builder workspace.
+ * Import Preview workspace (relocated from `/import-builder`).
+ *
+ * Naming + relocation note: this used to live at `/import-builder` and
+ * be called "Import Builder," but the product surface called the
+ * "Import Builder" is now the evolved schema-design experience under
+ * `/import-builder` (formerly Invoice Template Builder). This page
+ * still renders config-driven spreadsheet previews of how invoices
+ * would map into ResMan-shape rows — that's a *preview* concern, not
+ * a *contract design* concern, so the new home is `/import-preview`.
  *
  * Three columns, top-down:
  *
@@ -36,7 +44,7 @@ import { PreviewSpreadsheet } from "./PreviewSpreadsheet";
  * detail pane change. Empty / loading / error states are swapped into
  * the body slot.
  */
-export function ImportBuilderPage() {
+export function ImportPreviewPage() {
   const {
     items,
     loadingList,
@@ -148,13 +156,14 @@ function CenterPane({
             <LayoutGrid className="h-6 w-6 text-brand-600" />
           </div>
           <h2 className="text-base font-semibold text-gray-800">
-            Design a ResMan import
+            Preview a ResMan import
           </h2>
           <p className="text-[12.5px] text-gray-600 mt-1.5">
             Save a configuration to capture how columns from your uploaded
             template should map to roles. Each saved config renders a live
             spreadsheet preview against your current uploads and approved
-            invoices.
+            invoices. The output schema itself is now designed in the
+            top-level Import Builder.
           </p>
           <Button
             type="button"

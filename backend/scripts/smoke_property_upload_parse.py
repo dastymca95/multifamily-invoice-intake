@@ -487,6 +487,126 @@ check(
 
 
 # =============================================================================
+# Scenario 10 - FLAT property-list with a "Total" footer row at the bottom.
+#
+# This is the ghost Total/Total source: a Yardi / AppFolio-style flat
+# table with a footer row carrying "Total" in the name column gets
+# parsed verbatim, then `applyMappingToSourceRows` produces a row with
+# property_name="Total" + blank code, then `mergePropertyFiles`'s
+# PASS-3 mirror copies that to property_code="Total" - a bogus
+# Total/Total entry lands in the saved catalog.
+#
+# Fix: parse_property_upload's outer loop now applies `_is_summary_row`
+# universally (not just inside the grouped flattener), so the footer
+# row never reaches source_rows in the first place.
+# =============================================================================
+print("\n[scenario 10] flat property-list with 'Total' footer row")
+
+flat_with_total = to_csv_bytes(
+    [
+        ["Property Code", "Property Name", "Address", "City", "State", "Zip"],
+        ["VST", "Vista Apartments", "100 Sunset Drive", "Austin", "TX", "78701"],
+        ["OAK", "Oakwood Plaza", "250 Elm Street", "Houston", "TX", "77002"],
+        ["MTC", "Mountain Crest", "400 Highland Way", "Denver", "CO", "80202"],
+        # Footer row that used to leak into source_rows.
+        ["Total", "", "", "", "", "3 Properties"],
+    ]
+)
+res10 = parse_property_upload(flat_with_total, "yardi_total.csv", "text/csv")
+
+check(
+    "footer row dropped - 3 data rows survive (not 4)",
+    len(res10.source_rows) == 3,
+    f"got {len(res10.source_rows)} rows",
+)
+check(
+    "no row carries 'Total' as the property code",
+    all(r[0] != "Total" for r in res10.source_rows),
+    f"first cells: {[r[0] for r in res10.source_rows]}",
+)
+check(
+    "no row carries 'Total' as the property name",
+    all(r[1] != "Total" for r in res10.source_rows),
+    f"second cells: {[r[1] for r in res10.source_rows]}",
+)
+check(
+    "parse_warning surfaces the skipped summary row",
+    "Skipped 1 summary row" in (res10.parse_warning or ""),
+    f"got warning={res10.parse_warning!r}",
+)
+
+
+# =============================================================================
+# Scenario 11 - flat table with footer "Total" in name column + count cell.
+# Same idea as 10 but the footer carries "Total" in the NAME column
+# (first cell happens to be blank). The count-pattern signal catches it.
+# =============================================================================
+print("\n[scenario 11] flat table with 'Total' in name column + count cell")
+
+flat_total_in_name = to_csv_bytes(
+    [
+        ["Property Code", "Property Name", "Address"],
+        ["VST", "Vista Apartments", "100 Sunset Drive"],
+        ["OAK", "Oakwood Plaza", "250 Elm Street"],
+        # Footer with blank code + "Total" name + a count cell.
+        ["", "Total", "247 Units"],
+    ]
+)
+res11 = parse_property_upload(flat_total_in_name, "yardi_total2.csv", "text/csv")
+
+check(
+    "footer dropped via count-pattern signal - 2 data rows survive",
+    len(res11.source_rows) == 2,
+    f"got {len(res11.source_rows)} rows",
+)
+check(
+    "no 'Total' anywhere in the surviving rows",
+    all("Total" not in cell for r in res11.source_rows for cell in r),
+)
+
+
+# =============================================================================
+# Scenario 12 - real property name "Total Wine Plaza" must NOT be filtered.
+#
+# Edge case validating the tightened summary heuristic: a real property
+# whose name happens to start with the word "Total" (e.g. "Total Wine
+# Plaza") used to be misclassified by the older `startswith("total ")`
+# rule. The new `_is_summary_token` only matches exact bare prefixes
+# or "<prefix>:..." / "<prefix>-..." continuations, so multi-word names
+# survive.
+# =============================================================================
+print("\n[scenario 12] real 'Total Wine Plaza' property is preserved")
+
+total_wine = to_csv_bytes(
+    [
+        ["Property Code", "Property Name", "City"],
+        ["VST", "Vista Apartments", "Austin"],
+        # Property name starts with "Total" but is a real name.
+        ["TWP", "Total Wine Plaza", "Dallas"],
+        ["OAK", "Oakwood Plaza", "Houston"],
+    ]
+)
+res12 = parse_property_upload(total_wine, "real_total.csv", "text/csv")
+
+check(
+    "all 3 real properties preserved (none false-flagged as footer)",
+    len(res12.source_rows) == 3,
+    f"got {len(res12.source_rows)} rows",
+)
+check(
+    "'Total Wine Plaza' row preserved with its real name",
+    any(
+        r[0] == "TWP" and r[1] == "Total Wine Plaza" for r in res12.source_rows
+    ),
+)
+check(
+    "no flat-summary warning emitted (nothing was filtered)",
+    "Skipped" not in (res12.parse_warning or ""),
+    f"got warning={res12.parse_warning!r}",
+)
+
+
+# =============================================================================
 print(f"\n{passed} passed, {failed} failed.")
 if failed > 0:
     sys.exit(1)

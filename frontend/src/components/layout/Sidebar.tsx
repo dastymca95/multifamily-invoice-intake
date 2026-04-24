@@ -7,7 +7,7 @@ import {
   ChevronDown,
   Database,
   Download,
-  FileSpreadsheet,
+  FileSearch,
   FileText,
   Hash,
   LayoutGrid,
@@ -31,18 +31,20 @@ import { cn } from "@/lib/utils";
  *     parent button just toggles the children open/closed and
  *     highlights when any child route is active.
  *
- * Reference Data is a navigation group, not a workspace. Its four
- * subareas (Invoice Template Builder, GL Codes, Properties, Vendors)
- * are each independent working surfaces — they own their own
- * uploads, previews, and local workflows. There is intentionally no
- * shared "all sources live here" page; visiting `/reference-data`
- * directly server-side-redirects to the canonical first subarea
- * (Invoice Template Builder).
+ * Reference Data is a navigation group, not a workspace. Its three
+ * subareas (GL Codes, Properties, Vendors) are each independent
+ * working surfaces — they own their own uploads, previews, and local
+ * workflows. There is intentionally no shared "all sources live here"
+ * page; visiting `/reference-data` directly server-side-redirects to
+ * the canonical first subarea (GL Codes).
  *
- * Import Builder stays as its own top-level entry — it consumes
- * reference data but isn't organizationally part of it, so nesting it
- * under Reference Data would imply a hierarchy that doesn't reflect
- * how the workspaces are used.
+ * Import Builder used to live as a child of Reference Data ("Invoice
+ * Template Builder") but was promoted to a top-level workspace once
+ * its scope expanded from "name some headers" to "design the full
+ * column-level import contract" — its inputs come FROM reference data
+ * but it's no longer a kind of reference data. Sidebar order keeps
+ * Import Builder adjacent to Reference Data so the "inputs → design"
+ * mental model is still obvious.
  */
 
 interface NavLeaf {
@@ -81,19 +83,15 @@ const navItems: NavItem[] = [
   // Reference Data is a navigation group — each child is its own
   // independent working area. The parent button toggles the group
   // open/closed only; it does NOT navigate. The bare `/reference-data`
-  // URL server-side-redirects to Invoice Template Builder so direct
-  // links don't dead-end.
+  // URL server-side-redirects to GL Codes so direct links don't
+  // dead-end. The former "Invoice Template Builder" child was promoted
+  // out to a top-level Import Builder workspace below.
   {
     id: "reference-data",
     label: "Reference Data",
     icon: Database,
     anchorHref: "/reference-data",
     children: [
-      {
-        href: "/reference-data/invoice-template",
-        label: "Invoice Template Builder",
-        icon: FileSpreadsheet,
-      },
       { href: "/reference-data/gl-codes", label: "GL Codes", icon: Hash },
       {
         href: "/reference-data/properties",
@@ -104,9 +102,21 @@ const navItems: NavItem[] = [
     ],
   },
   // Import Builder consumes reference data but is its own workspace —
-  // keep it adjacent so the "inputs → design" mental model is obvious
-  // without nesting it inside Reference Data.
+  // it's where the per-column import contract is designed (column
+  // shape, required/optional, source bindings, manual values lists,
+  // validation hints). Keep it adjacent to Reference Data so the
+  // "inputs → design" mental model is obvious without nesting it
+  // inside.
   { href: "/import-builder", label: "Import Builder", icon: LayoutGrid },
+  // Invoice Builder is a sibling product surface to Import Builder. It
+  // owns visual extraction patterns — saved bbox-on-page annotations
+  // that pin canonical extracted invoice fields to specific rectangles
+  // on training documents. Distinct from Import Builder (which owns
+  // the FINAL output column/rule schema) and from Reference Data
+  // (catalogs of business entities); placed after both so the
+  // workspace order reads bottom-up: source data → output schema →
+  // visual extraction templates.
+  { href: "/invoice-builder", label: "Invoice Builder", icon: FileSearch },
 ];
 
 export function Sidebar() {

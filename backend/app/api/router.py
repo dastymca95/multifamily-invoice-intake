@@ -7,9 +7,12 @@ from app.api.v1 import (
     exports,
     gl_catalogs,
     import_configs,
+    invoice_patterns,
     invoice_templates,
+    property_catalogs,
     reference_data,
     review,
+    vendor_catalogs,
     vendor_patterns,
 )
 
@@ -24,4 +27,7 @@ api_router.include_router(vendor_patterns.router)
 api_router.include_router(reference_data.router)
 api_router.include_router(import_configs.router)
 api_router.include_router(invoice_templates.router)
+api_router.include_router(invoice_patterns.router)
 api_router.include_router(gl_catalogs.router)
+api_router.include_router(property_catalogs.router)
+api_router.include_router(vendor_catalogs.router)

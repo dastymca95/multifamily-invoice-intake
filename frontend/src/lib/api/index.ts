@@ -17,4 +17,7 @@ export { vendorPatternsApi } from "./vendor-patterns";
 export { referenceApi } from "./reference";
 export { importConfigsApi } from "./import-configs";
 export { invoiceTemplatesApi } from "./invoice-templates";
+export { invoicePatternsApi } from "./invoice-patterns";
 export { glCatalogsApi } from "./gl-catalogs";
+export { propertyCatalogsApi } from "./property-catalogs";
+export { vendorCatalogsApi } from "./vendor-catalogs";

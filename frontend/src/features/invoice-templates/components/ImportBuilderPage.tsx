@@ -12,8 +12,10 @@ import {
 import type {
   InvoiceTemplateColumn,
   InvoiceTemplateCreate,
+  InvoiceTemplateRule,
 } from "@/types/invoice-template";
 
+import { useCatalogIndex } from "../hooks/useCatalogIndex";
 import { useInvoiceTemplates } from "../hooks/useInvoiceTemplates";
 import {
   NewTemplateModal,
@@ -23,22 +25,38 @@ import { TemplateEditor } from "./TemplateEditor";
 import { TemplateList } from "./TemplateList";
 
 /**
- * Invoice Template Builder workspace.
+ * Import Builder workspace.
  *
- * Two columns:
+ * Naming note: this page used to be called "Invoice Template Builder"
+ * and lived under `/reference-data/invoice-template`. It's now the
+ * top-level Import Builder at `/import-builder` — the place where the
+ * final import/output schema is designed: which columns exist, which
+ * are required, where each value should come from, and what shape it
+ * must take. The underlying entity is still an `InvoiceTemplate` at
+ * the storage layer (the table and endpoints keep their stable names),
+ * but the product surface evolved.
  *
- *   ┌──────────────┬─────────────────────────────────────┐
- *   │ TemplateList │ TemplateEditor                      │
- *   │ (left rail)  │   - header                          │
- *   │              │   - details (name + description)    │
- *   │ + New        │   - columns (vertical row editor)   │
- *   │ saved rows…  │   - spreadsheet preview (h-scroll)  │
- *   │              │   - save / discard / delete         │
- *   └──────────────┴─────────────────────────────────────┘
+ * Layout:
+ *
+ *   ┌──────────────┬───────────────────────────────┬─────────────────┐
+ *   │ TemplateList │ TemplateEditor                │ ColumnInspector │
+ *   │ (left rail)  │   - header (name + desc)      │ (right rail —   │
+ *   │              │   - spreadsheet-first table   │  appears when a │
+ *   │ + New        │   - per-column header chips   │  column is      │
+ *   │ saved rows…  │   - drag/drop reorder         │  selected)      │
+ *   │              │   - save / discard / delete   │   - required    │
+ *   │              │                               │   - source kind │
+ *   │              │                               │   - source ref  │
+ *   │              │                               │   - manual list │
+ *   │              │                               │   - validation  │
+ *   └──────────────┴───────────────────────────────┴─────────────────┘
  *
  * The page owns one piece of state on top of the hooks: `viewingDraft`,
  * which lets the user flip between "the canonical-default starter
  * draft" and a real saved template even when the list isn't empty.
+ * Column selection and the inspector live INSIDE `TemplateEditor`
+ * (the editor is the column's owner; lifting selection here would
+ * force extra prop-drilling for per-column mutations).
  *
  * The "From uploaded ResMan template" start mode in the New Template
  * modal funnels its file upload through `useReferenceData.upload` so
@@ -51,7 +69,7 @@ import { TemplateList } from "./TemplateList";
  * happens here so the modal stays decoupled from reference-data
  * internals.
  */
-export function InvoiceTemplatePage() {
+export function ImportBuilderPage() {
   const {
     items,
     loadingList,
@@ -83,6 +101,13 @@ export function InvoiceTemplatePage() {
   // bookkeeping.
   const { slotStates: refSlotStates, upload: uploadReference } =
     useReferenceData();
+
+  // One-shot fetch of all three catalog summary lists. Threaded down to
+  // the editor + inspector so catalog-backed source bindings can pick a
+  // specific saved catalog (BillsIQ supports multiple per kind, so the
+  // source TYPE alone is ambiguous). Hoisted here (not in the inspector)
+  // so column-switching doesn't refetch on every mount.
+  const catalogIndex = useCatalogIndex();
 
   const importTemplateUiState = getSlotState(refSlotStates, "import_template");
 
@@ -146,11 +171,13 @@ export function InvoiceTemplatePage() {
       name: string;
       description: string | null;
       columns: InvoiceTemplateColumn[];
+      rules: InvoiceTemplateRule[];
     }) => {
       const detail = await create({
         name: body.name,
         description: body.description,
         columns: body.columns,
+        rules: body.rules,
         source: "default",
       });
       if (detail) {
@@ -165,6 +192,7 @@ export function InvoiceTemplatePage() {
       name: string;
       description: string | null;
       columns: InvoiceTemplateColumn[];
+      rules: InvoiceTemplateRule[];
     }) => {
       if (!selectedId) return;
       await update(selectedId, body);
@@ -215,6 +243,7 @@ export function InvoiceTemplatePage() {
           defaultTemplate={defaultTemplate}
           saving={saving}
           mutationError={mutationError}
+          catalogIndex={catalogIndex}
           onNew={() => setShowNew(true)}
           onSelectDraft={handleSelectDraft}
           onRetryDetail={() => selectedId && select(selectedId)}
@@ -257,6 +286,7 @@ interface CenterPaneProps {
   defaultTemplate: ReturnType<typeof useInvoiceTemplates>["defaultTemplate"];
   saving: boolean;
   mutationError: string | null;
+  catalogIndex: ReturnType<typeof useCatalogIndex>;
   onNew: () => void;
   onSelectDraft: () => void;
   onRetryDetail: () => void;
@@ -264,11 +294,13 @@ interface CenterPaneProps {
     name: string;
     description: string | null;
     columns: InvoiceTemplateColumn[];
+    rules: InvoiceTemplateRule[];
   }) => Promise<void>;
   onSaveExisting: (body: {
     name: string;
     description: string | null;
     columns: InvoiceTemplateColumn[];
+    rules: InvoiceTemplateRule[];
   }) => Promise<void>;
   onDelete: () => Promise<void>;
 }
@@ -286,6 +318,7 @@ function CenterPane({
   defaultTemplate,
   saving,
   mutationError,
+  catalogIndex,
   onNew,
   onSelectDraft,
   onRetryDetail,
@@ -316,12 +349,13 @@ function CenterPane({
             <FileSpreadsheet className="h-6 w-6 text-brand-600" />
           </div>
           <h2 className="text-base font-semibold text-gray-800">
-            Build your first invoice template
+            Design your first import
           </h2>
           <p className="text-[12.5px] text-gray-600 mt-1.5">
-            A template captures the column shape every future invoice
-            export should follow. Start blank, then add or rename
-            columns to taste.
+            Each saved import captures the column shape, source
+            bindings, and validation rules every future invoice export
+            should follow. Start from the canonical default or upload a
+            ResMan template — then refine each column from the inspector.
           </p>
           <Button
             type="button"
@@ -330,7 +364,7 @@ function CenterPane({
             className="mt-4"
             onClick={onNew}
           >
-            Create your first template
+            Create your first import
           </Button>
         </div>
       </div>
@@ -338,7 +372,8 @@ function CenterPane({
   }
 
   // Draft mode — render the canonical default as a draft the user can
-  // edit and save.
+  // edit and save. The default template ships with an empty rules
+  // array; the user adds rules as they refine the draft pre-save.
   if (viewingDraft && defaultTemplate) {
     return (
       <TemplateEditor
@@ -348,10 +383,12 @@ function CenterPane({
           name: defaultTemplate.name,
           description: defaultTemplate.description,
           columns: defaultTemplate.columns,
+          rules: defaultTemplate.rules,
           source: "default",
         }}
         saving={saving}
         mutationError={mutationError}
+        catalogIndex={catalogIndex}
         onSave={onSaveDraft}
       />
     );
@@ -367,10 +404,12 @@ function CenterPane({
           name: selectedDetail.name,
           description: selectedDetail.description,
           columns: selectedDetail.columns,
+          rules: selectedDetail.rules,
           source: selectedDetail.source,
         }}
         saving={saving}
         mutationError={mutationError}
+        catalogIndex={catalogIndex}
         onSave={onSaveExisting}
         onDelete={onDelete}
       />
