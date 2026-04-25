@@ -42,16 +42,16 @@ export function PatternList({
   onRetry,
 }: PatternListProps) {
   return (
-    <div className="flex flex-col h-full bg-white border-r border-gray-200">
+    <div className="flex flex-col h-full bg-white border-r border-gray-200 dark:bg-surface-subtle dark:border-line">
       {/* ---- Header ----------------------------------------------------- */}
-      <div className="px-4 py-3 border-b">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-line">
         <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-brand-700" />
-          <h2 className="text-sm font-semibold text-gray-800">
+          <Layers className="h-4 w-4 text-brand-700 dark:text-brand-50" />
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
             Saved patterns
           </h2>
         </div>
-        <p className="text-[10.5px] text-gray-500 mt-0.5">
+        <p className="text-[10.5px] text-gray-500 dark:text-ink-subtle mt-0.5">
           Each entry is a saved visual extraction pattern — uploaded
           training bills with regions pinned to canonical invoice
           fields. Open one to edit, or create a new pattern.
@@ -90,7 +90,7 @@ export function PatternList({
             </InlineAlert>
           </div>
         ) : loading && items.length === 0 ? (
-          <p className="p-4 text-xs text-gray-500 inline-flex items-center gap-2">
+          <p className="p-4 text-xs text-gray-500 dark:text-ink-subtle inline-flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Loading saved patterns…
           </p>
@@ -130,14 +130,16 @@ function PatternRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60"
-            : "border-l-transparent hover:bg-gray-50",
+            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
         <p
           className={cn(
             "text-[12.5px] font-semibold truncate",
-            selected ? "text-brand-800" : "text-gray-800",
+            selected
+              ? "text-brand-800 dark:text-brand-50"
+              : "text-gray-800 dark:text-ink",
           )}
           title={item.name}
         >
@@ -145,7 +147,7 @@ function PatternRow({
         </p>
         {item.vendor_hint && (
           <p
-            className="text-[10.5px] text-brand-700/80 truncate mt-0.5"
+            className="text-[10.5px] text-brand-700/80 dark:text-brand-50/80 truncate mt-0.5"
             title={`Vendor hint: ${item.vendor_hint}`}
           >
             {item.vendor_hint}
@@ -153,28 +155,30 @@ function PatternRow({
         )}
         {item.description && (
           <p
-            className="text-[10.5px] text-gray-500 truncate mt-0.5"
+            className="text-[10.5px] text-gray-500 dark:text-ink-muted truncate mt-0.5"
             title={item.description}
           >
             {item.description}
           </p>
         )}
-        <p className="text-[10px] text-gray-400 mt-0.5 inline-flex flex-wrap items-center gap-x-1.5">
+        <p className="text-[10px] text-gray-400 dark:text-ink-subtle mt-0.5 inline-flex flex-wrap items-center gap-x-1.5">
           <span>
             {item.source_file_count} file
             {item.source_file_count === 1 ? "" : "s"}
           </span>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-line-strong">·</span>
           <span
             className={cn(
               "font-medium",
-              item.region_count > 0 ? "text-brand-700" : "text-gray-400",
+              item.region_count > 0
+                ? "text-brand-700 dark:text-brand-50"
+                : "text-gray-400 dark:text-ink-subtle",
             )}
           >
             {item.region_count} region
             {item.region_count === 1 ? "" : "s"}
           </span>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-line-strong">·</span>
           <span>{formatDate(item.updated_at)}</span>
         </p>
       </button>
@@ -185,13 +189,13 @@ function PatternRow({
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="px-4 py-10 text-center">
-      <div className="mx-auto h-10 w-10 rounded-full bg-brand-50 flex items-center justify-center mb-2">
-        <FileSearch className="h-5 w-5 text-brand-600" />
+      <div className="mx-auto h-10 w-10 rounded-full bg-brand-50 dark:bg-brand-900/40 flex items-center justify-center mb-2">
+        <FileSearch className="h-5 w-5 text-brand-600 dark:text-brand-50" />
       </div>
-      <p className="text-sm font-medium text-gray-700">
+      <p className="text-sm font-medium text-gray-700 dark:text-ink">
         No saved patterns yet
       </p>
-      <p className="text-[11px] text-gray-500 mt-1">
+      <p className="text-[11px] text-gray-500 dark:text-ink-muted mt-1">
         Create a pattern to teach the extractor where the canonical
         invoice fields live on a real bill.
       </p>

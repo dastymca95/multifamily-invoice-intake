@@ -16,25 +16,39 @@ import { cn } from "@/lib/utils";
 
 export type AlertTone = "error" | "warning" | "info" | "success";
 
+// Dark-mode tones nudge each tinted background from the bright /-50
+// shade down to a translucent variant of the same hue (`/15` on a
+// slate surface) — keeps the emotional read (red = error, yellow =
+// warning) without burning eyes against a dark page. Border + text
+// colors lift toward the lighter end of the same palette so the
+// alert stays legible.
 const STYLES: Record<AlertTone, { box: string; iconColor: string; Icon: LucideIcon }> = {
   error: {
-    box: "border-red-200 bg-red-50 text-red-700",
-    iconColor: "text-red-500",
+    box:
+      "border-red-200 bg-red-50 text-red-700 " +
+      "dark:border-red-900 dark:bg-red-950/40 dark:text-red-200",
+    iconColor: "text-red-500 dark:text-red-400",
     Icon: AlertCircle,
   },
   warning: {
-    box: "border-yellow-200 bg-yellow-50 text-yellow-800",
-    iconColor: "text-yellow-600",
+    box:
+      "border-yellow-200 bg-yellow-50 text-yellow-800 " +
+      "dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200",
+    iconColor: "text-yellow-600 dark:text-yellow-400",
     Icon: AlertTriangle,
   },
   info: {
-    box: "border-blue-200 bg-blue-50 text-blue-800",
-    iconColor: "text-blue-500",
+    box:
+      "border-blue-200 bg-blue-50 text-blue-800 " +
+      "dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+    iconColor: "text-blue-500 dark:text-blue-400",
     Icon: Info,
   },
   success: {
-    box: "border-green-200 bg-green-50 text-green-700",
-    iconColor: "text-green-500",
+    box:
+      "border-green-200 bg-green-50 text-green-700 " +
+      "dark:border-green-900 dark:bg-green-950/40 dark:text-green-200",
+    iconColor: "text-green-500 dark:text-green-400",
     Icon: CheckCircle2,
   },
 };

@@ -186,7 +186,7 @@ export function ManageFieldsModal({
   return (
     <Modal open={open} onClose={onClose} title="Manage extraction fields" size="xl">
       <div className="space-y-3">
-        <p className="text-[12px] text-gray-600">
+        <p className="text-[12px] text-gray-600 dark:text-ink-muted">
           Built-in fields come from the canonical invoice model — you
           can hide ones you don&apos;t use or change their color. Add
           custom fields (e.g. &ldquo;Service Address&rdquo;) for
@@ -194,9 +194,9 @@ export function ManageFieldsModal({
         </p>
 
         {/* ---- Add custom field row -------------------------------- */}
-        <div className="flex items-end gap-2 p-2 rounded-md bg-gray-50 border border-gray-200">
+        <div className="flex items-end gap-2 p-2 rounded-md bg-gray-50 border border-gray-200 dark:bg-surface-muted dark:border-line">
           <label className="flex-1 min-w-0 block">
-            <span className="text-[10.5px] font-semibold text-gray-700 uppercase tracking-wide">
+            <span className="text-[10.5px] font-semibold text-gray-700 uppercase tracking-wide dark:text-ink-muted">
               New custom field
             </span>
             <input
@@ -214,7 +214,7 @@ export function ManageFieldsModal({
               }}
               placeholder="e.g. Service Address"
               maxLength={MAX_PATTERN_FIELD_LABEL_LENGTH}
-              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-[13px] text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-[13px] text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
               disabled={disabled}
             />
           </label>
@@ -237,7 +237,7 @@ export function ManageFieldsModal({
         )}
 
         {/* ---- Field list --------------------------------------- */}
-        <div className="border border-gray-200 rounded-md divide-y bg-white max-h-[28rem] overflow-y-auto">
+        <div className="border border-gray-200 rounded-md divide-y bg-white max-h-[28rem] overflow-y-auto dark:border-line dark:bg-surface dark:divide-line/60">
           {resolved.map((rf) => {
             const def = defByKey.get(rf.key);
             const usage = regionUsageByKey[rf.key] ?? 0;
@@ -268,30 +268,32 @@ export function ManageFieldsModal({
                     <span
                       className={cn(
                         "text-[12.5px] font-semibold",
-                        rf.hidden ? "text-gray-400" : "text-gray-800",
+                        rf.hidden
+                          ? "text-gray-400 dark:text-ink-subtle"
+                          : "text-gray-800 dark:text-ink",
                       )}
                     >
                       {rf.label}
                     </span>
                     {isBuiltIn ? (
-                      <span className="text-[9px] uppercase tracking-wide font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded">
+                      <span className="text-[9px] uppercase tracking-wide font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900">
                         Built-in
                       </span>
                     ) : (
-                      <span className="text-[9px] uppercase tracking-wide font-bold text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded">
+                      <span className="text-[9px] uppercase tracking-wide font-bold text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded dark:bg-purple-950/40 dark:text-purple-200 dark:border-purple-900">
                         Custom
                       </span>
                     )}
                     {isCustomized && (
-                      <span className="text-[9px] uppercase tracking-wide font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded">
+                      <span className="text-[9px] uppercase tracking-wide font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900">
                         Customized
                       </span>
                     )}
                   </div>
-                  <div className="text-[10.5px] text-gray-500 font-mono mt-0.5">
+                  <div className="text-[10.5px] text-gray-500 font-mono mt-0.5 dark:text-ink-subtle">
                     {rf.key}
                     {usage > 0 && (
-                      <span className="ml-2 text-gray-700">
+                      <span className="ml-2 text-gray-700 dark:text-ink-muted">
                         · {usage} region{usage === 1 ? "" : "s"}
                       </span>
                     )}
@@ -310,8 +312,8 @@ export function ManageFieldsModal({
                     className={cn(
                       "px-1.5 py-0.5 rounded border text-[11px] inline-flex items-center gap-1",
                       rf.hidden
-                        ? "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
-                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
+                        ? "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 dark:border-line dark:bg-surface-muted dark:text-ink-subtle dark:hover:bg-surface"
+                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-line dark:bg-surface-subtle dark:text-ink-muted dark:hover:bg-surface-muted",
                     )}
                     disabled={disabled}
                     title={
@@ -339,8 +341,8 @@ export function ManageFieldsModal({
                     className={cn(
                       "px-1.5 py-0.5 rounded border text-[11px] inline-flex items-center gap-1",
                       usage > 0
-                        ? "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed"
-                        : "border-red-200 bg-white text-red-600 hover:bg-red-50",
+                        ? "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed dark:border-line/60 dark:bg-surface-muted dark:text-ink-subtle"
+                        : "border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-900 dark:bg-surface-subtle dark:text-red-400 dark:hover:bg-red-950/40",
                     )}
                     disabled={disabled || usage > 0}
                     title={
@@ -368,7 +370,7 @@ export function ManageFieldsModal({
                       })
                     }
                     placeholder="Label"
-                    className="rounded-sm border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] text-gray-800 focus:border-brand-500 focus:outline-none w-32 ml-1"
+                    className="rounded-sm border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] text-gray-800 focus:border-brand-500 focus:outline-none w-32 ml-1 dark:border-line dark:bg-surface dark:text-ink"
                     disabled={disabled}
                   />
                 )}
@@ -377,7 +379,7 @@ export function ManageFieldsModal({
           })}
         </div>
 
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-line/60">
           <Button
             type="button"
             variant="primary"
@@ -415,7 +417,7 @@ function ColorPickerSwatch({
         type="button"
         onClick={() => !disabled && setOpen((o) => !o)}
         className={cn(
-          "h-6 w-6 rounded-md border border-gray-300 shadow-sm",
+          "h-6 w-6 rounded-md border border-gray-300 shadow-sm dark:border-line",
           disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:ring-2 hover:ring-brand-200",
         )}
         style={{ backgroundColor: safeValue }}
@@ -429,7 +431,7 @@ function ColorPickerSwatch({
             className="fixed inset-0 z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute z-20 top-full left-0 mt-1 p-1.5 bg-white border border-gray-200 rounded-md shadow-lg grid grid-cols-6 gap-1">
+          <div className="absolute z-20 top-full left-0 mt-1 p-1.5 bg-white border border-gray-200 rounded-md shadow-lg grid grid-cols-6 gap-1 dark:bg-surface-subtle dark:border-line">
             {FIELD_COLOR_PALETTE.map((hex) => (
               <button
                 key={hex}
@@ -441,8 +443,8 @@ function ColorPickerSwatch({
                 className={cn(
                   "h-5 w-5 rounded-sm border",
                   hex === safeValue
-                    ? "border-gray-700 ring-2 ring-brand-200"
-                    : "border-gray-300 hover:scale-110 transition-transform",
+                    ? "border-gray-700 ring-2 ring-brand-200 dark:border-ink dark:ring-brand-500/40"
+                    : "border-gray-300 hover:scale-110 transition-transform dark:border-line",
                 )}
                 style={{ backgroundColor: hex }}
                 title={hex}

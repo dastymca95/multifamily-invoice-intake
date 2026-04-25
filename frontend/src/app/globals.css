@@ -2,8 +2,81 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Theme tokens — light + dark.
+ *
+ * The whole app's surface palette resolves through these CSS
+ * variables, exposed via Tailwind's `surface`, `ink`, and `line`
+ * color groups (see tailwind.config.ts). Components that opt into
+ * theming use `bg-surface`, `text-ink`, etc.; legacy components that
+ * still hardcode `bg-white` / `text-gray-900` get a parallel
+ * `dark:*` override on a case-by-case basis.
+ *
+ * Stored as raw `r g b` triples (no `rgb()` wrapper) so Tailwind's
+ * `<alpha-value>` placeholder works with `bg-surface/80`-style
+ * arbitrary alpha. Adding a new token: add a `--name` line to BOTH
+ * the `:root` block AND the `.dark` block, then expose it under the
+ * appropriate group in `tailwind.config.ts`.
+ *
+ * Brand color (`#2563eb` brand-600) is INTENTIONALLY excluded from
+ * the dark-mode palette — Rivera blue stays Rivera blue across both
+ * modes; tinting it would compromise the brand mark in the sidebar.
+ */
 @layer base {
+  :root {
+    /* Light surfaces — slate-tinted whites for the page background,
+       white for cards on top of it, and a softer slate for "muted"
+       subsection wells. */
+    --surface: 248 250 252;          /* slate-50 — page bg */
+    --surface-muted: 241 245 249;    /* slate-100 — subsection wells */
+    --surface-subtle: 255 255 255;   /* white — cards / panels */
+    --surface-inverted: 30 58 138;   /* brand-900 — sidebar */
+
+    /* Light ink (text) tones */
+    --ink: 17 24 39;                 /* gray-900 — primary text */
+    --ink-muted: 75 85 99;           /* gray-600 — secondary text */
+    --ink-subtle: 156 163 175;       /* gray-400 — tertiary / hints */
+    --ink-inverted: 255 255 255;     /* white — text on dark sidebar */
+
+    /* Light borders / hairlines */
+    --line: 229 231 235;             /* gray-200 — most borders */
+    --line-strong: 209 213 219;      /* gray-300 — emphasised borders */
+
+    color-scheme: light;
+  }
+
+  .dark {
+    /* Dark surfaces — deep slate page bg, mid slate panels for
+       cards (so card edges read against the bg), darker slate for
+       muted wells. The sidebar darkens further to keep the
+       inverted-from-content contrast that brand-900 delivers in
+       light mode. */
+    --surface: 15 23 42;             /* slate-900 — page bg */
+    --surface-muted: 30 41 59;       /* slate-800 — subsection wells */
+    --surface-subtle: 30 41 59;      /* slate-800 — cards / panels */
+    --surface-inverted: 2 6 23;      /* slate-950 — sidebar */
+
+    /* Dark ink — keep readable but not pure white (eye strain). */
+    --ink: 241 245 249;              /* slate-100 — primary text */
+    --ink-muted: 203 213 225;        /* slate-300 — secondary text */
+    --ink-subtle: 148 163 184;       /* slate-400 — tertiary / hints */
+    --ink-inverted: 248 250 252;     /* slate-50 — text on sidebar */
+
+    /* Dark borders — slightly lifted from the bg so card edges read. */
+    --line: 51 65 85;                /* slate-700 */
+    --line-strong: 71 85 105;        /* slate-600 */
+
+    color-scheme: dark;
+  }
+
+  /* Body uses tokens directly so the bare html document switches
+     theme without per-page wiring. Most consumers also opt into
+     `bg-surface` / `text-ink` for the same effect on nested wrappers. */
   body {
-    @apply text-gray-900 bg-gray-50;
+    background-color: rgb(var(--surface));
+    color: rgb(var(--ink));
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
   }
 }

@@ -138,7 +138,7 @@ export const IsolatedTitleBar = forwardRef<
   );
 
   return (
-    <div className="px-5 py-3 bg-white border-b">
+    <div className="px-5 py-3 bg-white dark:bg-surface-subtle border-b border-gray-200 dark:border-line">
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[14rem]">
           <input
@@ -151,7 +151,8 @@ export const IsolatedTitleBar = forwardRef<
             placeholder={namePlaceholder}
             className={cn(
               "w-full text-base font-semibold text-gray-900 bg-transparent",
-              "border-0 border-b border-transparent hover:border-gray-200",
+              "dark:text-ink",
+              "border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-line",
               "focus:border-brand-500 focus:outline-none px-0 py-1",
             )}
           />
@@ -168,7 +169,8 @@ export const IsolatedTitleBar = forwardRef<
         placeholder={descriptionPlaceholder}
         className={cn(
           "w-full mt-1.5 text-[12.5px] text-gray-600 bg-transparent",
-          "border-0 resize-none focus:outline-none placeholder:text-gray-400",
+          "dark:text-ink-muted",
+          "border-0 resize-none focus:outline-none placeholder:text-gray-400 dark:placeholder:text-ink-subtle",
         )}
       />
     </div>

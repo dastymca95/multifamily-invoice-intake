@@ -45,6 +45,7 @@ export function LayoutToggle({ mode, onChange, className }: LayoutToggleProps) {
     <div
       className={cn(
         "inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5",
+        "dark:border-line dark:bg-surface-muted",
         className,
       )}
       role="group"
@@ -96,8 +97,8 @@ function SegmentButton({
         "inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
         active
-          ? "bg-white text-brand-700 shadow-sm"
-          : "text-gray-600 hover:text-gray-800",
+          ? "bg-white text-brand-700 shadow-sm dark:bg-surface-subtle dark:text-brand-50"
+          : "text-gray-600 hover:text-gray-800 dark:text-ink-muted dark:hover:text-ink",
       )}
     >
       {children}

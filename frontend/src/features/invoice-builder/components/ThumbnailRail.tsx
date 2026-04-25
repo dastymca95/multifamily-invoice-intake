@@ -76,7 +76,9 @@ export function ThumbnailRail({
 
   return (
     <div
-      className="shrink-0 w-[10rem] bg-gray-100 border-r border-gray-200 overflow-y-auto p-2 space-y-2"
+      // Rail container darkens; thumbnail CARDS below stay light so the
+      // mini PDF previews remain accurate.
+      className="shrink-0 w-[10rem] bg-gray-100 border-r border-gray-200 overflow-y-auto p-2 space-y-2 dark:bg-surface-muted dark:border-line"
       aria-label="Page thumbnails"
     >
       {visiblePages.map((page) => {
@@ -88,10 +90,14 @@ export function ThumbnailRail({
             type="button"
             onClick={() => onSelectPage(page)}
             className={cn(
+              // Card body stays white in both themes — it wraps the
+              // thumbnail PDF render which must remain true to the
+              // document. Only the BORDER swaps to a slate tone in
+              // dark mode so the card reads against the dark rail.
               "block w-full rounded-md text-left transition-shadow bg-white border",
               isActive
-                ? "border-brand-500 ring-2 ring-brand-200 shadow-sm"
-                : "border-gray-200 hover:border-gray-300",
+                ? "border-brand-500 ring-2 ring-brand-200 shadow-sm dark:ring-brand-500/40"
+                : "border-gray-200 hover:border-gray-300 dark:border-line dark:hover:border-line-strong",
             )}
             aria-current={isActive ? "page" : undefined}
             title={`Go to page ${page}`}

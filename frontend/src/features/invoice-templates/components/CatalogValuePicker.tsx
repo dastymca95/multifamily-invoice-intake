@@ -211,7 +211,7 @@ export function CatalogValuePicker({
   // Detail still loading first time → small spinner.
   if (!detail || (detail.loading && detail.entries === null)) {
     return (
-      <div className="flex items-center gap-2 text-[12px] text-gray-500">
+      <div className="flex items-center gap-2 text-[12px] text-gray-500 dark:text-ink-muted">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         Loading {labelKind.singular} entries…
       </div>
@@ -231,7 +231,7 @@ export function CatalogValuePicker({
             onClick={() => {
               if (catalogId) void ensureCatalogDetail(sourceType, catalogId);
             }}
-            className="text-[10.5px] text-red-700 underline underline-offset-2 hover:text-red-800"
+            className="text-[10.5px] text-red-700 underline underline-offset-2 hover:text-red-800 dark:text-red-300 dark:hover:text-red-200"
           >
             Retry
           </button>
@@ -446,8 +446,10 @@ function PickerCore({
       <div
         className={cn(
           "flex flex-wrap items-center gap-1 rounded-md border border-gray-300 bg-white px-1.5 py-1",
+          "dark:border-line dark:bg-surface",
           "focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500",
-          disabled && "cursor-not-allowed bg-gray-50 opacity-70",
+          disabled &&
+            "cursor-not-allowed bg-gray-50 opacity-70 dark:bg-surface-muted",
         )}
       >
         {selections.map((sel, i) => {
@@ -469,7 +471,7 @@ function PickerCore({
           );
         })}
         <div className="flex-1 min-w-[8rem] inline-flex items-center gap-1">
-          <Search className="h-3 w-3 text-gray-400 shrink-0" />
+          <Search className="h-3 w-3 text-gray-400 dark:text-ink-subtle shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -494,7 +496,7 @@ function PickerCore({
             aria-expanded={open}
             aria-haspopup="listbox"
             className={cn(
-              "min-w-[6rem] flex-1 bg-transparent px-1 py-0.5 text-[12.5px] text-gray-800 placeholder:text-gray-400",
+              "min-w-[6rem] flex-1 bg-transparent px-1 py-0.5 text-[12.5px] text-gray-800 placeholder:text-gray-400 dark:text-ink dark:placeholder:text-ink-subtle",
               "focus:outline-none disabled:cursor-not-allowed",
             )}
           />
@@ -514,11 +516,11 @@ function PickerCore({
       {/* Dropdown */}
       {open && !disabled && (
         <div
-          className="absolute left-0 right-0 z-40 mt-1 max-h-72 min-w-[16rem] overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"
+          className="absolute left-0 right-0 z-40 mt-1 max-h-72 min-w-[16rem] overflow-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-line dark:bg-surface-subtle"
           role="listbox"
         >
           {filtered.length === 0 ? (
-            <div className="px-3 py-3 text-[12px] italic text-gray-500 inline-flex items-center gap-1.5">
+            <div className="px-3 py-3 text-[12px] italic text-gray-500 dark:text-ink-muted inline-flex items-center gap-1.5">
               <CircleSlash className="h-3 w-3" />
               No matches in {catalogName}
             </div>
@@ -544,25 +546,27 @@ function PickerCore({
                     className={cn(
                       "px-3 py-1.5 cursor-pointer flex items-start gap-2 border-l-2",
                       isHighlighted && !isPicked
-                        ? "bg-brand-50 border-brand-500"
+                        ? "bg-brand-50 border-brand-500 dark:bg-brand-900/30"
                         : "border-transparent",
                       isPicked && "opacity-50 cursor-not-allowed",
                       !entry.active && "italic",
                     )}
                   >
-                    <Library className="h-3 w-3 mt-1 text-gray-300 shrink-0" />
+                    <Library className="h-3 w-3 mt-1 text-gray-300 dark:text-ink-subtle shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-1.5">
                         <span
                           className={cn(
                             "text-[12.5px] font-medium truncate",
-                            isPicked ? "text-gray-500" : "text-gray-800",
+                            isPicked
+                              ? "text-gray-500 dark:text-ink-subtle"
+                              : "text-gray-800 dark:text-ink",
                           )}
                         >
                           {entry.label}
                         </span>
                         {!entry.active && (
-                          <span className="text-[9.5px] uppercase tracking-wide text-gray-400 shrink-0">
+                          <span className="text-[9.5px] uppercase tracking-wide text-gray-400 dark:text-ink-subtle shrink-0">
                             inactive
                           </span>
                         )}
@@ -573,7 +577,7 @@ function PickerCore({
                         )}
                       </div>
                       {entry.secondary && (
-                        <div className="text-[10.5px] text-gray-500 truncate">
+                        <div className="text-[10.5px] text-gray-500 dark:text-ink-muted truncate">
                           {entry.secondary}
                         </div>
                       )}
@@ -581,7 +585,7 @@ function PickerCore({
                           from the label — clarifies what'll actually be
                           stored / matched. */}
                       {previewFieldValue && previewFieldValue !== entry.label && (
-                        <div className="text-[9.5px] text-gray-400 font-mono mt-0.5 truncate">
+                        <div className="text-[9.5px] text-gray-400 dark:text-ink-subtle font-mono mt-0.5 truncate">
                           → {previewFieldValue}
                         </div>
                       )}
@@ -592,7 +596,7 @@ function PickerCore({
               {/* Suggestion-cap notice — let the user know there's more
                   hidden behind their query. */}
               {entries.length > SUGGESTION_LIMIT && filtered.length === SUGGESTION_LIMIT && (
-                <li className="px-3 py-1.5 text-[10.5px] text-gray-400 italic border-t border-gray-100">
+                <li className="px-3 py-1.5 text-[10.5px] text-gray-400 dark:text-ink-subtle italic border-t border-gray-100 dark:border-line/60">
                   Showing first {SUGGESTION_LIMIT}. Type to narrow.
                 </li>
               )}
@@ -670,7 +674,7 @@ function SelectionChip({
   // entries get an italic + greyed treatment so they're obvious.
   const display = live?.label ?? selection.label ?? selection.field_value;
   const tone = isMissing
-    ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200"
+    ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:ring-yellow-900"
     : "bg-brand-50 text-brand-700";
   return (
     <span
@@ -699,7 +703,7 @@ function SelectionChip({
           className={cn(
             "rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-500",
             isMissing
-              ? "text-amber-700/70 hover:bg-amber-100 hover:text-amber-800"
+              ? "text-amber-700/70 hover:bg-amber-100 hover:text-amber-800 dark:text-yellow-200/70 dark:hover:bg-yellow-950/40 dark:hover:text-yellow-200"
               : "text-brand-700/70 hover:bg-brand-100 hover:text-brand-700",
           )}
         >
@@ -751,10 +755,10 @@ function PickerEmptyHint({
 }) {
   const cls =
     tone === "error"
-      ? "border-red-200 bg-red-50/60 text-red-800"
+      ? "border-red-200 bg-red-50/60 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
       : tone === "warning"
-        ? "border-amber-200 bg-amber-50/60 text-amber-800"
-        : "border-gray-200 bg-gray-50/60 text-gray-700";
+        ? "border-amber-200 bg-amber-50/60 text-amber-800 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200"
+        : "border-gray-200 bg-gray-50/60 text-gray-700 dark:border-line dark:bg-surface-muted/60 dark:text-ink-muted";
   const Icon = tone === "error" ? AlertTriangle : Database;
   return (
     <div
@@ -785,17 +789,22 @@ function PickerStatusLine({
   const labelKind = catalogKindLabel(sourceType);
   if (!labelKind) return null;
   return (
-    <div className="mt-0.5 flex items-center gap-1 text-[9.5px] text-gray-400">
+    <div className="mt-0.5 flex items-center gap-1 text-[9.5px] text-gray-400 dark:text-ink-subtle">
       <Library className="h-2.5 w-2.5" />
       <span className="truncate">
-        Pulling from <span className="text-gray-600 font-medium">{catalogName}</span>
+        Pulling from{" "}
+        <span className="text-gray-600 font-medium dark:text-ink-muted">
+          {catalogName}
+        </span>
         {boundField ? (
           <>
             {" "}· field{" "}
-            <span className="text-gray-600 font-mono">{boundField}</span>
+            <span className="text-gray-600 font-mono dark:text-ink-muted">
+              {boundField}
+            </span>
           </>
         ) : (
-          <span className="text-amber-700">
+          <span className="text-amber-700 dark:text-yellow-200">
             {" "}· no field set (using default)
           </span>
         )}

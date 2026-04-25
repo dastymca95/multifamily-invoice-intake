@@ -1,4 +1,5 @@
 import type {
+  ImportTemplateValidationResult,
   InvoiceTemplateCreate,
   InvoiceTemplateDefault,
   InvoiceTemplateList,
@@ -36,6 +37,11 @@ export const invoiceTemplatesApi = {
   get: (id: string): Promise<InvoiceTemplateOut> =>
     apiClient
       .get<InvoiceTemplateOut>(`/invoice-templates/${id}`)
+      .then((r) => r.data),
+
+  validate: (id: string): Promise<ImportTemplateValidationResult> =>
+    apiClient
+      .get<ImportTemplateValidationResult>(`/invoice-templates/${id}/validate`)
       .then((r) => r.data),
 
   create: (body: InvoiceTemplateCreate): Promise<InvoiceTemplateOut> =>

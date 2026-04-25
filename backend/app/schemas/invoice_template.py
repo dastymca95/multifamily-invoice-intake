@@ -1175,6 +1175,42 @@ class InvoiceTemplateDefault(BaseModel):
     rules: list[InvoiceTemplateRule] = Field(default_factory=list)
 
 
+ValidationSeverity = Literal["error", "warning", "info"]
+
+
+class ImportTemplateValidationIssue(BaseModel):
+    """One readiness diagnostic for an Import Builder template."""
+
+    severity: ValidationSeverity
+    code: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=500)
+    recommendation: str | None = Field(default=None, max_length=500)
+    column_id: str | None = Field(default=None, max_length=64)
+    column_label: str | None = Field(default=None, max_length=MAX_COLUMN_NAME_LENGTH)
+    rule_id: str | None = Field(default=None, max_length=64)
+    rule_label: str | None = Field(default=None, max_length=255)
+    cell_key: str | None = Field(default=None, max_length=128)
+    path: str | None = Field(default=None, max_length=255)
+    related_id: str | None = Field(default=None, max_length=128)
+    related_type: str | None = Field(default=None, max_length=80)
+
+
+class ImportTemplateValidationSummary(BaseModel):
+    errors: int = 0
+    warnings: int = 0
+    info: int = 0
+
+
+class ImportTemplateValidationResult(BaseModel):
+    """Readiness response returned by GET /invoice-templates/{id}/validate."""
+
+    template_id: str
+    template_name: str
+    ready: bool
+    summary: ImportTemplateValidationSummary
+    issues: list[ImportTemplateValidationIssue] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Default template — the canonical ResMan invoice import shape
 # ---------------------------------------------------------------------------

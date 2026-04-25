@@ -210,7 +210,7 @@ export function NewPatternModal({
               onChange={(e) => setName(e.target.value)}
               maxLength={MAX_PATTERN_NAME_LENGTH}
               autoFocus
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
               placeholder="e.g. EPB Utility Bill"
             />
           </Field>
@@ -224,7 +224,7 @@ export function NewPatternModal({
                 value={vendorHint}
                 onChange={(e) => setVendorHint(e.target.value)}
                 maxLength={MAX_PATTERN_VENDOR_HINT_LENGTH}
-                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
                 placeholder="e.g. EPB"
               />
             </Field>
@@ -236,7 +236,7 @@ export function NewPatternModal({
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
                 placeholder="e.g. Monthly electric bill"
               />
             </Field>
@@ -246,13 +246,13 @@ export function NewPatternModal({
         {/* ---- Training docs ---------------------------------------- */}
         <div className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold text-gray-800">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-ink">
               Training documents{" "}
-              <span className="text-[11px] font-normal text-gray-400">
+              <span className="text-[11px] font-normal text-gray-400 dark:text-ink-subtle">
                 (optional)
               </span>
             </h3>
-            <p className="text-[11px] text-gray-500 mt-0.5">
+            <p className="text-[11px] text-gray-500 mt-0.5 dark:text-ink-muted">
               Drop in one or more sample bills (PDF or image). You can
               also add them later from the editor. Capped at{" "}
               {MAX_PATTERN_SOURCE_FILES} files,{" "}
@@ -280,14 +280,14 @@ export function NewPatternModal({
               Add files…
             </Button>
             {pending.length > 0 && (
-              <span className="text-[11px] text-gray-500">
+              <span className="text-[11px] text-gray-500 dark:text-ink-muted">
                 {pending.length} of {MAX_PATTERN_SOURCE_FILES} added
               </span>
             )}
           </div>
 
           {pending.length > 0 && (
-            <ul className="border border-gray-200 rounded-md divide-y bg-gray-50/60">
+            <ul className="border border-gray-200 rounded-md divide-y bg-gray-50/60 dark:border-line dark:divide-line/60 dark:bg-surface-muted/60">
               {pending.map((p) => (
                 <li
                   key={p.id}
@@ -295,27 +295,27 @@ export function NewPatternModal({
                 >
                   <span className="flex-1 min-w-0">
                     <span
-                      className="block truncate text-gray-800 font-medium"
+                      className="block truncate text-gray-800 font-medium dark:text-ink"
                       title={p.file.name}
                     >
                       {p.file.name}
                     </span>
-                    <span className="block text-[10.5px] text-gray-500">
+                    <span className="block text-[10.5px] text-gray-500 dark:text-ink-subtle">
                       {formatFileSize(p.file.size)} ·{" "}
                       {p.file.type || "unknown type"}
                     </span>
                     {p.error && (
-                      <span className="block text-[10.5px] text-red-600">
+                      <span className="block text-[10.5px] text-red-600 dark:text-red-400">
                         {p.error}
                       </span>
                     )}
                   </span>
                   {p.reading && (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400 dark:text-ink-subtle" />
                   )}
                   <button
                     type="button"
-                    className="text-[11px] text-gray-500 hover:text-red-600"
+                    className="text-[11px] text-gray-500 hover:text-red-600 dark:text-ink-muted dark:hover:text-red-400"
                     onClick={() => removePending(p.id)}
                   >
                     Remove
@@ -332,7 +332,7 @@ export function NewPatternModal({
           </InlineAlert>
         )}
 
-        <div className="flex items-center justify-end gap-2 pt-1 border-t border-gray-100">
+        <div className="flex items-center justify-end gap-2 pt-1 border-t border-gray-100 dark:border-line/60">
           <Button
             type="button"
             variant="secondary"
@@ -372,13 +372,17 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-[11.5px] font-semibold text-gray-700">
+      <span className="text-[11.5px] font-semibold text-gray-700 dark:text-ink-muted">
         {label}
-        {required && <span className="text-red-600 ml-0.5">*</span>}
+        {required && (
+          <span className="text-red-600 ml-0.5 dark:text-red-400">*</span>
+        )}
       </span>
       <div className="mt-1">{children}</div>
       {help && (
-        <p className="text-[10.5px] text-gray-500 mt-0.5">{help}</p>
+        <p className="text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-subtle">
+          {help}
+        </p>
       )}
     </label>
   );

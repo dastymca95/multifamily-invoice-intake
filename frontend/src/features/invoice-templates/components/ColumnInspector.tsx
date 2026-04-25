@@ -250,22 +250,22 @@ export function ColumnInspector({
 
   return (
     <aside
-      className="w-[20rem] shrink-0 border-l border-gray-200 bg-white flex flex-col h-full min-h-0"
+      className="w-[20rem] shrink-0 border-l border-gray-200 bg-white flex flex-col h-full min-h-0 dark:border-line dark:bg-surface-subtle"
       aria-label="Column inspector"
     >
       {/* ---- Header ---------------------------------------------------- */}
-      <div className="px-4 py-3 border-b flex items-start gap-2">
+      <div className="px-4 py-3 border-b border-gray-200 flex items-start gap-2 dark:border-line">
         <div className="flex-1 min-w-0">
-          <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold">
+          <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold dark:text-ink-subtle">
             Column inspector
           </p>
           <p
-            className="text-sm font-semibold text-gray-800 truncate mt-0.5"
+            className="text-sm font-semibold text-gray-800 truncate mt-0.5 dark:text-ink"
             title={column.name}
           >
             {column.name || "Untitled column"}
           </p>
-          <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug">
+          <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug dark:text-ink-muted">
             Three layers: what the column <em>is</em>, what it does by
             default, and how rule rows are allowed to interact with it.
           </p>
@@ -274,7 +274,7 @@ export function ColumnInspector({
           type="button"
           onClick={onClose}
           aria-label="Close column inspector"
-          className="shrink-0 p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          className="shrink-0 p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-ink-subtle dark:hover:bg-surface-muted dark:hover:text-ink"
         >
           <X className="h-4 w-4" />
         </button>
@@ -422,12 +422,12 @@ function SectionGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className="-mx-4 px-4 pt-3 first:pt-0 first:border-t-0 border-t border-gray-200">
+    <div className="-mx-4 px-4 pt-3 first:pt-0 first:border-t-0 border-t border-gray-200 dark:border-line/60">
       <div className="mb-2.5">
-        <p className="text-[10px] uppercase tracking-wider text-brand-700 font-bold">
+        <p className="text-[10px] uppercase tracking-wider text-brand-700 font-bold dark:text-brand-50">
           {label}
         </p>
-        <p className="mt-0.5 text-[10.5px] text-gray-500 leading-snug">
+        <p className="mt-0.5 text-[10.5px] text-gray-500 leading-snug dark:text-ink-muted">
           {hint}
         </p>
       </div>
@@ -460,7 +460,9 @@ function RequiredSection({
       <div
         className={cn(
           "rounded-md border px-3 py-2.5 transition-colors",
-          required ? "border-brand-500 bg-brand-50/60" : "border-gray-200",
+          required
+            ? "border-brand-500 bg-brand-50/60 dark:bg-brand-900/30"
+            : "border-gray-200 dark:border-line",
         )}
       >
         <Switch
@@ -514,7 +516,7 @@ function RuleRoleSection({
       title="Rule role"
       hint="Determines how this column's cells are interpreted inside rule rows below."
     >
-      <div className="rounded-md border border-gray-200 overflow-hidden">
+      <div className="rounded-md border border-gray-200 overflow-hidden dark:border-line">
         {ROLE_ORDER.map((kind) => {
           const Icon = ROLE_ICONS[kind];
           const selected = role === kind;
@@ -525,14 +527,18 @@ function RuleRoleSection({
               onClick={() => onChange(kind)}
               aria-pressed={selected}
               className={cn(
-                "w-full text-left px-3 py-2 flex items-start gap-2.5 border-b border-gray-100 last:border-b-0 transition-colors",
-                selected ? "bg-brand-50/60" : "bg-white hover:bg-gray-50",
+                "w-full text-left px-3 py-2 flex items-start gap-2.5 border-b border-gray-100 last:border-b-0 transition-colors dark:border-line/60",
+                selected
+                  ? "bg-brand-50/60 dark:bg-brand-900/30"
+                  : "bg-white hover:bg-gray-50 dark:bg-surface-subtle dark:hover:bg-surface-muted",
               )}
             >
               <div
                 className={cn(
                   "h-6 w-6 shrink-0 rounded flex items-center justify-center mt-0.5",
-                  selected ? "bg-brand-100 text-brand-700" : "bg-gray-100 text-gray-500",
+                  selected
+                    ? "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-50"
+                    : "bg-gray-100 text-gray-500 dark:bg-surface-muted dark:text-ink-subtle",
                 )}
               >
                 <Icon className="h-3 w-3" />
@@ -541,12 +547,14 @@ function RuleRoleSection({
                 <p
                   className={cn(
                     "text-[12px] font-semibold",
-                    selected ? "text-brand-800" : "text-gray-700",
+                    selected
+                      ? "text-brand-800 dark:text-brand-50"
+                      : "text-gray-700 dark:text-ink",
                   )}
                 >
                   {RULE_ROLE_LABEL[kind]}
                 </p>
-                <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug">
+                <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug dark:text-ink-muted">
                   {RULE_ROLE_DESCRIPTION[kind]}
                 </p>
               </div>
@@ -598,7 +606,7 @@ function DataTypeSection({
       title="Data type"
       hint="The expected output shape. Independent from where the value comes from — a column pulled from an invoice field can still be formatted as currency or a date."
     >
-      <div className="rounded-md border border-gray-200 overflow-hidden">
+      <div className="rounded-md border border-gray-200 overflow-hidden dark:border-line">
         {COLUMN_DATA_TYPE_ORDER.map((kind) => {
           const Icon = DATA_TYPE_ICONS[kind];
           const selected = dataType === kind;
@@ -609,14 +617,18 @@ function DataTypeSection({
               onClick={() => onChange(kind)}
               aria-pressed={selected}
               className={cn(
-                "w-full text-left px-3 py-2 flex items-start gap-2.5 border-b border-gray-100 last:border-b-0 transition-colors",
-                selected ? "bg-brand-50/60" : "bg-white hover:bg-gray-50",
+                "w-full text-left px-3 py-2 flex items-start gap-2.5 border-b border-gray-100 last:border-b-0 transition-colors dark:border-line/60",
+                selected
+                  ? "bg-brand-50/60 dark:bg-brand-900/30"
+                  : "bg-white hover:bg-gray-50 dark:bg-surface-subtle dark:hover:bg-surface-muted",
               )}
             >
               <div
                 className={cn(
                   "h-6 w-6 shrink-0 rounded flex items-center justify-center mt-0.5",
-                  selected ? "bg-brand-100 text-brand-700" : "bg-gray-100 text-gray-500",
+                  selected
+                    ? "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-50"
+                    : "bg-gray-100 text-gray-500 dark:bg-surface-muted dark:text-ink-subtle",
                 )}
               >
                 <Icon className="h-3 w-3" />
@@ -625,12 +637,14 @@ function DataTypeSection({
                 <p
                   className={cn(
                     "text-[12px] font-semibold",
-                    selected ? "text-brand-800" : "text-gray-700",
+                    selected
+                      ? "text-brand-800 dark:text-brand-50"
+                      : "text-gray-700 dark:text-ink",
                   )}
                 >
                   {COLUMN_DATA_TYPE_LABEL[kind]}
                 </p>
-                <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug">
+                <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug dark:text-ink-muted">
                   {COLUMN_DATA_TYPE_DESCRIPTION[kind]}
                 </p>
               </div>
@@ -685,8 +699,8 @@ function FormatSection({
   if (dataType === "text" || dataType === "boolean") {
     return (
       <Section title="Format">
-        <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 text-[11px] text-gray-600 flex items-start gap-2">
-          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" />
+        <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 text-[11px] text-gray-600 flex items-start gap-2 dark:border-line dark:bg-surface-muted/50 dark:text-ink-muted">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400 dark:text-ink-subtle" />
           <span>
             {dataType === "text"
               ? "Text columns have no format options today. Future phases will add casing / trim hints here."
@@ -704,11 +718,11 @@ function FormatSection({
         hint={`Date pattern. Falls back to ${DATE_FORMAT_OPTIONS[0].value} when unset.`}
       >
         <div className="flex items-center gap-2">
-          <CalendarDays className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <CalendarDays className="h-3.5 w-3.5 text-gray-400 shrink-0 dark:text-ink-subtle" />
           <select
             value={format?.date_format ?? ""}
             onChange={(e) => patch({ date_format: e.target.value || null })}
-            className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+            className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
             aria-label="Date format"
           >
             <option value="">— Use default ({DATE_FORMAT_OPTIONS[0].value}) —</option>
@@ -737,13 +751,13 @@ function FormatSection({
         <div className="space-y-2">
           {isCurrency && (
             <div className="flex items-center gap-2">
-              <Coins className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              <Coins className="h-3.5 w-3.5 text-gray-400 shrink-0 dark:text-ink-subtle" />
               <select
                 value={format?.currency_code ?? ""}
                 onChange={(e) =>
                   patch({ currency_code: e.target.value || null })
                 }
-                className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+                className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
                 aria-label="Currency code"
               >
                 <option value="">— Use default (USD) —</option>
@@ -756,7 +770,7 @@ function FormatSection({
             </div>
           )}
           <div className="flex items-center gap-2">
-            <Sigma className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+            <Sigma className="h-3.5 w-3.5 text-gray-400 shrink-0 dark:text-ink-subtle" />
             <select
               value={
                 format?.decimal_places === null ||
@@ -770,7 +784,7 @@ function FormatSection({
                     e.target.value === "" ? null : Number(e.target.value),
                 })
               }
-              className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+              className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
               aria-label="Decimal places"
             >
               <option value="">
@@ -818,7 +832,7 @@ function FormatSection({
       <div className="space-y-1.5">
         {options.map((value, idx) => (
           <div key={idx} className="flex items-center gap-1.5">
-            <span className="w-5 shrink-0 text-[10px] font-mono text-gray-400 text-right">
+            <span className="w-5 shrink-0 text-[10px] font-mono text-gray-400 text-right dark:text-ink-subtle">
               {idx + 1}
             </span>
             <input
@@ -830,14 +844,14 @@ function FormatSection({
                 "flex-1 min-w-0 rounded-md border px-2 py-1 text-[12px] focus:outline-none focus:ring-2 focus:ring-brand-500",
                 value.trim().length === 0
                   ? "border-red-300 bg-red-50/30"
-                  : "border-gray-300",
+                  : "border-gray-300 dark:border-line",
               )}
             />
             <button
               type="button"
               onClick={() => removeAt(idx)}
               aria-label={`Remove option ${idx + 1}`}
-              className="shrink-0 p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-red-600"
+              className="shrink-0 p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:text-ink-subtle dark:hover:bg-surface-muted dark:hover:text-red-400"
               title="Remove this option"
             >
               <X className="h-3.5 w-3.5" />
@@ -855,7 +869,7 @@ function FormatSection({
           Add option
         </Button>
         {blanks > 0 && (
-          <p className="text-[10.5px] text-orange-600 inline-flex items-start gap-1">
+          <p className="text-[10.5px] text-orange-600 inline-flex items-start gap-1 dark:text-orange-400">
             <Asterisk className="h-3 w-3 mt-0.5 shrink-0" />
             {blanks === 1
               ? "One option is blank — fill or remove it before saving."
@@ -864,8 +878,8 @@ function FormatSection({
         )}
 
         {dataType === "multi_select" && (
-          <div className="pt-2 mt-2 border-t border-gray-100">
-            <label className="block text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
+          <div className="pt-2 mt-2 border-t border-gray-100 dark:border-line/60">
+            <label className="block text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1 dark:text-ink-subtle">
               Separator
             </label>
             <input
@@ -878,9 +892,9 @@ function FormatSection({
               }
               placeholder="Defaults to ,"
               maxLength={8}
-              className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink"
             />
-            <p className="text-[10px] text-gray-400 mt-1">
+            <p className="text-[10px] text-gray-400 mt-1 dark:text-ink-subtle">
               Used to join picks into one cell at export. Defaults to a comma.
             </p>
           </div>
@@ -959,7 +973,7 @@ function GlobalBehaviorSection({
       title="Global behavior mode"
       hint={`What this column resolves to by default — independent of any rule row. Options below are filtered to the modes recommended for ${COLUMN_DATA_TYPE_LABEL[dataType]} columns.`}
     >
-      <div className="rounded-md border border-gray-200 overflow-hidden">
+      <div className="rounded-md border border-gray-200 overflow-hidden dark:border-line">
         {renderOrder.map((kind) => {
           const Icon = SOURCE_TYPE_ICONS[kind];
           const selected = sourceType === kind;
@@ -971,16 +985,18 @@ function GlobalBehaviorSection({
               onClick={() => onChange(kind)}
               aria-pressed={selected}
               className={cn(
-                "w-full text-left px-3 py-2 flex items-center gap-2.5 border-b border-gray-100 last:border-b-0 transition-colors",
+                "w-full text-left px-3 py-2 flex items-center gap-2.5 border-b border-gray-100 last:border-b-0 transition-colors dark:border-line/60",
                 selected
                   ? "bg-brand-50/60"
-                  : "bg-white hover:bg-gray-50",
+                  : "bg-white hover:bg-gray-50 dark:bg-surface-subtle dark:hover:bg-surface-muted",
               )}
             >
               <div
                 className={cn(
                   "h-6 w-6 shrink-0 rounded flex items-center justify-center",
-                  selected ? "bg-brand-100 text-brand-700" : "bg-gray-100 text-gray-500",
+                  selected
+                    ? "bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-50"
+                    : "bg-gray-100 text-gray-500 dark:bg-surface-muted dark:text-ink-subtle",
                 )}
               >
                 <Icon className="h-3 w-3" />
@@ -995,7 +1011,7 @@ function GlobalBehaviorSection({
               </span>
               {incompatible && (
                 <span
-                  className="text-[9.5px] font-bold uppercase tracking-wide rounded bg-amber-100 text-amber-800 ring-1 ring-amber-300 px-1 py-0.5"
+                  className="text-[9.5px] font-bold uppercase tracking-wide rounded bg-amber-100 text-amber-800 ring-1 ring-amber-300 px-1 py-0.5 dark:bg-yellow-950/40 dark:text-yellow-200 dark:ring-yellow-900"
                   title={`Not recommended for ${COLUMN_DATA_TYPE_LABEL[dataType]} columns. Pick a different mode or change the data type.`}
                 >
                   Not recommended
@@ -1008,12 +1024,12 @@ function GlobalBehaviorSection({
           );
         })}
       </div>
-      <p className="text-[10.5px] text-gray-500 mt-1.5 leading-snug">
+      <p className="text-[10.5px] text-gray-500 mt-1.5 leading-snug dark:text-ink-muted">
         {SOURCE_TYPE_HINT[sourceType]}
       </p>
       {showsIncompatible && (
-        <div className="mt-2 rounded-md border border-amber-300 bg-amber-50/70 p-2.5 text-[11px] text-amber-900 flex items-start gap-2">
-          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+        <div className="mt-2 rounded-md border border-amber-300 bg-amber-50/70 p-2.5 text-[11px] text-amber-900 flex items-start gap-2 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600 dark:text-yellow-400" />
           <span className="leading-snug">
             Current mode <strong>{GLOBAL_MODE_LABEL[sourceType]}</strong>{" "}
             isn&rsquo;t a recommended pairing for{" "}
@@ -1076,7 +1092,7 @@ function AllowRuleOverrideSection({
         className={cn(
           "rounded-md border px-3 py-2.5 transition-colors",
           allow
-            ? "border-gray-200"
+            ? "border-gray-200 dark:border-line"
             : "border-amber-300 bg-amber-50/60",
         )}
       >
@@ -1085,8 +1101,8 @@ function AllowRuleOverrideSection({
             className={cn(
               "h-6 w-6 shrink-0 rounded flex items-center justify-center mt-0.5",
               allow
-                ? "bg-gray-100 text-gray-500"
-                : "bg-amber-100 text-amber-700",
+                ? "bg-gray-100 text-gray-500 dark:bg-surface-muted dark:text-ink-subtle"
+                : "bg-amber-100 text-amber-700 dark:bg-yellow-950/40 dark:text-yellow-200",
             )}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -1139,8 +1155,8 @@ function RuleInteractionBanner({
 }) {
   if (globalMode === "empty") {
     return (
-      <div className="rounded-md border border-gray-200 bg-gray-50/60 p-2.5 text-[11px] text-gray-700 flex items-start gap-2">
-        <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" />
+      <div className="rounded-md border border-gray-200 bg-gray-50/60 p-2.5 text-[11px] text-gray-700 flex items-start gap-2 dark:border-line dark:bg-surface-muted/60 dark:text-ink-muted">
+        <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400 dark:text-ink-subtle" />
         <span className="leading-snug">
           No global behavior is set, so rule rows are the only writer.
           Allow-rule-override has no effect here.
@@ -1209,8 +1225,8 @@ function SourceSubform({
   if (sourceType === "derived") {
     return (
       <Section title="Derived rule">
-        <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 text-[11px] text-gray-600 flex items-start gap-2">
-          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" />
+        <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 text-[11px] text-gray-600 flex items-start gap-2 dark:border-line dark:bg-surface-muted/50 dark:text-ink-muted">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400 dark:text-ink-subtle" />
           <span>
             The rule editor for derived columns is coming in a future phase.
             For now, this column will resolve to empty at export time.
@@ -1374,7 +1390,7 @@ function CatalogPickerSection({
         <select
           value={currentCatalogId ?? ""}
           onChange={(e) => handlePick(e.target.value)}
-          className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+          className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
           aria-label={`${capitalize(labelKind.singular)} selector`}
         >
           <option value="">— Pick a {labelKind.singular} —</option>
@@ -1462,7 +1478,7 @@ function FieldPickerSection({
           // already picked.
           onChange({ source_ref: { ...currentRef, field: value } });
         }}
-        className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+        className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
       >
         <option value="">— Pick a field —</option>
         {options.map((opt) => (
@@ -1550,7 +1566,7 @@ function ManualListEditor({
       <div className="space-y-1.5">
         {values.map((value, idx) => (
           <div key={idx} className="flex items-center gap-1.5">
-            <span className="w-5 shrink-0 text-[10px] font-mono text-gray-400 text-right">
+            <span className="w-5 shrink-0 text-[10px] font-mono text-gray-400 text-right dark:text-ink-subtle">
               {idx + 1}
             </span>
             <input
@@ -1562,7 +1578,7 @@ function ManualListEditor({
                 "flex-1 min-w-0 rounded-md border px-2 py-1 text-[12px] focus:outline-none focus:ring-2 focus:ring-brand-500",
                 value.trim().length === 0
                   ? "border-red-300 bg-red-50/30"
-                  : "border-gray-300",
+                  : "border-gray-300 dark:border-line",
               )}
             />
             <button
@@ -1588,7 +1604,7 @@ function ManualListEditor({
           Add value
         </Button>
         {blanks > 0 && (
-          <p className="text-[10.5px] text-orange-600 inline-flex items-start gap-1">
+          <p className="text-[10.5px] text-orange-600 inline-flex items-start gap-1 dark:text-orange-400">
             <Asterisk className="h-3 w-3 mt-0.5 shrink-0" />
             {blanks === 1
               ? "One entry is blank — fill or remove it before saving."
@@ -1714,13 +1730,13 @@ function FixedValueEditor({
         hint="Always emit this date for every row. Stored as ISO (yyyy-mm-dd); the column's date format is applied at export time."
       >
         <div className="flex items-center gap-2">
-          <CalendarDays className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <CalendarDays className="h-3.5 w-3.5 text-gray-400 shrink-0 dark:text-ink-subtle" />
           <input
             type="date"
             value={value}
             onChange={(e) => set(e.target.value)}
             maxLength={DEFAULT_VALUE_MAX_LENGTH}
-            className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+            className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
             aria-label="Fixed date value"
           />
         </div>
@@ -1749,7 +1765,7 @@ function FixedValueEditor({
           {isCurrency ? (
             <Coins className="h-3.5 w-3.5 text-gray-400 shrink-0" />
           ) : (
-            <Sigma className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+            <Sigma className="h-3.5 w-3.5 text-gray-400 shrink-0 dark:text-ink-subtle" />
           )}
           <input
             type="number"
@@ -1761,7 +1777,7 @@ function FixedValueEditor({
             inputMode="decimal"
             placeholder={isCurrency ? "0.00" : "0"}
             maxLength={DEFAULT_VALUE_MAX_LENGTH}
-            className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+            className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
             aria-label={isCurrency ? "Fixed currency value" : "Fixed number value"}
           />
           {isCurrency && (
@@ -1790,7 +1806,7 @@ function FixedValueEditor({
         onChange={(e) => set(e.target.value)}
         placeholder="e.g. USD"
         maxLength={DEFAULT_VALUE_MAX_LENGTH}
-        className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+        className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink"
       />
     </Section>
   );
@@ -1851,8 +1867,8 @@ function DefaultSelectedOption({
         title="Default selected"
         hint="Pre-select one of the allowed values as this column's default. Picks up an entry from the Allowed values above."
       >
-        <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 text-[11px] text-gray-600 flex items-start gap-2">
-          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" />
+        <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 text-[11px] text-gray-600 flex items-start gap-2 dark:border-line dark:bg-surface-muted/50 dark:text-ink-muted">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400 dark:text-ink-subtle" />
           <span>
             Add at least one allowed value above to nominate a default
             selection.
@@ -1874,7 +1890,7 @@ function DefaultSelectedOption({
           onChange={(e) =>
             onChange({ default_value: e.target.value === "" ? null : e.target.value })
           }
-          className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+          className="flex-1 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:border-line dark:bg-surface dark:text-ink"
           aria-label="Default selected value"
         >
           <option value="">— No default (operator picks at render) —</option>

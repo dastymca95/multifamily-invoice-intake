@@ -296,7 +296,7 @@ export function RuleMatrixView({
   // for the rule columns to intersect with.
   if (columns.length === 0) {
     return (
-      <div className="flex-1 min-h-0 flex items-center justify-center p-8 text-[12.5px] text-gray-500 italic">
+      <div className="flex-1 min-h-0 flex items-center justify-center p-8 text-[12.5px] text-gray-500 italic dark:text-ink-subtle">
         Add a column from the table view first — the matrix view needs
         at least one field to render.
       </div>
@@ -328,16 +328,18 @@ export function RuleMatrixView({
       : `${FIELD_COL} repeat(${ruleCount}, ${RULE_COL}) ${ADD_RULE_COL}`;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-gray-50">
+    <div className="flex-1 min-h-0 flex flex-col bg-gray-50 dark:bg-surface">
       {/* Compact toolbar above the matrix — counts + add. The template
           editor's main toolbar already has an Add Rule button; this is
           a deliberate convenience so the operator doesn't need to
           scroll back up after rolling deep into the field list. */}
-      <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 bg-white border-b border-gray-200">
-        <span className="text-[11px] text-gray-500">
+      <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 bg-white border-b border-gray-200 dark:bg-surface-subtle dark:border-line">
+        <span className="text-[11px] text-gray-500 dark:text-ink-muted">
           {columns.length} field{columns.length === 1 ? "" : "s"} ·{" "}
           {ruleCount} rule{ruleCount === 1 ? "" : "s"}{" "}
-          <span className="text-gray-400">(max {MAX_RULES})</span>
+          <span className="text-gray-400 dark:text-ink-subtle">
+            (max {MAX_RULES})
+          </span>
         </span>
         <Button
           type="button"
@@ -362,7 +364,7 @@ export function RuleMatrixView({
         <div
           role="grid"
           aria-label="Rule matrix — fields as rows, rules as columns"
-          className="inline-grid bg-white"
+          className="inline-grid bg-white dark:bg-surface"
           style={{ gridTemplateColumns }}
         >
           {/* === Header row (sticky-top) =============================== */}
@@ -370,7 +372,7 @@ export function RuleMatrixView({
           {ruleCount === 0 ? (
             <div
               role="columnheader"
-              className="sticky top-0 z-20 bg-gray-50 border-b border-gray-200 px-3 py-2 text-[11px] text-gray-400 italic"
+              className="sticky top-0 z-20 bg-gray-50 border-b border-gray-200 px-3 py-2 text-[11px] text-gray-400 italic dark:bg-surface-muted dark:border-line dark:text-ink-subtle"
             >
               No rules yet — use “Add rule” to create the first column.
             </div>
@@ -510,9 +512,10 @@ function CornerCell() {
   return (
     <div
       role="rowheader"
-      className="sticky left-0 top-0 z-30 bg-gray-100 border-b border-r border-gray-200 px-3 py-2 text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold flex items-center"
+      className="sticky left-0 top-0 z-30 bg-gray-100 border-b border-r border-gray-200 px-3 py-2 text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold flex items-center dark:bg-surface-muted dark:border-line dark:text-ink-subtle"
     >
-      Field <span className="mx-1 text-gray-300">/</span> Rule
+      Field <span className="mx-1 text-gray-300 dark:text-line-strong">/</span>{" "}
+      Rule
     </div>
   );
 }
@@ -544,7 +547,7 @@ function AddRuleColumnHeaderCell({
   return (
     <div
       role="columnheader"
-      className="sticky top-0 z-20 bg-gray-50 border-b border-gray-200 px-1 py-1.5 flex items-center justify-center"
+      className="sticky top-0 z-20 bg-gray-50 border-b border-gray-200 px-1 py-1.5 flex items-center justify-center dark:bg-surface-muted dark:border-line"
     >
       <button
         type="button"
@@ -554,7 +557,9 @@ function AddRuleColumnHeaderCell({
         aria-label={atCap ? `Rule cap reached (${cap})` : "Add rule"}
         className={cn(
           "w-full inline-flex items-center justify-center rounded-md py-1.5 text-gray-500",
+          "dark:text-ink-muted",
           "border border-dashed border-gray-300 hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700",
+          "dark:border-line dark:hover:bg-brand-900/30 dark:hover:text-brand-50",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1",
           "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-500",
         )}
@@ -601,14 +606,16 @@ function TrailingPlaceholder({
       aria-hidden="true"
       style={transformStyle}
       className={cn(
-        "border-b border-gray-200 transition-[colors,opacity,transform] duration-150",
+        "border-b border-gray-200 transition-[colors,opacity,transform] duration-150 dark:border-line/60",
         // Match the row tint so the trailing column reads as part of
         // the same row band rather than a separate empty column. The
         // selected tint uses the same body-cell shade (`bg-brand-50`)
         // so the row paints as one continuous filled band — see the
         // FieldLabelCell + RuleCellWrap selected state for the rest of
         // the band.
-        isSelected ? "bg-brand-50" : "bg-white",
+        isSelected
+          ? "bg-brand-50 dark:bg-brand-900/30"
+          : "bg-white dark:bg-surface",
         isDragged && "opacity-40",
       )}
     />
@@ -639,7 +646,7 @@ function AddFieldInlineRow({
       role="row"
       style={{ gridColumn: "1 / -1" }}
       className={cn(
-        "border-t border-dashed border-gray-300 bg-gray-50/40",
+        "border-t border-dashed border-gray-300 bg-gray-50/40 dark:border-line dark:bg-surface-muted/40",
         "px-3 py-1.5",
       )}
     >
@@ -656,7 +663,9 @@ function AddFieldInlineRow({
         className={cn(
           "w-full inline-flex items-center justify-center gap-1.5 rounded-md py-1 text-[12px] font-medium",
           "text-gray-500 border border-dashed border-gray-300",
+          "dark:text-ink-muted dark:border-line",
           "hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700",
+          "dark:hover:bg-brand-900/30 dark:hover:text-brand-50",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1",
           "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-500",
         )}
@@ -687,12 +696,14 @@ function RuleHeaderCell({
       role="columnheader"
       aria-label={`Rule ${ruleIndex + 1}`}
       className={cn(
-        "sticky top-0 z-20 border-b border-r border-gray-200 px-3 py-2 transition-colors",
-        inactive ? "bg-gray-100" : "bg-gray-50",
+        "sticky top-0 z-20 border-b border-r border-gray-200 px-3 py-2 transition-colors dark:border-line",
+        inactive
+          ? "bg-gray-100 dark:bg-surface-muted/60"
+          : "bg-gray-50 dark:bg-surface-muted",
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="text-[11px] font-mono text-gray-400 shrink-0">
+        <span className="text-[11px] font-mono text-gray-400 shrink-0 dark:text-ink-subtle">
           #{ruleIndex + 1}
         </span>
         <Switch
@@ -708,7 +719,9 @@ function RuleHeaderCell({
         <span
           className={cn(
             "text-[10.5px]",
-            rule.is_active ? "text-gray-700" : "text-gray-400 italic",
+            rule.is_active
+              ? "text-gray-700 dark:text-ink"
+              : "text-gray-400 italic dark:text-ink-subtle",
           )}
         >
           {rule.is_active ? "Active" : "Inactive"}
@@ -719,7 +732,7 @@ function RuleHeaderCell({
           onClick={onDuplicate}
           title={`Duplicate rule ${ruleIndex + 1}`}
           aria-label={`Duplicate rule ${ruleIndex + 1}`}
-          className="p-0.5 rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700"
+          className="p-0.5 rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:text-ink-subtle dark:hover:bg-surface-subtle dark:hover:text-ink"
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
@@ -728,7 +741,7 @@ function RuleHeaderCell({
           onClick={onRemove}
           title={`Delete rule ${ruleIndex + 1}`}
           aria-label={`Delete rule ${ruleIndex + 1}`}
-          className="p-0.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600"
+          className="p-0.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600 dark:text-ink-subtle dark:hover:bg-red-950/40 dark:hover:text-red-400"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -849,7 +862,7 @@ function FieldRow({
           role="gridcell"
           style={transformStyle}
           className={cn(
-            "border-b border-gray-200 px-3 py-2 text-[11px] text-gray-300 italic",
+            "border-b border-gray-200 px-3 py-2 text-[11px] text-gray-300 italic dark:border-line/60 dark:text-ink-subtle",
             "transition-[opacity,transform] duration-150",
             // Mirror the row's drag-fade so the empty-state placeholder
             // visually travels with its label cell during a reorder.
@@ -1015,8 +1028,8 @@ function FieldMenu({
         aria-label="Open field menu"
         aria-expanded={open}
         className={cn(
-          "p-0.5 rounded text-gray-400 transition-opacity",
-          "hover:text-gray-700 hover:bg-gray-100",
+          "p-0.5 rounded text-gray-400 transition-opacity dark:text-ink-subtle",
+          "hover:text-gray-700 hover:bg-gray-100 dark:hover:text-ink dark:hover:bg-surface-muted",
           open ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus:opacity-100",
         )}
       >
@@ -1039,7 +1052,7 @@ function FieldMenu({
               right: menuPos.right,
               zIndex: 50,
             }}
-            className="min-w-[11rem] rounded-md border border-gray-200 bg-white shadow-lg py-1"
+            className="min-w-[11rem] rounded-md border border-gray-200 bg-white shadow-lg py-1 dark:border-line dark:bg-surface-subtle"
           >
             <FieldMenuItem
               icon={Pencil}
@@ -1059,7 +1072,7 @@ function FieldMenu({
             >
               Column settings
             </FieldMenuItem>
-            <div className="border-t border-gray-100 my-1" />
+            <div className="border-t border-gray-100 my-1 dark:border-line/60" />
             {/* Lock toggles — mirror of the table-mode HeaderMenu so the
                 two surfaces stay coherent. Same icons (Pin / LockKeyhole)
                 the inspector's "E. Locks" section uses. */}
@@ -1081,7 +1094,7 @@ function FieldMenu({
             >
               {lockEditing ? "Unlock editing" : "Lock editing"}
             </FieldMenuItem>
-            <div className="border-t border-gray-100 my-1" />
+            <div className="border-t border-gray-100 my-1 dark:border-line/60" />
             {/* Insert above/below — vertical analog of the table-mode
                 left/right insert. Splice math lives in the parent reducer. */}
             <FieldMenuItem
@@ -1104,7 +1117,7 @@ function FieldMenu({
             >
               Insert field below
             </FieldMenuItem>
-            <div className="border-t border-gray-100 my-1" />
+            <div className="border-t border-gray-100 my-1 dark:border-line/60" />
             <FieldMenuItem
               icon={Trash2}
               danger
@@ -1146,10 +1159,10 @@ function FieldMenuItem({
       className={cn(
         "w-full flex items-center gap-2 px-2.5 py-1.5 text-[12px] text-left transition-colors",
         disabled
-          ? "text-gray-300 cursor-not-allowed"
+          ? "text-gray-300 cursor-not-allowed dark:text-ink-subtle"
           : danger
-            ? "text-red-600 hover:bg-red-50"
-            : "text-gray-700 hover:bg-gray-100",
+            ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+            : "text-gray-700 hover:bg-gray-100 dark:text-ink dark:hover:bg-surface-muted",
       )}
     >
       <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -1334,7 +1347,7 @@ function FieldLabelCell({
         "border-b-2 border-b-transparent",
         // Existing borders kept (thinner gray) inset of the indicator
         // axes — left role-band lives on its own border-l-2.
-        "border-r border-l-2 border-gray-200",
+        "border-r border-l-2 border-gray-200 dark:border-line",
         ROLE_BAND[role],
         // Selected row gets a stronger brand fill on the LABEL cell
         // (`bg-brand-100`) and a paler `bg-brand-50` continues across
@@ -1345,7 +1358,9 @@ function FieldLabelCell({
         // selected state coexists cleanly with required / locked /
         // hover / role tint without piling visuals on top of each
         // other (Part 2 of UX polish).
-        isSelected ? "bg-brand-100" : "bg-gray-50",
+        isSelected
+          ? "bg-brand-100 dark:bg-brand-900/40"
+          : "bg-gray-50 dark:bg-surface-muted",
         "px-3 py-2",
         // Vertical drop indicators: top edge before THIS row, bottom
         // edge when the drop target is past the last row.
@@ -1374,7 +1389,7 @@ function FieldLabelCell({
             no longer the only handle. */}
         <span
           aria-hidden="true"
-          className="shrink-0 -ml-1 px-0.5 py-1 text-gray-300 group-hover:text-gray-500 transition-colors"
+          className="shrink-0 -ml-1 px-0.5 py-1 text-gray-300 group-hover:text-gray-500 transition-colors dark:text-ink-subtle dark:group-hover:text-ink-muted"
           title="Drag field to reorder"
         >
           <GripHorizontal className="h-3.5 w-3.5" />
@@ -1388,7 +1403,7 @@ function FieldLabelCell({
           <span
             title="Required column — this column must have a resolved value at extract time."
             aria-label="Required column"
-            className="shrink-0 inline-flex items-center rounded bg-red-100 text-red-700 px-1 py-px text-[9px] font-bold uppercase tracking-wide ring-1 ring-red-200"
+            className="shrink-0 inline-flex items-center rounded bg-red-100 text-red-700 px-1 py-px text-[9px] font-bold uppercase tracking-wide ring-1 ring-red-200 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-900"
           >
             REQ
           </span>
@@ -1401,7 +1416,7 @@ function FieldLabelCell({
           <span
             title="Position locked — this column can't be drag-reordered. Toggle in the column inspector to unlock."
             aria-label="Position locked"
-            className="shrink-0 inline-flex items-center justify-center rounded bg-gray-200 text-gray-600 p-0.5 ring-1 ring-gray-300"
+            className="shrink-0 inline-flex items-center justify-center rounded bg-gray-200 text-gray-600 p-0.5 ring-1 ring-gray-300 dark:bg-surface-muted dark:text-ink-muted dark:ring-line"
           >
             <Pin className="h-2.5 w-2.5" />
           </span>
@@ -1426,7 +1441,7 @@ function FieldLabelCell({
           <span
             title="Allow rule override is OFF — global behavior wins; rule cells in this row won't apply at resolve time."
             aria-label="Rule override locked"
-            className="shrink-0 inline-flex items-center justify-center rounded bg-amber-100 text-amber-700 p-0.5 ring-1 ring-amber-200"
+            className="shrink-0 inline-flex items-center justify-center rounded bg-amber-100 text-amber-700 p-0.5 ring-1 ring-amber-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:ring-yellow-900"
           >
             <Lock className="h-2.5 w-2.5" />
           </span>
@@ -1454,8 +1469,8 @@ function FieldLabelCell({
               }
             }}
             className={cn(
-              "flex-1 min-w-0 px-1.5 py-0.5 text-[12px] font-semibold text-gray-800",
-              "bg-white rounded outline-none ring-2 ring-brand-500",
+              "flex-1 min-w-0 px-1.5 py-0.5 text-[12px] font-semibold text-gray-800 dark:text-ink",
+              "bg-white rounded outline-none ring-2 ring-brand-500 dark:bg-surface-subtle",
               empty && "!ring-red-300 placeholder:text-red-400",
             )}
           />
@@ -1486,12 +1501,12 @@ function FieldLabelCell({
             className={cn(
               "flex-1 min-w-0 px-1.5 py-0.5 text-left text-[12px] font-semibold rounded truncate",
               "select-none",
-              "hover:bg-white/70 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+              "hover:bg-white/70 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-surface-subtle/70 dark:focus-visible:bg-surface-subtle",
               empty
-                ? "text-red-400 italic ring-1 ring-red-300"
+                ? "text-red-400 italic ring-1 ring-red-300 dark:text-red-400 dark:ring-red-900"
                 : isSelected
-                  ? "text-brand-900"
-                  : "text-gray-800",
+                  ? "text-brand-900 dark:text-brand-50"
+                  : "text-gray-800 dark:text-ink",
             )}
           >
             {column.name || "Untitled column"}
@@ -1519,8 +1534,8 @@ function FieldLabelCell({
           className={cn(
             "shrink-0 p-1 rounded transition-colors",
             isSelected
-              ? "text-brand-700 bg-brand-100 hover:bg-brand-200"
-              : "text-gray-400 hover:text-gray-700 hover:bg-gray-100",
+              ? "text-brand-700 bg-brand-100 hover:bg-brand-200 dark:bg-brand-900/40 dark:text-brand-50 dark:hover:bg-brand-900/60"
+              : "text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-ink-subtle dark:hover:text-ink dark:hover:bg-surface-muted",
           )}
         >
           <Settings2 className="h-3.5 w-3.5" />
@@ -1561,7 +1576,7 @@ function FieldLabelCell({
         {/* Source chip — only when there's a binding to display. */}
         {sourceType !== "empty" && (
           <span
-            className="inline-flex items-center gap-0.5 rounded bg-gray-100 px-1 py-px text-[9.5px] font-medium uppercase tracking-wide text-gray-600"
+            className="inline-flex items-center gap-0.5 rounded bg-gray-100 px-1 py-px text-[9.5px] font-medium uppercase tracking-wide text-gray-600 dark:bg-surface-muted dark:text-ink-muted"
             title={SOURCE_TYPE_LABEL[sourceType]}
           >
             <SourceIcon className="h-2.5 w-2.5" />
@@ -1610,7 +1625,7 @@ function RuleCellWrap({
       role="gridcell"
       style={transformStyle}
       className={cn(
-        "border-b border-r border-gray-200 px-2 py-2 align-top",
+        "border-b border-r border-gray-200 px-2 py-2 align-top dark:border-line/60",
         // `transition-[colors,opacity,transform]` — selected-tint hover,
         // drag-source dim, and sortable shift all ease in/out instead
         // of snapping. The duration matches the field-label cell so a
@@ -1624,7 +1639,9 @@ function RuleCellWrap({
         // border/ring here so the body cells stay scannable; the
         // role-band left border on the FieldLabelCell already provides
         // enough edge to anchor the row visually.
-        isSelected ? "bg-brand-50" : "bg-white",
+        isSelected
+          ? "bg-brand-50 dark:bg-brand-900/30"
+          : "bg-white dark:bg-surface",
         isDragged && "opacity-40",
       )}
     >
@@ -1655,13 +1672,13 @@ function NotesRow({
     <>
       <div
         role="rowheader"
-        className="sticky left-0 z-10 bg-gray-50 border-b border-r border-l-2 border-l-gray-200 px-3 py-2 flex items-center gap-1.5"
+        className="sticky left-0 z-10 bg-gray-50 border-b border-r border-l-2 border-l-gray-200 px-3 py-2 flex items-center gap-1.5 dark:bg-surface-muted dark:border-line dark:border-l-line"
       >
-        <StickyNote className="h-3 w-3 text-gray-400 shrink-0" />
-        <span className="text-[12px] font-semibold text-gray-700">
+        <StickyNote className="h-3 w-3 text-gray-400 shrink-0 dark:text-ink-subtle" />
+        <span className="text-[12px] font-semibold text-gray-700 dark:text-ink">
           Notes
         </span>
-        <span className="text-[9.5px] text-gray-400 normal-case">
+        <span className="text-[9.5px] text-gray-400 normal-case dark:text-ink-subtle">
           (per rule)
         </span>
       </div>
@@ -1669,7 +1686,7 @@ function NotesRow({
         <div
           key={rule.id}
           role="gridcell"
-          className="border-b border-r border-gray-200 px-2 py-2 bg-white"
+          className="border-b border-r border-gray-200 px-2 py-2 bg-white dark:border-line/60 dark:bg-surface"
         >
           <input
             type="text"
@@ -1681,8 +1698,10 @@ function NotesRow({
             aria-label={`Notes for rule ${rule.id}`}
             className={cn(
               "w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-[12px] text-gray-700",
+              "dark:border-line dark:bg-surface-subtle dark:text-ink dark:placeholder:text-ink-subtle",
               "focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500",
-              !rule.is_active && "cursor-not-allowed bg-gray-50 opacity-70",
+              !rule.is_active &&
+                "cursor-not-allowed bg-gray-50 opacity-70 dark:bg-surface-muted",
             )}
           />
         </div>
@@ -1701,9 +1720,11 @@ function NotesRow({
 
 function EmptyRulesPanel({ onAddRule }: { onAddRule: () => void }) {
   return (
-    <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
-      <p className="text-[13px] font-medium text-gray-700">No rules yet</p>
-      <p className="text-[11.5px] text-gray-500 mt-1 max-w-md mx-auto">
+    <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center dark:border-line dark:bg-surface-subtle">
+      <p className="text-[13px] font-medium text-gray-700 dark:text-ink">
+        No rules yet
+      </p>
+      <p className="text-[11.5px] text-gray-500 mt-1 max-w-md mx-auto dark:text-ink-muted">
         Add a rule to start scoping behavior — each rule appears as its
         own column to the right of the field list, so you can compare
         rules side-by-side without horizontal scrolling.
@@ -1745,9 +1766,9 @@ const ROLE_ICONS: Record<RuleRole, LucideIcon> = {
 };
 
 const ROLE_TONE: Record<RuleRole, string> = {
-  condition: "bg-amber-50 text-amber-700",
-  restriction: "bg-violet-50 text-violet-700",
-  action: "bg-emerald-50 text-emerald-700",
+  condition: "bg-amber-50 text-amber-700 dark:bg-yellow-950/40 dark:text-yellow-200",
+  restriction: "bg-violet-50 text-violet-700 dark:bg-purple-950/40 dark:text-purple-200",
+  action: "bg-emerald-50 text-emerald-700 dark:bg-green-950/40 dark:text-green-200",
 };
 
 const ROLE_BAND: Record<RuleRole, string> = {

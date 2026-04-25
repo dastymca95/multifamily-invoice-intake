@@ -1,11 +1,25 @@
 import { cn } from "@/lib/utils";
 import { type ButtonHTMLAttributes, forwardRef } from "react";
 
+// `dark:*` overrides keep the button readable across themes without
+// changing the brand identity:
+//   * primary stays brand blue in both modes (Rivera blue is a
+//     constant — see the brand-color note in tailwind.config.ts)
+//   * secondary swaps its white-on-gray-border surface for the slate
+//     surface tokens
+//   * danger keeps the red accent (red palette stays usable on dark)
+//   * ghost is purely chrome and follows the surface tokens
 const variants = {
-  primary: "bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500",
-  secondary: "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50",
-  danger: "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500",
-  ghost: "text-gray-600 hover:bg-gray-100",
+  primary:
+    "bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500",
+  secondary:
+    "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 " +
+    "dark:bg-surface-subtle dark:text-ink dark:border-line dark:hover:bg-surface-muted",
+  danger:
+    "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500",
+  ghost:
+    "text-gray-600 hover:bg-gray-100 " +
+    "dark:text-ink-muted dark:hover:bg-surface-muted",
 };
 
 const sizes = {

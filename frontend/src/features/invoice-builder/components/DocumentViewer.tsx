@@ -571,7 +571,13 @@ export function DocumentViewer({
   return (
     <div
       ref={outerRef}
-      className="relative flex-1 min-h-0 overflow-auto bg-gray-200 p-4"
+      // Workspace surrounding the page. Light: subtle gray to make the
+      // white page pop. Dark: deep slate so the page reads as the
+      // bright "real document" inside a dim workspace. CRITICAL: the
+      // PDF page surface itself stays bg-white in both themes — see
+      // the inner `containerRef` div below — because it represents the
+      // actual document, not chrome.
+      className="relative flex-1 min-h-0 overflow-auto bg-gray-200 p-4 dark:bg-surface"
       onDragEnter={onDragEnterOuter}
       onDragOver={onDragOverOuter}
       onDragLeave={onDragLeaveOuter}
@@ -581,13 +587,13 @@ export function DocumentViewer({
         // Empty state — no file selected. Still a valid drop target
         // so the operator can drop a file directly into an empty
         // pattern.
-        <div className="h-full min-h-[16rem] flex items-center justify-center text-gray-500">
+        <div className="h-full min-h-[16rem] flex items-center justify-center text-gray-500 dark:text-ink-subtle">
           <div className="text-center max-w-sm">
-            <MousePointerSquareDashed className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-            <p className="text-[12.5px] font-medium text-gray-700">
+            <MousePointerSquareDashed className="h-8 w-8 mx-auto text-gray-400 dark:text-ink-subtle mb-2" />
+            <p className="text-[12.5px] font-medium text-gray-700 dark:text-ink">
               Select a training document
             </p>
-            <p className="text-[11px] text-gray-500 mt-1">
+            <p className="text-[11px] text-gray-500 dark:text-ink-muted mt-1">
               Pick a file from the list above, drop one here, or
               upload a new one to start drawing regions.
             </p>
@@ -603,6 +609,10 @@ export function DocumentViewer({
           // fallback forces a US Letter-ish aspect — otherwise the
           // container would collapse to 0 height with no overlay
           // surface.
+          //
+          // bg-white stays in BOTH themes here on purpose — this is the
+          // real document, not app chrome, and inverting it would make
+          // PDF text unreadable.
           className={cn(
             "relative mx-auto bg-white shadow-md select-none",
             !isImage && !isPdf && "aspect-[8.5/11]",
@@ -788,7 +798,7 @@ export function DocumentViewer({
       {/* ---- Polygon-mode placeholder --------------------------- */}
       {file && isPolygonPlaceholder && (
         <div
-          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-sm border border-amber-300 px-3 py-1.5 rounded-md shadow text-[11.5px] text-amber-800 pointer-events-none"
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-sm border border-amber-300 px-3 py-1.5 rounded-md shadow text-[11.5px] text-amber-800 pointer-events-none dark:bg-surface-subtle/95 dark:border-yellow-900 dark:text-yellow-200"
           aria-live="polite"
         >
           {toolDescriptor.label} — coming soon. Switch tools to keep editing.
@@ -801,12 +811,12 @@ export function DocumentViewer({
           className="absolute inset-0 z-20 flex items-center justify-center bg-brand-500/15 border-2 border-dashed border-brand-500 m-2 rounded-lg pointer-events-none"
           aria-hidden
         >
-          <div className="bg-white/95 px-4 py-3 rounded-lg shadow text-center">
-            <Upload className="h-6 w-6 mx-auto text-brand-600" />
-            <p className="text-[13px] font-semibold text-gray-800 mt-1">
+          <div className="bg-white/95 px-4 py-3 rounded-lg shadow text-center dark:bg-surface-subtle/95 dark:border dark:border-line">
+            <Upload className="h-6 w-6 mx-auto text-brand-600 dark:text-brand-50" />
+            <p className="text-[13px] font-semibold text-gray-800 mt-1 dark:text-ink">
               {uploading ? "Reading file…" : "Drop to add training files"}
             </p>
-            <p className="text-[11px] text-gray-500 mt-0.5">
+            <p className="text-[11px] text-gray-500 mt-0.5 dark:text-ink-muted">
               PDFs and images, up to 10 MB each.
             </p>
           </div>
@@ -887,6 +897,9 @@ function ResizeHandleSquare({
 
 function UnknownPlaceholder({ file }: { file: InvoicePatternSourceFile }) {
   return (
+    // bg-gray-50 stays in dark mode here too — this stands in for a
+    // missing PDF page surface, so it follows the same "stay light to
+    // represent the document" rule.
     <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 text-center px-6">
       <FileText className="h-10 w-10 text-gray-300 mb-2" />
       <p className="text-[13px] font-medium text-gray-700">

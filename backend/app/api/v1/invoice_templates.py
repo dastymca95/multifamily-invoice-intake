@@ -38,6 +38,7 @@ from app.dependencies import DB, CurrentUser
 from app.models.invoice_template import InvoiceTemplate
 from app.repositories.invoice_template_repo import InvoiceTemplateRepository
 from app.schemas.invoice_template import (
+    ImportTemplateValidationResult,
     InvoiceTemplateCreate,
     InvoiceTemplateDefault,
     InvoiceTemplateList,
@@ -46,6 +47,7 @@ from app.schemas.invoice_template import (
     InvoiceTemplateUpdate,
     build_default_template,
 )
+from app.services.import_template_validation import validate_import_template
 
 router = APIRouter(prefix="/invoice-templates", tags=["invoice-templates"])
 
@@ -167,6 +169,26 @@ async def get_invoice_template(
             status_code=404, detail="Invoice template not found"
         )
     return InvoiceTemplateOut.model_validate(row)
+
+
+@router.get("/{template_id}/validate", response_model=ImportTemplateValidationResult)
+async def validate_invoice_template(
+    template_id: uuid.UUID,
+    db: DB,
+    user: CurrentUser,
+) -> ImportTemplateValidationResult:
+    """Return readiness diagnostics for a saved template.
+
+    This is an explicit gate for operational use. It does not mutate the
+    template and it does not make draft save stricter.
+    """
+    repo = InvoiceTemplateRepository(db)
+    row = await repo.get(template_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Invoice template not found"
+        )
+    return await validate_import_template(row, db)
 
 
 @router.patch("/{template_id}", response_model=InvoiceTemplateOut)

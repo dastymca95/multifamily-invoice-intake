@@ -140,8 +140,10 @@ export function MultiTagInput({
     <div
       className={cn(
         "flex flex-wrap items-center gap-1 rounded-md border border-gray-300 bg-white px-1.5 py-1",
+        "dark:border-line dark:bg-surface",
         "focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500",
-        disabled && "cursor-not-allowed bg-gray-50 opacity-70",
+        disabled &&
+          "cursor-not-allowed bg-gray-50 opacity-70 dark:bg-surface-muted",
         className,
       )}
     >
@@ -149,8 +151,9 @@ export function MultiTagInput({
         <span
           key={`${value}-${index}`}
           className={cn(
-            "inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[12px] font-medium text-brand-700",
-            disabled && "bg-gray-100 text-gray-600",
+            "inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[12px] font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-50",
+            disabled &&
+              "bg-gray-100 text-gray-600 dark:bg-surface-muted dark:text-ink-muted",
           )}
         >
           <span className="max-w-[180px] truncate" title={value}>
@@ -185,7 +188,7 @@ export function MultiTagInput({
         aria-label={inputAriaLabel}
         maxLength={maxValueLength}
         className={cn(
-          "min-w-[80px] flex-1 bg-transparent px-1 py-0.5 text-[13px] text-gray-800 placeholder:text-gray-400",
+          "min-w-[80px] flex-1 bg-transparent px-1 py-0.5 text-[13px] text-gray-800 placeholder:text-gray-400 dark:text-ink dark:placeholder:text-ink-subtle",
           "focus:outline-none disabled:cursor-not-allowed",
         )}
       />

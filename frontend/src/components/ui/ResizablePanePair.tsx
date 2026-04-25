@@ -195,9 +195,13 @@ export function ResizablePanePair({
         title="Drag to resize · double-click to reset"
         className={cn(
           "shrink-0 mx-1.5 my-1 w-1.5 rounded-full cursor-col-resize",
+          // Light: subtle gray pill that brightens to brand on hover.
+          // Dark: lifted slate pill against the slate-900 page so the
+          // divider stays visible without screaming.
           "bg-gray-200 hover:bg-brand-300 transition-colors",
+          "dark:bg-line dark:hover:bg-brand-500",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300",
-          dragging && "bg-brand-400",
+          dragging && "bg-brand-400 dark:bg-brand-500",
         )}
       />
       <div className="h-full flex-1 min-w-0 min-h-0">{right}</div>

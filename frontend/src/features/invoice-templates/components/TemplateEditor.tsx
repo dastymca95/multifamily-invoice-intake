@@ -42,6 +42,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
 import { InlineAlert } from "@/components/ui/InlineAlert";
 import { Switch } from "@/components/ui/Switch";
+import { getApiErrorMessage, invoiceTemplatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   MAX_COLUMNS,
@@ -51,6 +52,7 @@ import {
   RULE_ROLE_LABEL,
   SOURCE_TYPE_LABEL,
   type ColumnSourceType,
+  type ImportTemplateValidationResult,
   type InvoiceTemplateColumn,
   type InvoiceTemplateRule,
   type InvoiceTemplateRuleCell,
@@ -71,6 +73,7 @@ import {
 import type { CatalogIndex } from "../hooks/useCatalogIndex";
 
 import { ColumnInspector } from "./ColumnInspector";
+import { ImportTemplateValidationPanel } from "./ImportTemplateValidationPanel";
 import {
   type BuilderLayoutMode,
   LayoutToggle,
@@ -321,6 +324,11 @@ export function TemplateEditor({
   // together on save.
   const [rules, setRules] = useState<InvoiceTemplateRule[]>(initial.rules);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [validationOpen, setValidationOpen] = useState(false);
+  const [validationLoading, setValidationLoading] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [validationResult, setValidationResult] =
+    useState<ImportTemplateValidationResult | null>(null);
   // Which column the inspector is currently bound to. Null hides the
   // right-side panel; selecting a column shows it. Cleared on template
   // switch + when the selected column is removed.
@@ -355,6 +363,10 @@ export function TemplateEditor({
     setColumns(initial.columns);
     setRules(initial.rules);
     setConfirmingDelete(false);
+    setValidationOpen(false);
+    setValidationLoading(false);
+    setValidationError(null);
+    setValidationResult(null);
     setDraggedIdx(null);
     setDropIdx(null);
     setSelectedColumnId(null);
@@ -405,6 +417,28 @@ export function TemplateEditor({
     setColumns(initial.columns);
     setRules(initial.rules);
   };
+
+  const handleValidate = useCallback(async () => {
+    setValidationOpen(true);
+    setValidationResult(null);
+    if (isDraft) {
+      setValidationError("Save this template before checking readiness.");
+      return;
+    }
+
+    setValidationLoading(true);
+    setValidationError(null);
+    try {
+      const result = await invoiceTemplatesApi.validate(templateKey);
+      setValidationResult(result);
+    } catch (err) {
+      setValidationError(
+        getApiErrorMessage(err, "Could not validate this template."),
+      );
+    } finally {
+      setValidationLoading(false);
+    }
+  }, [isDraft, templateKey]);
 
   // ---- Auto-enter rename signal -------------------------------------------
   // After "+ add column" we want the new header to flip straight into
@@ -761,6 +795,24 @@ export function TemplateEditor({
           </span>
           <div className="flex-1" />
           <LayoutToggle mode={layoutMode} onChange={handleSetLayoutMode} />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={validationLoading}
+            loading={validationLoading}
+            onClick={handleValidate}
+            title={
+              isDraft
+                ? "Save this template before checking readiness."
+                : dirty
+                  ? "Checks the last saved version."
+                  : "Check readiness"
+            }
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+            Validate
+          </Button>
           <Button
             type="button"
             variant="primary"
@@ -1236,6 +1288,14 @@ export function TemplateEditor({
           onClose={() => setSelectedColumnId(null)}
         />
       )}
+      <ImportTemplateValidationPanel
+        open={validationOpen}
+        loading={validationLoading}
+        error={validationError}
+        result={validationResult}
+        hasUnsavedChanges={dirty && !isDraft}
+        onClose={() => setValidationOpen(false)}
+      />
     </div>
   );
 }

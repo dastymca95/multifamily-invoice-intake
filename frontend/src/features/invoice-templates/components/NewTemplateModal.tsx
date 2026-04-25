@@ -259,7 +259,7 @@ export function NewTemplateModal({
             maxLength={255}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Default invoice export"
-            className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
           />
         </div>
 
@@ -271,7 +271,7 @@ export function NewTemplateModal({
             rows={2}
             placeholder="Optional — what's this template for?"
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full resize-none rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full resize-none rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
           />
         </div>
 
@@ -404,14 +404,14 @@ function UploadedSourceCard({
   // Plus a parse-error overlay when the just-uploaded file failed
   // to parse on the server.
   return (
-    <div className="ml-10 rounded-md border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-[11px]">
-      <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5">
+    <div className="ml-10 rounded-md border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-[11px] dark:border-line dark:bg-surface-muted/50">
+      <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5 dark:text-ink-subtle">
         Template file for this draft
       </p>
 
       {uploading ? (
         <div className="space-y-1.5">
-          <p className="inline-flex items-center gap-1.5 text-gray-700 font-medium">
+          <p className="inline-flex items-center gap-1.5 text-gray-700 font-medium dark:text-ink-muted">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" />
             Uploading ResMan template…
           </p>
@@ -421,7 +421,7 @@ function UploadedSourceCard({
               style={{ width: `${Math.max(2, progress)}%` }}
             />
           </div>
-          <p className="text-[10px] text-gray-500">
+          <p className="text-[10px] text-gray-500 dark:text-ink-muted">
             {progress}% · once parsed, the columns will appear below.
           </p>
         </div>
@@ -436,7 +436,7 @@ function UploadedSourceCard({
               column{source.columns!.length === 1 ? "" : "s"}
               {source.updatedAt && (
                 <>
-                  <span className="text-gray-300 mx-1">·</span>
+                  <span className="text-gray-300 dark:text-line-strong mx-1">·</span>
                   Uploaded {formatDate(source.updatedAt)}
                 </>
               )}
@@ -460,7 +460,7 @@ function UploadedSourceCard({
           }
         />
       ) : (
-        <p className="text-gray-600">
+        <p className="text-gray-600 dark:text-ink-muted">
           No file picked yet. Upload a ResMan template to use its
           columns as the starting point for this template.
         </p>
@@ -497,7 +497,7 @@ function UploadedSourceCard({
       )}
 
       {hasFile && (
-        <p className="text-[10px] text-gray-400 mt-2">
+        <p className="text-[10px] text-gray-400 mt-2 dark:text-ink-subtle">
           You can replace this file before creating the template — it
           only seeds the starting columns.
         </p>
@@ -533,12 +533,12 @@ function SourceMetaRow({
       </div>
       <div className="flex-1 min-w-0">
         <p
-          className="text-[12px] font-semibold text-gray-800 truncate"
+          className="text-[12px] font-semibold text-gray-800 truncate dark:text-ink"
           title={filename}
         >
           {filename}
         </p>
-        <p className="text-[10.5px] text-gray-600">{summary}</p>
+        <p className="text-[10.5px] text-gray-600 dark:text-ink-muted">{summary}</p>
       </div>
     </div>
   );
@@ -572,7 +572,7 @@ function StartOption({
         "w-full text-left rounded-md border px-3 py-2.5 transition-colors flex items-start gap-2.5",
         selected
           ? "border-brand-500 bg-brand-50/60 ring-1 ring-brand-200"
-          : "border-gray-200 hover:bg-gray-50",
+          : "border-gray-200 hover:bg-gray-50 dark:border-line dark:hover:bg-surface-muted",
         disabled && "opacity-50 cursor-not-allowed hover:bg-transparent",
       )}
       aria-pressed={selected}
@@ -586,7 +586,9 @@ function StartOption({
         <Icon
           className={cn(
             "h-4 w-4",
-            selected ? "text-brand-700" : "text-gray-600",
+            selected
+              ? "text-brand-700 dark:text-brand-50"
+              : "text-gray-600 dark:text-ink-muted",
           )}
         />
       </div>
@@ -594,12 +596,16 @@ function StartOption({
         <p
           className={cn(
             "text-[12.5px] font-semibold",
-            selected ? "text-brand-800" : "text-gray-800",
+            selected
+              ? "text-brand-800 dark:text-brand-50"
+              : "text-gray-800 dark:text-ink",
           )}
         >
           {title}
         </p>
-        <p className="text-[10.5px] text-gray-500 mt-0.5">{description}</p>
+        <p className="text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-muted">
+          {description}
+        </p>
       </div>
     </button>
   );
@@ -615,7 +621,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="block text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1"
+      className="block text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1 dark:text-ink-subtle"
     >
       {children}
     </label>

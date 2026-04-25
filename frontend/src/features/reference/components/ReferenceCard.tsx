@@ -122,22 +122,23 @@ export function ReferenceCard({
     <section
       className={cn(
         "bg-white rounded-xl border flex flex-col transition-shadow",
+        "dark:bg-surface-subtle dark:border-line",
         onSelect && "cursor-pointer hover:shadow-sm",
-        selected && "ring-2 ring-brand-500 border-brand-200",
+        selected && "ring-2 ring-brand-500 border-brand-200 dark:border-brand-500/40",
       )}
       onClick={handleSectionClick}
       aria-pressed={onSelect ? selected : undefined}
     >
       {/* ---- Header (always present) --------------------------------- */}
-      <div className="px-4 py-3 border-b flex items-start gap-3">
+      <div className="px-4 py-3 border-b border-gray-200 flex items-start gap-3 dark:border-line">
         <div
           className={cn(
             "h-9 w-9 shrink-0 rounded-md flex items-center justify-center",
             isPopulated
               ? parseFailed
-                ? "bg-yellow-100"
-                : "bg-brand-50"
-              : "bg-gray-100",
+                ? "bg-yellow-100 dark:bg-yellow-950/40"
+                : "bg-brand-50 dark:bg-brand-900/40"
+              : "bg-gray-100 dark:bg-surface-muted",
           )}
         >
           <Icon
@@ -145,20 +146,20 @@ export function ReferenceCard({
               "h-4 w-4",
               isPopulated
                 ? parseFailed
-                  ? "text-yellow-700"
-                  : "text-brand-700"
-                : "text-gray-500",
+                  ? "text-yellow-700 dark:text-yellow-200"
+                  : "text-brand-700 dark:text-brand-50"
+                : "text-gray-500 dark:text-ink-subtle",
             )}
           />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-sm font-semibold text-gray-800">
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
               {slot.label}
             </h2>
             <StatusBadge populated={isPopulated} parseFailed={parseFailed} />
           </div>
-          <p className="text-[11.5px] text-gray-500 mt-0.5">
+          <p className="text-[11.5px] text-gray-500 mt-0.5 dark:text-ink-muted">
             {slot.description}
           </p>
         </div>
@@ -245,24 +246,24 @@ function EmptyState({
           "border-2 border-dashed rounded-md px-4 py-6 text-center transition-colors",
           "flex flex-col items-center justify-center gap-1.5",
           uploading
-            ? "border-brand-300 bg-brand-50/50 cursor-wait"
-            : "border-gray-200 hover:border-brand-300 hover:bg-brand-50/40",
+            ? "border-brand-300 bg-brand-50/50 cursor-wait dark:border-brand-500/40 dark:bg-brand-900/20"
+            : "border-gray-200 hover:border-brand-300 hover:bg-brand-50/40 dark:border-line dark:hover:border-brand-500 dark:hover:bg-brand-900/20",
         )}
       >
         {uploading ? (
           <>
-            <Loader2 className="h-5 w-5 text-brand-600 animate-spin" />
-            <p className="text-xs font-medium text-brand-700">
+            <Loader2 className="h-5 w-5 text-brand-600 animate-spin dark:text-brand-50" />
+            <p className="text-xs font-medium text-brand-700 dark:text-brand-50">
               Uploading… {uploadProgress}%
             </p>
           </>
         ) : (
           <>
-            <Upload className="h-5 w-5 text-gray-400" />
-            <p className="text-xs font-medium text-gray-700">
+            <Upload className="h-5 w-5 text-gray-400 dark:text-ink-subtle" />
+            <p className="text-xs font-medium text-gray-700 dark:text-ink">
               Click to upload
             </p>
-            <p className="text-[10.5px] text-gray-400">
+            <p className="text-[10.5px] text-gray-400 dark:text-ink-subtle">
               .csv or .xlsx — up to the configured size limit
             </p>
           </>
@@ -310,17 +311,17 @@ function PopulatedState({
     <>
       {/* ---- Filename + meta row ------------------------------------- */}
       <div className="flex items-start gap-2">
-        <FileText className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
+        <FileText className="h-4 w-4 text-gray-400 mt-0.5 shrink-0 dark:text-ink-subtle" />
         <div className="min-w-0 flex-1">
           <p
-            className="text-[12.5px] font-medium text-gray-800 truncate"
+            className="text-[12.5px] font-medium text-gray-800 truncate dark:text-ink"
             title={current.original_filename}
           >
             {current.original_filename}
           </p>
-          <p className="text-[10.5px] text-gray-500 mt-0.5">
+          <p className="text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-muted">
             {formatFileSize(current.file_size_bytes)}
-            <span className="mx-1.5 text-gray-300">·</span>
+            <span className="mx-1.5 text-gray-300 dark:text-line-strong">·</span>
             Updated {formatDate(current.updated_at)}
           </p>
         </div>
@@ -359,11 +360,11 @@ function PopulatedState({
 
       {/* ---- Inline confirm before remove --------------------------- */}
       {confirmingRemove && (
-        <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2.5 text-[11.5px] text-yellow-900 flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-yellow-700" />
+        <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2.5 text-[11.5px] text-yellow-900 flex items-start gap-2 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-yellow-700 dark:text-yellow-400" />
           <div className="min-w-0 flex-1">
             <p className="font-semibold">Remove this reference file?</p>
-            <p className="mt-0.5 text-yellow-900/80">
+            <p className="mt-0.5 text-yellow-900/80 dark:text-yellow-200/80">
               The stored file and its parsed columns will be cleared. You can
               upload a replacement at any time.
             </p>
@@ -437,21 +438,21 @@ function CompactParsedLine({
 }) {
   if (columnCount === 0) {
     return (
-      <p className="text-[11.5px] text-gray-500 inline-flex items-center gap-1">
-        <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+      <p className="text-[11.5px] text-gray-500 dark:text-ink-muted inline-flex items-center gap-1">
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
         File stored — no columns detected.
       </p>
     );
   }
   return (
-    <p className="text-[11.5px] text-gray-700 inline-flex items-center gap-1.5 flex-wrap">
-      <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+    <p className="text-[11.5px] text-gray-700 dark:text-ink inline-flex items-center gap-1.5 flex-wrap">
+      <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
       <span>
         <span className="font-medium">{columnCount}</span> column
         {columnCount === 1 ? "" : "s"}
         {rowCount != null && (
           <>
-            <span className="text-gray-300 mx-1">·</span>
+            <span className="text-gray-300 mx-1 dark:text-line-strong">·</span>
             <span className="font-medium">{rowCount.toLocaleString()}</span>{" "}
             row{rowCount === 1 ? "" : "s"}
           </>
@@ -487,8 +488,8 @@ function ParsedSummary({
 }) {
   if (columns.length === 0) {
     return (
-      <p className="text-[11.5px] text-gray-500 inline-flex items-center gap-1">
-        <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+      <p className="text-[11.5px] text-gray-500 dark:text-ink-muted inline-flex items-center gap-1">
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
         File stored — no columns detected.
       </p>
     );
@@ -497,14 +498,14 @@ function ParsedSummary({
   return (
     <div className="space-y-2">
       {/* ---- One-line summary -------------------------------------- */}
-      <div className="text-[11.5px] text-gray-700 flex items-center gap-1.5 flex-wrap">
-        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+      <div className="text-[11.5px] text-gray-700 dark:text-ink flex items-center gap-1.5 flex-wrap">
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
         <span>
           <span className="font-medium">{columns.length}</span>{" "}
           column{columns.length === 1 ? "" : "s"}
           {rowCount != null && (
             <>
-              <span className="text-gray-300 mx-1">·</span>
+              <span className="text-gray-300 mx-1 dark:text-line-strong">·</span>
               <span className="font-medium">{rowCount.toLocaleString()}</span>{" "}
               row{rowCount === 1 ? "" : "s"}
             </>
@@ -520,7 +521,7 @@ function ParsedSummary({
 
       {/* ---- Detected-columns chip list ---------------------------- */}
       <div>
-        <p className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold mb-1">
+        <p className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold mb-1 dark:text-ink-subtle">
           Detected columns
         </p>
         <div className="flex flex-wrap gap-1">
@@ -530,8 +531,8 @@ function ParsedSummary({
               className={cn(
                 "inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-mono",
                 isTemplate
-                  ? "bg-blue-50 text-blue-800 border border-blue-100"
-                  : "bg-gray-50 text-gray-700 border border-gray-200",
+                  ? "bg-blue-50 text-blue-800 border border-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900"
+                  : "bg-gray-50 text-gray-700 border border-gray-200 dark:bg-surface-muted dark:text-ink-muted dark:border-line",
               )}
               title={col}
             >
@@ -547,7 +548,7 @@ function ParsedSummary({
           <button
             type="button"
             onClick={onToggleSample}
-            className="text-[11px] font-medium text-brand-600 hover:text-brand-700 hover:underline"
+            className="text-[11px] font-medium text-brand-600 hover:text-brand-700 hover:underline dark:text-brand-50 dark:hover:text-brand-50/80"
           >
             {showSample
               ? "Hide sample rows"
@@ -556,14 +557,14 @@ function ParsedSummary({
                 }`}
           </button>
           {showSample && (
-            <div className="mt-1.5 overflow-x-auto rounded-md border border-gray-200">
+            <div className="mt-1.5 overflow-x-auto rounded-md border border-gray-200 dark:border-line">
               <table className="min-w-full text-[10.5px]">
-                <thead className="bg-gray-50 text-gray-600">
+                <thead className="bg-gray-50 text-gray-600 dark:bg-surface-muted dark:text-ink-muted">
                   <tr>
                     {columns.map((col, i) => (
                       <th
                         key={`${col}-${i}`}
-                        className="px-2 py-1.5 text-left font-medium whitespace-nowrap border-b border-gray-200"
+                        className="px-2 py-1.5 text-left font-medium whitespace-nowrap border-b border-gray-200 dark:border-line"
                       >
                         {col}
                       </th>
@@ -574,12 +575,16 @@ function ParsedSummary({
                   {sampleRows.map((row, ri) => (
                     <tr
                       key={ri}
-                      className={ri % 2 === 0 ? "bg-white" : "bg-gray-50/50"}
+                      className={
+                        ri % 2 === 0
+                          ? "bg-white dark:bg-surface"
+                          : "bg-gray-50/50 dark:bg-surface-muted/50"
+                      }
                     >
                       {columns.map((col, ci) => (
                         <td
                           key={`${ci}-${col}`}
-                          className="px-2 py-1 align-top text-gray-700 whitespace-nowrap max-w-[14rem] truncate"
+                          className="px-2 py-1 align-top text-gray-700 whitespace-nowrap max-w-[14rem] truncate dark:text-ink-muted"
                           title={row[col] ?? ""}
                         >
                           {row[col] ?? ""}

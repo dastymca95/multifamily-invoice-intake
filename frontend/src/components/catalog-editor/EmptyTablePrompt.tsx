@@ -30,11 +30,13 @@ export function EmptyTablePrompt({
 }: EmptyTablePromptProps) {
   return (
     <div className="py-2">
-      <div className="mx-auto h-10 w-10 rounded-full bg-brand-50 flex items-center justify-center mb-2">
-        <Icon className="h-5 w-5 text-brand-600" />
+      <div className="mx-auto h-10 w-10 rounded-full bg-brand-50 dark:bg-brand-900/40 flex items-center justify-center mb-2">
+        <Icon className="h-5 w-5 text-brand-600 dark:text-brand-50" />
       </div>
-      <p className="text-sm font-medium text-gray-700">{title}</p>
-      <p className="text-[11px] text-gray-500 mt-1 max-w-md mx-auto">{body}</p>
+      <p className="text-sm font-medium text-gray-700 dark:text-ink">{title}</p>
+      <p className="text-[11px] text-gray-500 dark:text-ink-subtle mt-1 max-w-md mx-auto">
+        {body}
+      </p>
       <Button
         type="button"
         variant="secondary"

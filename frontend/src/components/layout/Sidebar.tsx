@@ -11,6 +11,8 @@ import {
   FileText,
   Hash,
   LayoutGrid,
+  LifeBuoy,
+  Settings,
   Upload,
   Users,
 } from "lucide-react";
@@ -20,6 +22,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
+
+import { RiveraLogo } from "./RiveraLogo";
 
 /**
  * Sidebar navigation.
@@ -119,24 +123,67 @@ const navItems: NavItem[] = [
   { href: "/invoice-builder", label: "Invoice Builder", icon: FileSearch },
 ];
 
+/**
+ * Account / utility entries. Pinned to the bottom of the sidebar
+ * with a divider above so they don't compete with the workspace
+ * verbs above. Help is a leaf into the in-app help center; Settings
+ * targets the section root (`/settings`) which server-side-redirects
+ * to `/settings/profile` — same pattern Reference Data uses. Routing
+ * to the bare section root means the existing `startsWith` active
+ * detection in SidebarLink lights up for ANY `/settings/*` sub-route,
+ * not just profile.
+ */
+const utilityNavItems: NavLeaf[] = [
+  { href: "/help", label: "Help", icon: LifeBuoy },
+  { href: "/settings", label: "Settings", icon: Settings },
+];
+
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-60 shrink-0 bg-brand-900 text-white flex flex-col min-h-screen">
-      <div className="px-6 py-5 border-b border-brand-700">
-        <span className="text-lg font-bold tracking-tight">BillsIQ</span>
-        <p className="text-xs text-brand-50/60 mt-0.5">Property Accounting</p>
+    // Sidebar palette stays inverted in BOTH themes — brand-900 in
+    // light mode, slate-950 in dark — so the brand square + nav still
+    // read as the "chrome" of the app rather than blending into the
+    // page surface. Border + text muting tokens swap.
+    <aside className="w-60 shrink-0 bg-brand-900 text-white dark:bg-surface-inverted flex flex-col min-h-screen">
+      {/* Brand mark — Rivera logo + wordmark. Logo lives as inline SVG
+          (see RiveraLogo) so there's no public/ asset to ship. The
+          tagline below the wordmark stays anchored to the property-
+          accounting positioning. */}
+      <div className="px-5 py-5 border-b border-brand-700 flex items-center gap-3">
+        <RiveraLogo className="h-9 w-9 shrink-0" title="Rivera" />
+        <div className="min-w-0">
+          <span className="block text-lg font-bold tracking-tight leading-none">
+            Rivera
+          </span>
+          <p className="text-[11px] text-brand-50/60 mt-1 leading-none">
+            Property Accounting
+          </p>
+        </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map((item) =>
-          isSection(item) ? (
-            <SidebarSection key={item.id} item={item} pathname={pathname} />
-          ) : (
+      <nav className="flex-1 flex flex-col px-3 py-4">
+        <div className="space-y-1">
+          {navItems.map((item) =>
+            isSection(item) ? (
+              <SidebarSection key={item.id} item={item} pathname={pathname} />
+            ) : (
+              <SidebarLink key={item.href} item={item} pathname={pathname} />
+            ),
+          )}
+        </div>
+        {/* Utility tray — pinned to the bottom with a soft divider so
+            the workspace verbs above don't compete for visual weight
+            with always-available entries like Help / Settings.
+            `mt-auto` does the pinning; if the sidebar ever gets short
+            on vertical space the workspace list scrolls and this tray
+            stays glued to the bottom. */}
+        <div className="mt-auto pt-3 border-t border-brand-700/60 space-y-1">
+          {utilityNavItems.map((item) => (
             <SidebarLink key={item.href} item={item} pathname={pathname} />
-          ),
-        )}
+          ))}
+        </div>
       </nav>
     </aside>
   );

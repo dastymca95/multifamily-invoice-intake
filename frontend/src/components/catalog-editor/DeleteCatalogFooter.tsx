@@ -36,10 +36,12 @@ export function DeleteCatalogFooter({
   const [confirming, setConfirming] = useState(false);
 
   return (
-    <div className="px-5 py-3 border-t bg-white flex items-center gap-2">
+    <div className="px-5 py-3 border-t border-gray-200 bg-white flex items-center gap-2 dark:border-line dark:bg-surface-subtle">
       {confirming ? (
         <>
-          <span className="text-[12.5px] text-gray-700">{confirmMessage}</span>
+          <span className="text-[12.5px] text-gray-700 dark:text-ink-muted">
+            {confirmMessage}
+          </span>
           <Button
             type="button"
             variant="ghost"
@@ -65,7 +67,7 @@ export function DeleteCatalogFooter({
           type="button"
           variant="ghost"
           size="sm"
-          className="text-red-600 hover:bg-red-50"
+          className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
           onClick={() => setConfirming(true)}
           disabled={saving}
         >

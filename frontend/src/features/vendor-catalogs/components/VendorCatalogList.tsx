@@ -65,16 +65,16 @@ export function VendorCatalogList({
   const showDraftEntry = hasDraft && (items.length === 0 || viewingDraft);
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-gray-200">
+    <div className="flex flex-col h-full bg-white border-r border-gray-200 dark:bg-surface-subtle dark:border-line">
       {/* ---- Header ----------------------------------------------------- */}
-      <div className="px-4 py-3 border-b">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-line">
         <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-brand-700" />
-          <h2 className="text-sm font-semibold text-gray-800">
+          <Layers className="h-4 w-4 text-brand-700 dark:text-brand-50" />
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
             Saved catalogs
           </h2>
         </div>
-        <p className="text-[10.5px] text-gray-500 mt-0.5">
+        <p className="text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-subtle">
           Each entry is a saved vendor master list. Open one to edit
           its rows, or create a new catalog from a starter.
         </p>
@@ -112,7 +112,7 @@ export function VendorCatalogList({
             </InlineAlert>
           </div>
         ) : loading && items.length === 0 ? (
-          <p className="p-4 text-xs text-gray-500 inline-flex items-center gap-2">
+          <p className="p-4 text-xs text-gray-500 dark:text-ink-subtle inline-flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Loading saved catalogs…
           </p>
@@ -171,14 +171,16 @@ function CatalogRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60"
-            : "border-l-transparent hover:bg-gray-50",
+            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
         <p
           className={cn(
             "text-[12.5px] font-semibold truncate",
-            selected ? "text-brand-800" : "text-gray-800",
+            selected
+              ? "text-brand-800 dark:text-brand-50"
+              : "text-gray-800 dark:text-ink",
           )}
           title={item.name}
         >
@@ -186,20 +188,20 @@ function CatalogRow({
         </p>
         {item.description && (
           <p
-            className="text-[10.5px] text-gray-500 truncate mt-0.5"
+            className="text-[10.5px] text-gray-500 truncate mt-0.5 dark:text-ink-muted"
             title={item.description}
           >
             {item.description}
           </p>
         )}
-        <p className="text-[10px] text-gray-400 mt-0.5 inline-flex items-center gap-1.5">
+        <p className="text-[10px] text-gray-400 mt-0.5 inline-flex items-center gap-1.5 dark:text-ink-subtle">
           <span>
             {item.entry_count}{" "}
             {item.entry_count === 1 ? "vendor" : "vendors"}
           </span>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-line-strong">·</span>
           <span>{SOURCE_LABEL[item.source]}</span>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-line-strong">·</span>
           <span>{formatDate(item.updated_at)}</span>
         </p>
       </button>
@@ -228,15 +230,17 @@ function DraftRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60"
-            : "border-l-transparent hover:bg-gray-50",
+            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
         <div className="flex items-center gap-1.5">
           <Sparkles
             className={cn(
               "h-3 w-3 shrink-0",
-              selected ? "text-brand-700" : "text-gray-400",
+              selected
+                ? "text-brand-700 dark:text-brand-50"
+                : "text-gray-400 dark:text-ink-subtle",
             )}
           />
           <p
@@ -247,11 +251,11 @@ function DraftRow({
           >
             Default catalog
           </p>
-          <span className="ml-auto text-[9.5px] font-semibold uppercase tracking-wide text-orange-600">
+          <span className="ml-auto text-[9.5px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
             draft
           </span>
         </div>
-        <p className="text-[10.5px] text-gray-500 truncate mt-0.5">
+        <p className="text-[10.5px] text-gray-500 truncate mt-0.5 dark:text-ink-muted">
           {soloHint
             ? "Edit and save to start your library."
             : "Editable starter — save to add it to your list."}
@@ -268,13 +272,13 @@ function DraftRow({
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="px-4 py-10 text-center">
-      <div className="mx-auto h-10 w-10 rounded-full bg-brand-50 flex items-center justify-center mb-2">
-        <Briefcase className="h-5 w-5 text-brand-600" />
+      <div className="mx-auto h-10 w-10 rounded-full bg-brand-50 dark:bg-brand-900/40 flex items-center justify-center mb-2">
+        <Briefcase className="h-5 w-5 text-brand-600 dark:text-brand-50" />
       </div>
-      <p className="text-sm font-medium text-gray-700">
+      <p className="text-sm font-medium text-gray-700 dark:text-ink">
         No saved vendor catalogs yet
       </p>
-      <p className="text-[11px] text-gray-500 mt-1">
+      <p className="text-[11px] text-gray-500 mt-1 dark:text-ink-muted">
         Create one to capture the vendor master list every future
         invoice payee should be matched against.
       </p>

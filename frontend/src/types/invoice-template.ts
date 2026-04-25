@@ -732,6 +732,37 @@ export interface InvoiceTemplateOut {
   updated_at: string;
 }
 
+export type ImportTemplateValidationSeverity = "error" | "warning" | "info";
+
+export interface ImportTemplateValidationIssue {
+  severity: ImportTemplateValidationSeverity;
+  code: string;
+  message: string;
+  recommendation?: string | null;
+  column_id?: string | null;
+  column_label?: string | null;
+  rule_id?: string | null;
+  rule_label?: string | null;
+  cell_key?: string | null;
+  path?: string | null;
+  related_id?: string | null;
+  related_type?: string | null;
+}
+
+export interface ImportTemplateValidationSummary {
+  errors: number;
+  warnings: number;
+  info: number;
+}
+
+export interface ImportTemplateValidationResult {
+  template_id: string;
+  template_name: string;
+  ready: boolean;
+  summary: ImportTemplateValidationSummary;
+  issues: ImportTemplateValidationIssue[];
+}
+
 export interface InvoiceTemplateSummary {
   id: string;
   name: string;

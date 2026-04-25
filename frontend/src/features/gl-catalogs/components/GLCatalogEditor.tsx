@@ -347,21 +347,21 @@ const EditorStatsLine = memo(function EditorStatsLine({
   hasDuplicateCodes,
 }: EditorStatsLineProps) {
   return (
-    <div className="px-5 pb-2 bg-white border-b flex items-center gap-3 text-[11px] text-gray-500 flex-wrap">
+    <div className="px-5 pb-2 bg-white border-b border-gray-200 flex items-center gap-3 text-[11px] text-gray-500 flex-wrap dark:bg-surface-subtle dark:border-line dark:text-ink-muted">
       <span>
         {entries.length} {entries.length === 1 ? "code" : "codes"}
       </span>
-      <span className="text-gray-300">·</span>
+      <span className="text-gray-300 dark:text-line-strong">·</span>
       <span>{activeCount} active</span>
       {inactiveCount > 0 && (
         <>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-line-strong">·</span>
           <span>{inactiveCount} inactive</span>
         </>
       )}
       {blankCount > 0 && (
         <>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-line-strong">·</span>
           <span className="text-red-600">
             {blankCount} row(s) missing code or description
           </span>
@@ -369,7 +369,7 @@ const EditorStatsLine = memo(function EditorStatsLine({
       )}
       {hasDuplicateCodes && (
         <>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-line-strong">·</span>
           <span className="text-red-600">duplicate GL codes detected</span>
         </>
       )}
@@ -466,20 +466,20 @@ function GLEditorGrid({
   );
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-gray-50">
+    <div className="flex-1 min-h-0 flex flex-col bg-gray-50 dark:bg-surface">
       <div className="px-5 pt-3 pb-2 flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 dark:text-ink-subtle" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search rows…"
-            className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-line dark:bg-surface-subtle dark:text-ink dark:placeholder:text-ink-subtle"
           />
         </div>
         {search && (
-          <span className="text-[11px] text-gray-500">
+          <span className="text-[11px] text-gray-500 dark:text-ink-muted">
             {filteredEntries.length} of {entries.length} match
           </span>
         )}
@@ -497,7 +497,7 @@ function GLEditorGrid({
       </div>
 
       <div className="flex-1 min-h-0 px-5 pb-5">
-        <div className="bg-white rounded-md border border-gray-200 h-full flex flex-col overflow-hidden">
+        <div className="bg-white rounded-md border border-gray-200 h-full flex flex-col overflow-hidden dark:bg-surface-subtle dark:border-line">
           <VirtualizedRowGrid<GLCatalogEntry>
             entries={filteredEntries}
             getKey={(e) => e.id}
@@ -515,11 +515,11 @@ function GLEditorGrid({
             renderRow={renderRow}
             emptyState={
               search ? (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-ink-muted">
                   No rows match {`"${search}"`}.{" "}
                   <button
                     type="button"
-                    className="text-brand-700 underline"
+                    className="text-brand-700 underline dark:text-brand-50"
                     onClick={() => setSearch("")}
                   >
                     Clear search
@@ -571,17 +571,20 @@ const EntryRow = memo(function EntryRow({
 
   const cellClasses = (highlight: boolean) =>
     cn(
-      "w-full bg-transparent px-1.5 py-1 rounded text-[12.5px] focus:outline-none focus:ring-2 focus:ring-brand-400",
-      highlight && "ring-1 ring-red-300 bg-red-50/40",
-      !entry.active && "text-gray-400",
+      "w-full bg-transparent px-1.5 py-1 rounded text-[12.5px] text-gray-800 dark:text-ink focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-ink-subtle",
+      highlight &&
+        "ring-1 ring-red-300 bg-red-50/40 dark:ring-red-900 dark:bg-red-950/40",
+      !entry.active && "text-gray-400 dark:text-ink-subtle",
     );
 
   return (
     <div
       className={cn(
-        "transition-colors border-b border-gray-100",
-        invalid || duplicate ? "bg-red-50/30" : "hover:bg-brand-50/30",
-        !entry.active && "bg-gray-50/40",
+        "transition-colors border-b border-gray-100 dark:border-line/60",
+        invalid || duplicate
+          ? "bg-red-50/30 dark:bg-red-950/30"
+          : "hover:bg-brand-50/30 dark:hover:bg-brand-900/20",
+        !entry.active && "bg-gray-50/40 dark:bg-surface-muted/40",
       )}
       style={{
         display: "grid",
@@ -600,7 +603,7 @@ const EntryRow = memo(function EntryRow({
           className={cellClasses(codeBlank || duplicate)}
         />
         {duplicate && !codeBlank && (
-          <p className="text-[10px] text-red-600 mt-0.5 px-1.5">
+          <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5 px-1.5">
             Duplicate code
           </p>
         )}
@@ -651,7 +654,7 @@ const EntryRow = memo(function EntryRow({
           aria-label="Delete row"
           title="Delete this row"
           onClick={onRemove}
-          className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+          className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 dark:text-ink-subtle dark:hover:text-red-400 dark:hover:bg-red-950/40"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -677,12 +680,14 @@ function ActiveToggle({
         type="checkbox"
         checked={active}
         onChange={handle}
-        className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+        className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-line dark:bg-surface"
       />
       <span
         className={cn(
           "text-[11px] font-medium",
-          active ? "text-gray-700" : "text-gray-400",
+          active
+            ? "text-gray-700 dark:text-ink"
+            : "text-gray-400 dark:text-ink-subtle",
         )}
       >
         {active ? "Active" : "Inactive"}

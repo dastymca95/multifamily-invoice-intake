@@ -170,30 +170,30 @@ export function InvoiceExtractionPicker({
       className={cn(
         "rounded-md border px-1.5 py-1 transition-colors",
         isNarrowed
-          ? "border-brand-200 bg-brand-50/40"
+          ? "border-brand-200 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-900/20"
           : isPartial
-            ? "border-amber-200 bg-amber-50/40"
-            : "border-gray-200 bg-gray-50/60",
+            ? "border-amber-200 bg-amber-50/40 dark:border-yellow-900 dark:bg-yellow-950/30"
+            : "border-gray-200 bg-gray-50/60 dark:border-line dark:bg-surface-muted/60",
       )}
     >
       {/* Header bar — state badge + spinner. Compact so narrow cells
           don't push the binding rows out of view. */}
       <div className="flex items-center gap-1.5 mb-1 min-w-0">
         {isNarrowed ? (
-          <Wand2 className="h-3 w-3 text-brand-600 shrink-0" />
+          <Wand2 className="h-3 w-3 text-brand-600 dark:text-brand-50 shrink-0" />
         ) : isPartial ? (
-          <AlertTriangle className="h-3 w-3 text-amber-600 shrink-0" />
+          <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-yellow-400 shrink-0" />
         ) : (
-          <Sparkles className="h-3 w-3 text-gray-400 shrink-0" />
+          <Sparkles className="h-3 w-3 text-gray-400 dark:text-ink-subtle shrink-0" />
         )}
         <span
           className={cn(
             "text-[10px] font-semibold uppercase tracking-wide truncate",
             isNarrowed
-              ? "text-brand-700"
+              ? "text-brand-700 dark:text-brand-50"
               : isPartial
-                ? "text-amber-700"
-                : "text-gray-500",
+                ? "text-amber-700 dark:text-yellow-200"
+                : "text-gray-500 dark:text-ink-muted",
           )}
         >
           {isEmpty
@@ -206,7 +206,7 @@ export function InvoiceExtractionPicker({
         </span>
         {loadingPatterns && (
           <Loader2
-            className="h-3 w-3 animate-spin text-gray-400 shrink-0"
+            className="h-3 w-3 animate-spin text-gray-400 dark:text-ink-subtle shrink-0"
             aria-label="Loading patterns"
           />
         )}
@@ -215,7 +215,7 @@ export function InvoiceExtractionPicker({
       {/* Binding rows — empty list shows the broad-universe explainer
           instead so the cell isn't a confusing blank. */}
       {isEmpty ? (
-        <p className="text-[10.5px] italic text-gray-500 leading-snug px-0.5">
+        <p className="text-[10.5px] italic text-gray-500 dark:text-ink-muted leading-snug px-0.5">
           No bindings — this cell uses the column&apos;s global extraction
           behavior across all saved patterns.
         </p>
@@ -251,7 +251,9 @@ export function InvoiceExtractionPicker({
           className={cn(
             "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium",
             "border border-dashed border-gray-300 bg-white text-gray-600",
+            "dark:border-line dark:bg-surface-subtle dark:text-ink-muted",
             "hover:bg-gray-50 hover:text-gray-800 hover:border-gray-400",
+            "dark:hover:bg-surface-muted dark:hover:text-ink dark:hover:border-line-strong",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-500",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
@@ -262,7 +264,7 @@ export function InvoiceExtractionPicker({
         </button>
         {patternsError && (
           <span
-            className="text-[10px] text-red-600 truncate"
+            className="text-[10px] text-red-600 dark:text-red-400 truncate"
             title={patternsError}
           >
             Patterns unavailable
@@ -451,12 +453,12 @@ function BindingRow({
   // priority: unknown (red, hard error) > hidden (amber, fixable) >
   // no-regions (amber, soft hint) > default neutral.
   const fieldDropdownTone = isFieldUnknown
-    ? "border-red-300 text-red-700"
+    ? "border-red-300 text-red-700 dark:border-red-900 dark:text-red-300"
     : isFieldHidden
-      ? "border-amber-300 text-amber-800"
+      ? "border-amber-300 text-amber-800 dark:border-yellow-900 dark:text-yellow-200"
       : isFieldNoRegions
-        ? "border-amber-300 text-amber-800"
-        : "border-gray-300 text-gray-800";
+        ? "border-amber-300 text-amber-800 dark:border-yellow-900 dark:text-yellow-200"
+        : "border-gray-300 text-gray-800 dark:border-line dark:text-ink";
 
   return (
     <div className="flex items-start gap-1 min-w-0">
@@ -467,11 +469,11 @@ function BindingRow({
           onChange={(e) => handlePatternChange(e.target.value)}
           disabled={disabled || loadingPatterns}
           className={cn(
-            "min-w-0 truncate rounded-sm border bg-white px-1 py-0.5 text-[11px]",
+            "min-w-0 truncate rounded-sm border bg-white px-1 py-0.5 text-[11px] dark:bg-surface",
             "focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50",
             isMissingPattern
-              ? "border-red-300 text-red-700"
-              : "border-gray-300 text-gray-800",
+              ? "border-red-300 text-red-700 dark:border-red-900 dark:text-red-300"
+              : "border-gray-300 text-gray-800 dark:border-line dark:text-ink",
           )}
           title={
             isMissingPattern
@@ -503,7 +505,7 @@ function BindingRow({
             onChange={(e) => handleFieldChange(e.target.value)}
             disabled={disabled || fieldsLoading || !currentPatternId}
             className={cn(
-              "min-w-0 flex-1 truncate rounded-sm border bg-white px-1 py-0.5 text-[11px]",
+              "min-w-0 flex-1 truncate rounded-sm border bg-white px-1 py-0.5 text-[11px] dark:bg-surface",
               "focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50",
               fieldDropdownTone,
             )}
@@ -551,13 +553,13 @@ function BindingRow({
           )}
           {!fieldsLoading && isFieldHidden && (
             <EyeOff
-              className="h-3 w-3 shrink-0 text-amber-600"
+              className="h-3 w-3 shrink-0 text-amber-600 dark:text-yellow-400"
               aria-label="Field is hidden on this pattern"
             />
           )}
           {!fieldsLoading && isFieldUnknown && (
             <AlertTriangle
-              className="h-3 w-3 shrink-0 text-red-600"
+              className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400"
               aria-label="Field is no longer defined on this pattern"
             />
           )}
@@ -566,7 +568,7 @@ function BindingRow({
             !isFieldHidden &&
             isFieldNoRegions && (
               <MapPin
-                className="h-3 w-3 shrink-0 text-amber-600"
+                className="h-3 w-3 shrink-0 text-amber-600 dark:text-yellow-400"
                 aria-label="Field has no regions on this pattern"
               />
             )}
@@ -581,8 +583,8 @@ function BindingRow({
         aria-label="Remove this binding"
         title="Remove this binding"
         className={cn(
-          "shrink-0 rounded-sm p-0.5 text-gray-400",
-          "hover:bg-red-50 hover:text-red-600",
+          "shrink-0 rounded-sm p-0.5 text-gray-400 dark:text-ink-subtle",
+          "hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-500",
           "disabled:cursor-not-allowed disabled:opacity-50",
         )}

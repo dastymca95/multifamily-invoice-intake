@@ -212,7 +212,9 @@ export function RuleCellEditor({
             className={cn(
               "inline-flex items-center gap-0.5 rounded",
               "bg-amber-100 ring-1 ring-amber-300 px-1 py-px",
+              "dark:bg-yellow-950/40 dark:ring-yellow-900",
               "text-[8.5px] font-bold uppercase tracking-wide text-amber-800",
+              "dark:text-yellow-200",
             )}
           >
             <Lock className="h-2 w-2" />
@@ -235,7 +237,7 @@ export function RuleCellEditor({
         // Column hasn't defined its enum yet — show a contextual hint
         // rather than a useless empty cell.
         return (
-          <div className="text-[12px] italic text-gray-400">
+          <div className="text-[12px] italic text-gray-400 dark:text-ink-subtle">
             No list values defined on column
           </div>
         );
@@ -264,7 +266,7 @@ export function RuleCellEditor({
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1",
                   isOn
                     ? "border-brand-600 bg-brand-600 text-white"
-                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-line dark:bg-surface-subtle dark:text-ink-muted dark:hover:bg-surface-muted",
                   disabled && "cursor-not-allowed opacity-60",
                 )}
               >
@@ -343,8 +345,10 @@ export function RuleCellEditor({
           aria-label={`Value for ${column.name}`}
           className={cn(
             "w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-[13px] text-gray-800 placeholder:text-gray-400",
+            "dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle",
             "focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500",
-            disabled && "cursor-not-allowed bg-gray-50 opacity-70",
+            disabled &&
+              "cursor-not-allowed bg-gray-50 opacity-70 dark:bg-surface-muted",
           )}
         />
       );
@@ -356,7 +360,7 @@ export function RuleCellEditor({
     case "derived":
       return (
         <div
-          className="flex items-center gap-1.5 rounded-md border border-dashed border-gray-300 bg-gray-50 px-2 py-1 text-[12px] italic text-gray-500"
+          className="flex items-center gap-1.5 rounded-md border border-dashed border-gray-300 bg-gray-50 px-2 py-1 text-[12px] italic text-gray-500 dark:border-line dark:bg-surface-muted dark:text-ink-subtle"
           title="Derived columns are computed by a rule expression — direct cell editing is not supported in this phase."
         >
           <Lock className="h-3 w-3 shrink-0" />
@@ -460,7 +464,7 @@ function RuleCellRoleChip({
           "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1",
           tone
             ? tone.chip
-            : "bg-gray-100 text-gray-500 border-gray-200",
+            : "bg-gray-100 text-gray-500 border-gray-200 dark:bg-surface-muted dark:text-ink-muted dark:border-line",
           // Dashed bottom edge marks "inherited" — the visual carries
           // even when the chip color matches the column default.
           !hasExplicitRole && "border-dashed",
@@ -474,7 +478,7 @@ function RuleCellRoleChip({
         <div
           role="menu"
           className={cn(
-            "absolute left-0 top-full z-30 mt-1 w-44 rounded-md border border-gray-200 bg-white shadow-lg",
+            "absolute left-0 top-full z-30 mt-1 w-44 rounded-md border border-gray-200 bg-white shadow-lg dark:border-line dark:bg-surface-subtle",
             "py-1 text-[12px]",
           )}
         >
@@ -493,7 +497,7 @@ function RuleCellRoleChip({
               setOpen(false);
             }}
           />
-          <div className="my-1 border-t border-gray-100" />
+          <div className="my-1 border-t border-gray-100 dark:border-line/60" />
           {(Object.keys(RULE_ROLE_OPERATOR_LABEL) as RuleRole[]).map(
             (role) => (
               <RoleMenuItem
@@ -549,13 +553,15 @@ function RoleMenuItem({
         <span
           className={cn(
             "block text-[12px] leading-tight",
-            active ? "text-gray-900 font-semibold" : "text-gray-700",
+            active
+              ? "text-gray-900 font-semibold dark:text-ink"
+              : "text-gray-700 dark:text-ink-muted",
           )}
         >
           {label}
         </span>
         {sublabel && (
-          <span className="block text-[10.5px] text-gray-500 mt-0.5">
+          <span className="block text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-subtle">
             {sublabel}
           </span>
         )}

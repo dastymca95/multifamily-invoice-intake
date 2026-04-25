@@ -70,7 +70,7 @@ export function ReferenceSourceWorkspace({
   if (loading && slots.length === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center">
-        <p className="inline-flex items-center gap-2 text-sm text-gray-500">
+        <p className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-ink-muted">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading…
         </p>
@@ -162,8 +162,10 @@ function SourceSection({
     >
       {showHeader && (
         <header className="shrink-0">
-          <h2 className="text-sm font-semibold text-gray-800">{slot.label}</h2>
-          <p className="text-[11.5px] text-gray-500 mt-0.5">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
+            {slot.label}
+          </h2>
+          <p className="text-[11.5px] text-gray-500 mt-0.5 dark:text-ink-muted">
             {slot.description}
           </p>
         </header>

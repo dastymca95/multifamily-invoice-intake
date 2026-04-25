@@ -84,15 +84,15 @@ export function CoveragePanel({
   // below uncluttered.
   if (loading && !data) {
     return (
-      <div className="h-full bg-white border-l border-gray-200 px-4 py-4 flex items-center justify-center">
-        <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+      <div className="h-full bg-white border-l border-gray-200 px-4 py-4 flex items-center justify-center dark:bg-surface-subtle dark:border-line">
+        <Loader2 className="h-4 w-4 animate-spin text-gray-400 dark:text-ink-subtle" />
       </div>
     );
   }
 
   if (error && !data) {
     return (
-      <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-3 overflow-auto">
+      <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-3 overflow-auto dark:bg-surface-subtle dark:border-line">
         <PanelHeader
           loading={loading}
           onRefresh={onRefresh}
@@ -107,9 +107,9 @@ export function CoveragePanel({
 
   if (!data) {
     return (
-      <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-2">
+      <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-2 dark:bg-surface-subtle dark:border-line">
         <PanelHeader loading={loading} onRefresh={onRefresh} />
-        <p className="text-[11.5px] text-gray-500 leading-relaxed">
+        <p className="text-[11.5px] text-gray-500 leading-relaxed dark:text-ink-muted">
           No coverage data yet. Save the pattern to generate one.
         </p>
       </div>
@@ -176,7 +176,7 @@ function CoveragePanelBody({
   }, [templates, scopedTemplateId]);
 
   return (
-    <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-3 overflow-auto">
+    <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-3 overflow-auto dark:bg-surface-subtle dark:border-line">
       <PanelHeader loading={loading} onRefresh={onRefresh} />
 
       {error && (
@@ -188,7 +188,7 @@ function CoveragePanelBody({
       )}
 
       {/* ---- Aggregate stats -------------------------------------- */}
-      <div className="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 space-y-1.5">
+      <div className="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 space-y-1.5 dark:bg-surface-muted dark:border-line">
         <StatRow
           label="Templates using this pattern"
           numerator={wiredTemplates}
@@ -227,7 +227,7 @@ function CoveragePanelBody({
 
       {/* ---- Per-template accordion ------------------------------ */}
       {orderedTemplates.length === 0 && !scopedTemplateId && (
-        <p className="text-[11.5px] text-gray-500 leading-relaxed">
+        <p className="text-[11.5px] text-gray-500 leading-relaxed dark:text-ink-muted">
           No Import Builder templates exist yet. Create one in the
           Import Builder, then bind a rule cell to this pattern to
           start wiring fields.
@@ -252,7 +252,7 @@ function CoveragePanelBody({
       </ul>
 
       {/* ---- Footer hint ----------------------------------------- */}
-      <p className="text-[10.5px] text-gray-400 leading-relaxed pt-1">
+      <p className="text-[10.5px] text-gray-400 leading-relaxed pt-1 dark:text-ink-subtle">
         Pattern → template references are derived from each template&rsquo;s
         rule-cell extraction bindings. Edits land in the Import Builder.
       </p>
@@ -276,14 +276,18 @@ function PanelHeader({
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-1.5">
-        <h2 className="text-sm font-semibold text-gray-800">Coverage</h2>
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
+          Coverage
+        </h2>
         {loading && (
-          <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+          <Loader2 className="h-3 w-3 animate-spin text-gray-400 dark:text-ink-subtle" />
         )}
       </div>
       <div className="flex items-center gap-2">
         {updatedHint && (
-          <span className="text-[10.5px] text-gray-400">{updatedHint}</span>
+          <span className="text-[10.5px] text-gray-400 dark:text-ink-subtle">
+            {updatedHint}
+          </span>
         )}
         <Button
           type="button"
@@ -319,15 +323,20 @@ function StatRow({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-2 text-[11.5px]">
-      <span className="text-gray-600">{label}</span>
+      <span className="text-gray-600 dark:text-ink-muted">{label}</span>
       <span
         className={cn(
           "tabular-nums font-semibold",
-          emphasis === "warn" ? "text-amber-700" : "text-emerald-700",
+          emphasis === "warn"
+            ? "text-amber-700 dark:text-yellow-200"
+            : "text-emerald-700 dark:text-emerald-300",
         )}
       >
         {numerator}
-        <span className="text-gray-400 font-normal"> of {denominator}</span>
+        <span className="text-gray-400 font-normal dark:text-ink-subtle">
+          {" "}
+          of {denominator}
+        </span>
       </span>
     </div>
   );
@@ -355,26 +364,30 @@ function TemplateRow({
   return (
     <li
       className={cn(
-        "rounded-md border bg-white",
-        wired ? "border-gray-200" : "border-dashed border-gray-200",
+        "rounded-md border bg-white dark:bg-surface",
+        wired
+          ? "border-gray-200 dark:border-line"
+          : "border-dashed border-gray-200 dark:border-line",
       )}
     >
       <button
         type="button"
-        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 hover:bg-gray-50 rounded-md text-left"
+        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 hover:bg-gray-50 rounded-md text-left dark:hover:bg-surface-muted"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
         <div className="flex items-center gap-1.5 min-w-0">
           {open ? (
-            <ChevronDown className="h-3 w-3 text-gray-500 shrink-0" />
+            <ChevronDown className="h-3 w-3 text-gray-500 dark:text-ink-subtle shrink-0" />
           ) : (
-            <ChevronRight className="h-3 w-3 text-gray-500 shrink-0" />
+            <ChevronRight className="h-3 w-3 text-gray-500 dark:text-ink-subtle shrink-0" />
           )}
           <span
             className={cn(
               "text-[12px] truncate",
-              wired ? "font-medium text-gray-800" : "text-gray-500",
+              wired
+                ? "font-medium text-gray-800 dark:text-ink"
+                : "text-gray-500 dark:text-ink-subtle",
             )}
             title={template.template_name}
           >
@@ -383,10 +396,12 @@ function TemplateRow({
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {!wired && (
-            <span className="text-[10px] text-gray-400">no fields</span>
+            <span className="text-[10px] text-gray-400 dark:text-ink-subtle">
+              no fields
+            </span>
           )}
           {wired && (
-            <span className="text-[10px] text-gray-500 tabular-nums">
+            <span className="text-[10px] text-gray-500 dark:text-ink-muted tabular-nums">
               {template.used_field_keys.length} fld
             </span>
           )}
@@ -395,8 +410,8 @@ function TemplateRow({
               className={cn(
                 "text-[10px] tabular-nums px-1.5 py-[1px] rounded-full",
                 missing > 0
-                  ? "bg-amber-50 text-amber-700"
-                  : "bg-emerald-50 text-emerald-700",
+                  ? "bg-amber-50 text-amber-700 dark:bg-yellow-950/40 dark:text-yellow-200"
+                  : "bg-emerald-50 text-emerald-700 dark:bg-green-950/40 dark:text-green-200",
               )}
               title={
                 missing > 0
@@ -411,10 +426,10 @@ function TemplateRow({
       </button>
 
       {open && (
-        <div className="px-3 pb-2 pt-1 space-y-3 border-t border-gray-100">
+        <div className="px-3 pb-2 pt-1 space-y-3 border-t border-gray-100 dark:border-line/60">
           {/* Used fields — list with rule-cell deep links */}
           {template.used_fields.length === 0 ? (
-            <div className="rounded bg-gray-50 px-2 py-1.5 text-[11px] text-gray-600">
+            <div className="rounded bg-gray-50 px-2 py-1.5 text-[11px] text-gray-600 dark:bg-surface-muted dark:text-ink-muted">
               This template has no rule cells bound to this pattern. Open
               the template editor and add an extraction binding to wire
               one of this pattern&rsquo;s fields.
@@ -428,7 +443,7 @@ function TemplateRow({
 
           {/* Required columns table */}
           {template.required_columns.length === 0 ? (
-            <p className="text-[10.5px] text-gray-400">
+            <p className="text-[10.5px] text-gray-400 dark:text-ink-subtle">
               This template has no required columns.
             </p>
           ) : (
@@ -456,7 +471,7 @@ function UsedFieldsList({
 }) {
   return (
     <div>
-      <p className="text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
+      <p className="text-[10.5px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle font-semibold mb-1">
         Used fields
       </p>
       <ul className="space-y-1">
@@ -464,17 +479,20 @@ function UsedFieldsList({
           const resolved = findResolvedField(uf.field_key, resolvedFields);
           const swatch = resolved?.color ?? "#9ca3af";
           return (
-            <li key={uf.field_key} className="rounded border border-gray-100 px-2 py-1">
+            <li
+              key={uf.field_key}
+              className="rounded border border-gray-100 px-2 py-1 dark:border-line/60"
+            >
               <div className="flex items-center gap-2">
                 <span
                   className="inline-block h-3 w-3 rounded-sm border border-black/10 shrink-0"
                   style={{ backgroundColor: swatch }}
                   aria-hidden
                 />
-                <span className="text-[12px] text-gray-800 truncate">
+                <span className="text-[12px] text-gray-800 dark:text-ink truncate">
                   {uf.field_label || uf.field_key}
                 </span>
-                <span className="ml-auto text-[10px] text-gray-500 tabular-nums">
+                <span className="ml-auto text-[10px] text-gray-500 dark:text-ink-muted tabular-nums">
                   {uf.used_by.length} cell{uf.used_by.length === 1 ? "" : "s"}
                 </span>
               </div>
@@ -482,11 +500,11 @@ function UsedFieldsList({
                 {uf.used_by.map((u, i) => (
                   <li
                     key={`${u.template_id}:${u.rule_id}:${u.column_id}:${i}`}
-                    className="flex items-center gap-1 text-[10.5px] text-gray-600"
+                    className="flex items-center gap-1 text-[10.5px] text-gray-600 dark:text-ink-muted"
                   >
                     <Link
                       href={`/import-builder?template=${u.template_id}`}
-                      className="text-brand-700 hover:underline truncate inline-flex items-center gap-0.5"
+                      className="text-brand-700 hover:underline truncate inline-flex items-center gap-0.5 dark:text-brand-50"
                       title="Open this template in the Import Builder"
                     >
                       <span className="truncate">
@@ -495,7 +513,7 @@ function UsedFieldsList({
                       <ExternalLink className="h-2.5 w-2.5 shrink-0" />
                     </Link>
                     {u.column_required && (
-                      <span className="px-1 py-[1px] rounded text-[9px] font-bold tracking-wide bg-amber-50 text-amber-700">
+                      <span className="px-1 py-[1px] rounded text-[9px] font-bold tracking-wide bg-amber-50 text-amber-700 dark:bg-yellow-950/40 dark:text-yellow-200">
                         REQ
                       </span>
                     )}
@@ -519,7 +537,7 @@ function RequiredColumnsList({
 }) {
   return (
     <div>
-      <p className="text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
+      <p className="text-[10.5px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle font-semibold mb-1">
         Required columns
       </p>
       <ul className="space-y-0.5">
@@ -530,18 +548,18 @@ function RequiredColumnsList({
           >
             <StatusDot status={c.status} />
             <span
-              className="truncate text-gray-800"
+              className="truncate text-gray-800 dark:text-ink"
               title={`${c.column_name} · ${c.data_type}`}
             >
               {c.column_name}
             </span>
             {c.extraction_field_key && (
-              <span className="text-[9.5px] text-gray-500 truncate ml-auto shrink-0">
+              <span className="text-[9.5px] text-gray-500 dark:text-ink-muted truncate ml-auto shrink-0">
                 ← {c.extraction_field_key}
               </span>
             )}
             {!c.extraction_field_key && (
-              <span className="text-[9.5px] text-gray-500 ml-auto shrink-0">
+              <span className="text-[9.5px] text-gray-500 dark:text-ink-muted ml-auto shrink-0">
                 <StatusDescription status={c.status} />
               </span>
             )}
@@ -576,20 +594,23 @@ function StatusDot({ status }: { status: RequiredColumnStatus }) {
     case "satisfied_by_manual_or_rule":
       return (
         <CheckCircle2
-          className="h-3 w-3 text-gray-400 shrink-0"
+          className="h-3 w-3 text-gray-400 dark:text-ink-subtle shrink-0"
           aria-label="Satisfied via fallback"
         />
       );
     case "missing":
       return (
         <AlertTriangle
-          className="h-3 w-3 text-amber-600 shrink-0"
+          className="h-3 w-3 text-amber-600 dark:text-yellow-400 shrink-0"
           aria-label="Missing"
         />
       );
     default:
       return (
-        <Info className="h-3 w-3 text-gray-400 shrink-0" aria-hidden />
+        <Info
+          className="h-3 w-3 text-gray-400 dark:text-ink-subtle shrink-0"
+          aria-hidden
+        />
       );
   }
 }

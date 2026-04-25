@@ -229,7 +229,7 @@ export function ImportBuilderPage() {
       </div>
 
       {/* ---- Center: editor ------------------------------------------ */}
-      <main className="flex-1 min-w-0 flex flex-col bg-gray-50">
+      <main className="flex-1 min-w-0 flex flex-col bg-gray-50 dark:bg-surface">
         <CenterPane
           viewingDraft={viewingDraft}
           loadingList={loadingList}
@@ -331,7 +331,7 @@ function CenterPane({
   if (loadingList && loadingDefault && !hasItems && !hasDraft) {
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center p-8">
-        <p className="text-xs text-gray-500 inline-flex items-center gap-2">
+        <p className="text-xs text-gray-500 dark:text-ink-subtle inline-flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Loading templates…
         </p>
@@ -345,13 +345,13 @@ function CenterPane({
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center p-8">
         <div className="max-w-md text-center">
-          <div className="mx-auto h-12 w-12 rounded-full bg-brand-50 flex items-center justify-center mb-3">
-            <FileSpreadsheet className="h-6 w-6 text-brand-600" />
+          <div className="mx-auto h-12 w-12 rounded-full bg-brand-50 dark:bg-brand-900/40 flex items-center justify-center mb-3">
+            <FileSpreadsheet className="h-6 w-6 text-brand-600 dark:text-brand-50" />
           </div>
-          <h2 className="text-base font-semibold text-gray-800">
+          <h2 className="text-base font-semibold text-gray-800 dark:text-ink">
             Design your first import
           </h2>
-          <p className="text-[12.5px] text-gray-600 mt-1.5">
+          <p className="text-[12.5px] text-gray-600 mt-1.5 dark:text-ink-muted">
             Each saved import captures the column shape, source
             bindings, and validation rules every future invoice export
             should follow. Start from the canonical default or upload a
@@ -438,11 +438,14 @@ function CenterPane({
         </InlineAlert>
       ) : loadingDetail ? (
         <div className="space-y-1.5">
-          <div className="h-7 bg-gray-100 rounded animate-pulse" />
+          <div className="h-7 bg-gray-100 dark:bg-surface-muted rounded animate-pulse" />
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-6 bg-gray-50 rounded animate-pulse" />
+            <div
+              key={i}
+              className="h-6 bg-gray-50 dark:bg-surface-muted/60 rounded animate-pulse"
+            />
           ))}
-          <p className="text-[11px] text-gray-400 inline-flex items-center gap-1.5 pt-2">
+          <p className="text-[11px] text-gray-400 dark:text-ink-subtle inline-flex items-center gap-1.5 pt-2">
             <Loader2 className="h-3 w-3 animate-spin" />
             Loading template…
           </p>
@@ -450,13 +453,13 @@ function CenterPane({
       ) : (
         // Saved templates exist but nothing's selected — nudge.
         <div className="m-auto max-w-sm text-center">
-          <div className="mx-auto h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center mb-2">
-            <FileSpreadsheet className="h-5 w-5 text-gray-500" />
+          <div className="mx-auto h-10 w-10 rounded-full bg-gray-100 dark:bg-surface-muted flex items-center justify-center mb-2">
+            <FileSpreadsheet className="h-5 w-5 text-gray-500 dark:text-ink-subtle" />
           </div>
-          <p className="text-sm font-medium text-gray-700">
+          <p className="text-sm font-medium text-gray-700 dark:text-ink">
             Pick a template
           </p>
-          <p className="text-[11.5px] text-gray-500 mt-1">
+          <p className="text-[11.5px] text-gray-500 mt-1 dark:text-ink-muted">
             Choose one from the rail to edit it,
             {hasDraft ? (
               <>

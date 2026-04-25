@@ -10,14 +10,32 @@ import { cn } from "@/lib/utils";
  */
 export type CatalogSourceKind = "default" | "blank" | "from_upload" | "custom";
 
+// Each tone gets a paired dark variant matching the convention used
+// by `Badge.tsx` (translucent /-950 shade + lifted /-200 text) so the
+// pill stays legible against the dark slate workspace.
 const BADGES: Record<
   CatalogSourceKind,
   { label: string; tone: string }
 > = {
-  default: { label: "Default", tone: "bg-blue-50 text-blue-700" },
-  blank: { label: "Blank", tone: "bg-gray-100 text-gray-700" },
-  from_upload: { label: "From upload", tone: "bg-purple-50 text-purple-700" },
-  custom: { label: "Custom", tone: "bg-brand-50 text-brand-700" },
+  default: {
+    label: "Default",
+    tone: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200",
+  },
+  blank: {
+    label: "Blank",
+    tone:
+      "bg-gray-100 text-gray-700 dark:bg-surface-muted dark:text-ink-muted",
+  },
+  from_upload: {
+    label: "From upload",
+    tone:
+      "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-200",
+  },
+  custom: {
+    label: "Custom",
+    tone:
+      "bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-50",
+  },
 };
 
 /**

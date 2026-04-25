@@ -542,14 +542,17 @@ export function ContinuousDocumentStack({
   return (
     <div
       ref={outerRef}
-      className="relative flex-1 min-h-0 overflow-auto bg-gray-200 p-4"
+      // Same workspace contract as DocumentViewer: gray-200 / slate-900
+      // around the pages. Each individual page surface below stays
+      // bg-white because it represents the real document.
+      className="relative flex-1 min-h-0 overflow-auto bg-gray-200 p-4 dark:bg-surface"
       onDragEnter={onDragEnterOuter}
       onDragOver={onDragOverOuter}
       onDragLeave={onDragLeaveOuter}
       onDrop={onDropOuter}
     >
       {overPagesHint && (
-        <div className="mx-auto max-w-3xl mb-3 bg-amber-50 border border-amber-200 text-amber-800 text-[11.5px] px-3 py-2 rounded">
+        <div className="mx-auto max-w-3xl mb-3 bg-amber-50 border border-amber-200 text-amber-800 text-[11.5px] px-3 py-2 rounded dark:bg-yellow-950/40 dark:border-yellow-900 dark:text-yellow-200">
           Continuous mode is rendering all {visiblePages.length} visible
           pages at once. For large files, the thumbnails or single-page
           views are smoother.
@@ -582,7 +585,7 @@ export function ContinuousDocumentStack({
               {/* Page number badge — small label so the operator can
                   still tell which page they're on without the
                   paginator. */}
-              <div className="absolute -top-[1.05rem] left-0 text-[10px] font-semibold uppercase text-gray-500 tracking-wide">
+              <div className="absolute -top-[1.05rem] left-0 text-[10px] font-semibold uppercase text-gray-500 dark:text-ink-subtle tracking-wide">
                 Page {page}
               </div>
 
@@ -732,7 +735,7 @@ export function ContinuousDocumentStack({
           the operator gets a consistent affordance across modes. */}
       {isPolygonPlaceholder && (
         <div
-          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-sm border border-amber-300 px-3 py-1.5 rounded-md shadow text-[11.5px] text-amber-800 pointer-events-none"
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-sm border border-amber-300 px-3 py-1.5 rounded-md shadow text-[11.5px] text-amber-800 pointer-events-none dark:bg-surface-subtle/95 dark:border-yellow-900 dark:text-yellow-200"
           aria-live="polite"
         >
           {toolDescriptor.label} — coming soon. Switch tools to keep editing.
@@ -745,12 +748,12 @@ export function ContinuousDocumentStack({
           className="absolute inset-0 z-20 flex items-center justify-center bg-brand-500/15 border-2 border-dashed border-brand-500 m-2 rounded-lg pointer-events-none"
           aria-hidden
         >
-          <div className="bg-white/95 px-4 py-3 rounded-lg shadow text-center">
-            <Upload className="h-6 w-6 mx-auto text-brand-600" />
-            <p className="text-[13px] font-semibold text-gray-800 mt-1">
+          <div className="bg-white/95 px-4 py-3 rounded-lg shadow text-center dark:bg-surface-subtle/95 dark:border dark:border-line">
+            <Upload className="h-6 w-6 mx-auto text-brand-600 dark:text-brand-50" />
+            <p className="text-[13px] font-semibold text-gray-800 mt-1 dark:text-ink">
               {uploading ? "Reading file…" : "Drop to add training files"}
             </p>
-            <p className="text-[11px] text-gray-500 mt-0.5">
+            <p className="text-[11px] text-gray-500 mt-0.5 dark:text-ink-muted">
               PDFs and images, up to 10 MB each.
             </p>
           </div>

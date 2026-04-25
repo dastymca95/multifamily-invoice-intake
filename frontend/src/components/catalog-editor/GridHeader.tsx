@@ -29,8 +29,13 @@ export const GridHeaderRow = memo(function GridHeaderRow({
   return (
     <div
       className={cn(
+        // Light: subtle gray header on white grid bg.
+        // Dark: lifted slate panel against the slate-900 grid bg, with
+        // ink-subtle text so the all-caps reads quietly without competing
+        // with row content.
         "bg-gray-50 text-[10.5px] uppercase tracking-wide text-gray-500",
-        "sticky top-0 z-10 border-b border-gray-200",
+        "dark:bg-surface-muted dark:text-ink-subtle",
+        "sticky top-0 z-10 border-b border-gray-200 dark:border-line",
         className,
       )}
       style={{ display: "grid", gridTemplateColumns }}

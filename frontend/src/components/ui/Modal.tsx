@@ -32,11 +32,27 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className={cn("relative w-full mx-4 bg-white rounded-xl shadow-xl", sizes[size])}>
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+      {/* Scrim deepens slightly in dark mode (0.4 → 0.6) so the
+          dialog still pops against the already-dark page bg. */}
+      <div
+        className="absolute inset-0 bg-black/40 dark:bg-black/60"
+        onClick={onClose}
+      />
+      <div
+        className={cn(
+          "relative w-full mx-4 rounded-xl shadow-xl",
+          "bg-white dark:bg-surface-subtle",
+          sizes[size],
+        )}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-line">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-ink">
+            {title}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:text-ink-subtle dark:hover:text-ink"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>

@@ -673,7 +673,7 @@ export function PatternEditor({
       {/* ---- Center column: header + viewer ---------------------- */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Header */}
-        <div className="px-4 py-3 border-b bg-white space-y-2">
+        <div className="px-4 py-3 border-b border-gray-200 bg-white dark:bg-surface-subtle dark:border-line space-y-2">
           <div className="flex items-start gap-3">
             <input
               type="text"
@@ -683,7 +683,7 @@ export function PatternEditor({
               }
               maxLength={MAX_PATTERN_NAME_LENGTH}
               placeholder="Untitled pattern"
-              className="flex-1 min-w-0 text-[15px] font-semibold text-gray-900 bg-transparent border-b border-transparent focus:border-brand-400 focus:outline-none px-0 py-0.5"
+              className="flex-1 min-w-0 text-[15px] font-semibold text-gray-900 dark:text-ink bg-transparent border-b border-transparent focus:border-brand-400 focus:outline-none px-0 py-0.5"
             />
             <div className="flex items-center gap-1 shrink-0">
               <Button
@@ -724,7 +724,7 @@ export function PatternEditor({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="text-red-600 hover:bg-red-50"
+                className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                 onClick={() => setConfirmDelete(true)}
                 disabled={saving}
               >
@@ -756,7 +756,7 @@ export function PatternEditor({
               }
               maxLength={MAX_PATTERN_VENDOR_HINT_LENGTH}
               placeholder="Vendor hint (optional)"
-              className="text-[12px] text-brand-700 bg-transparent border-b border-transparent focus:border-brand-300 focus:outline-none px-0"
+              className="text-[12px] text-brand-700 dark:text-brand-50 bg-transparent border-b border-transparent focus:border-brand-300 focus:outline-none px-0"
             />
             <input
               type="text"
@@ -769,16 +769,16 @@ export function PatternEditor({
               }
               maxLength={MAX_PATTERN_DESCRIPTION_LENGTH}
               placeholder="Description (optional)"
-              className="text-[12px] text-gray-600 bg-transparent border-b border-transparent focus:border-brand-300 focus:outline-none px-0"
+              className="text-[12px] text-gray-600 dark:text-ink-muted bg-transparent border-b border-transparent focus:border-brand-300 focus:outline-none px-0"
             />
           </div>
-          <p className="text-[10.5px] text-gray-400">
+          <p className="text-[10.5px] text-gray-400 dark:text-ink-subtle">
             Last updated {formatDate(initial.updated_at)}
           </p>
         </div>
 
         {/* Toolbar — file thumbnails + pagination + draw-target */}
-        <div className="px-4 py-2 border-b bg-gray-50 flex items-center gap-3 flex-wrap">
+        <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 dark:bg-surface-muted dark:border-line flex items-center gap-3 flex-wrap">
           {/* File thumbnails */}
           <div className="flex items-center gap-1.5 flex-wrap">
             {form.source_files.map((f) => (
@@ -793,8 +793,8 @@ export function PatternEditor({
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] border transition-colors max-w-[12rem]",
                   activeFileId === f.id
-                    ? "bg-white border-brand-500 text-brand-800 shadow-sm"
-                    : "bg-white border-gray-200 text-gray-700 hover:border-gray-300",
+                    ? "bg-white border-brand-500 text-brand-800 shadow-sm dark:bg-surface-subtle dark:border-brand-500 dark:text-brand-50"
+                    : "bg-white border-gray-200 text-gray-700 hover:border-gray-300 dark:bg-surface-subtle dark:border-line dark:text-ink-muted dark:hover:border-line-strong",
                 )}
                 title={`${f.file_name} (${formatFileSize(f.size_bytes)}${
                   f.page_count > 1 ? ` · ${f.page_count} pages` : ""
@@ -807,7 +807,7 @@ export function PatternEditor({
                 )}
                 <span className="truncate">{f.file_name}</span>
                 {f.page_count > 1 && (
-                  <span className="text-[9.5px] text-gray-500 shrink-0 tabular-nums">
+                  <span className="text-[9.5px] text-gray-500 dark:text-ink-subtle shrink-0 tabular-nums">
                     {f.page_count}p
                   </span>
                 )}
@@ -825,7 +825,7 @@ export function PatternEditor({
                       removeFile(f.id);
                     }
                   }}
-                  className="text-gray-400 hover:text-red-600 ml-0.5 cursor-pointer"
+                  className="text-gray-400 hover:text-red-600 dark:text-ink-subtle dark:hover:text-red-400 ml-0.5 cursor-pointer"
                 >
                   <X className="h-3 w-3" />
                 </span>
@@ -863,10 +863,10 @@ export function PatternEditor({
               "Page N" they can't open. The "Delete page" trash icon
               opens the confirmation dialog. */}
           {activeFile && visiblePages.length > 1 && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 text-gray-700 dark:text-ink-muted">
               <button
                 type="button"
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-surface-subtle disabled:opacity-40"
                 onClick={() => {
                   const idx = visiblePages.indexOf(activePage);
                   if (idx > 0) setActivePage(visiblePages[idx - 1]);
@@ -877,17 +877,17 @@ export function PatternEditor({
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
-              <span className="text-[11.5px] text-gray-700 tabular-nums">
+              <span className="text-[11.5px] tabular-nums">
                 Page {activePage} of {activeFile.page_count}
                 {activeFile.deleted_pages?.length ? (
-                  <span className="text-gray-400 ml-1">
+                  <span className="text-gray-400 dark:text-ink-subtle ml-1">
                     ({activeFile.deleted_pages.length} deleted)
                   </span>
                 ) : null}
               </span>
               <button
                 type="button"
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-surface-subtle disabled:opacity-40"
                 onClick={() => {
                   const idx = visiblePages.indexOf(activePage);
                   if (idx >= 0 && idx < visiblePages.length - 1)
@@ -907,7 +907,7 @@ export function PatternEditor({
                   to delete the last visible page). */}
               <button
                 type="button"
-                className="p-1 rounded hover:bg-red-50 text-gray-500 hover:text-red-600 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                className="p-1 rounded hover:bg-red-50 text-gray-500 hover:text-red-600 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-500 dark:text-ink-subtle dark:hover:bg-red-950/40 dark:hover:text-red-400 dark:disabled:hover:text-ink-subtle"
                 onClick={() => setPageToDelete(activePage)}
                 disabled={visiblePages.length <= 1}
                 title="Delete this page"
@@ -975,7 +975,9 @@ export function PatternEditor({
               swatch so the operator sees at a glance which color the
               next region they draw will land in. */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-gray-600">Draw as:</span>
+            <span className="text-[11px] text-gray-600 dark:text-ink-muted">
+              Draw as:
+            </span>
             <DrawFieldSelect
               value={drawFieldKey}
               options={visibleResolved}
@@ -1084,7 +1086,7 @@ export function PatternEditor({
         )}
 
         {activePageIsDeleted && (
-          <div className="px-4 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-t border-amber-200">
+          <div className="px-4 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-t border-amber-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900">
             This page is marked deleted and is hidden from the
             navigator. Use the page selector to pick a visible page.
           </div>
@@ -1094,9 +1096,9 @@ export function PatternEditor({
             yet. Doubles up the file-picker entry-point for operators
             who skipped the picker affordance in the toolbar. */}
         {form.source_files.length === 0 && (
-          <div className="px-4 py-3 bg-gray-50 border-t text-center">
-            <FileSearch className="h-5 w-5 mx-auto text-gray-400" />
-            <p className="text-[12px] text-gray-600 mt-1.5">
+          <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 text-center dark:bg-surface-muted dark:border-line">
+            <FileSearch className="h-5 w-5 mx-auto text-gray-400 dark:text-ink-subtle" />
+            <p className="text-[12px] text-gray-600 dark:text-ink-muted mt-1.5">
               Upload a sample bill to start pinning regions, or drag
               and drop one into the viewer area above.
             </p>
@@ -1115,7 +1117,7 @@ export function PatternEditor({
       </div>
 
       {/* ---- Right rail: tabbed Region | Coverage shell -------- */}
-      <div className="w-[18rem] shrink-0 flex flex-col bg-white border-l border-gray-200">
+      <div className="w-[18rem] shrink-0 flex flex-col bg-white border-l border-gray-200 dark:bg-surface-subtle dark:border-line">
         <RightRailTabs
           tab={rightTab}
           onChange={setRightTab}
@@ -1163,14 +1165,14 @@ export function PatternEditor({
       {confirmDelete && (
         <div className="fixed inset-0 z-40 flex items-center justify-center">
           <div
-            className="absolute inset-0 bg-black/30"
+            className="absolute inset-0 bg-black/30 dark:bg-black/60"
             onClick={() => setConfirmDelete(false)}
           />
-          <div className="relative bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-5">
-            <h3 className="text-sm font-semibold text-gray-900">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-5 dark:bg-surface-subtle dark:border dark:border-line">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-ink">
               Delete this pattern?
             </h3>
-            <p className="text-[12px] text-gray-600 mt-1">
+            <p className="text-[12px] text-gray-600 dark:text-ink-muted mt-1">
               All training documents and regions in &ldquo;{form.name}&rdquo; will
               be removed. Import Builder rule cells that referenced
               this pattern will fall back to the broad-universe
@@ -1253,7 +1255,7 @@ function DrawFieldSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11.5px] text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11.5px] text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink"
       >
         {options.length === 0 ? (
           <option value="">No fields available</option>
@@ -1295,7 +1297,7 @@ function ToolPicker({
 }) {
   return (
     <div
-      className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden"
+      className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden dark:border-line dark:bg-surface-subtle"
       role="radiogroup"
       aria-label="Editor tool"
     >
@@ -1317,11 +1319,13 @@ function ToolPicker({
             title={tip}
             className={cn(
               "px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
-              "border-r border-gray-200 last:border-r-0",
+              "border-r border-gray-200 last:border-r-0 dark:border-line",
               active
-                ? "bg-brand-50 text-brand-800"
-                : "text-gray-700 hover:bg-gray-50",
-              t.comingSoon && active && "bg-amber-50 text-amber-800",
+                ? "bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-50"
+                : "text-gray-700 hover:bg-gray-50 dark:text-ink-muted dark:hover:bg-surface-muted",
+              t.comingSoon &&
+                active &&
+                "bg-amber-50 text-amber-800 dark:bg-yellow-950/40 dark:text-yellow-200",
               disabled && "opacity-50 cursor-not-allowed",
             )}
           >
@@ -1370,10 +1374,10 @@ function ZoomControls({
   const pct = Math.round(zoom * 100);
   return (
     <div className="inline-flex items-center gap-1">
-      <div className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden">
+      <div className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden dark:border-line dark:bg-surface-subtle">
         <button
           type="button"
-          className="px-1.5 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          className="px-1.5 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-40 dark:text-ink-muted dark:hover:bg-surface-muted"
           onClick={onZoomOut}
           disabled={zoom <= min}
           title="Zoom out (Ctrl/Cmd -)"
@@ -1383,7 +1387,7 @@ function ZoomControls({
         </button>
         <button
           type="button"
-          className="px-2 py-1 text-[11.5px] tabular-nums text-gray-800 hover:bg-gray-50 border-l border-r border-gray-200 min-w-[3rem]"
+          className="px-2 py-1 text-[11.5px] tabular-nums text-gray-800 hover:bg-gray-50 border-l border-r border-gray-200 min-w-[3rem] dark:text-ink dark:hover:bg-surface-muted dark:border-line"
           onClick={onResetZoom}
           title="Reset to 100% (Ctrl/Cmd 0)"
           aria-label="Reset zoom to 100%"
@@ -1392,7 +1396,7 @@ function ZoomControls({
         </button>
         <button
           type="button"
-          className="px-1.5 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          className="px-1.5 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-40 dark:text-ink-muted dark:hover:bg-surface-muted"
           onClick={onZoomIn}
           disabled={zoom >= max}
           title="Zoom in (Ctrl/Cmd +)"
@@ -1404,7 +1408,7 @@ function ZoomControls({
       <button
         type="button"
         onClick={onFitWidth}
-        className="px-1.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+        className="px-1.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-line dark:bg-surface-subtle dark:text-ink-muted dark:hover:bg-surface-muted"
         title="Fit width"
         aria-label="Fit page width"
       >
@@ -1413,7 +1417,7 @@ function ZoomControls({
       <button
         type="button"
         onClick={onFitPage}
-        className="px-1.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+        className="px-1.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-line dark:bg-surface-subtle dark:text-ink-muted dark:hover:bg-surface-muted"
         title="Fit page"
         aria-label="Fit whole page"
       >
@@ -1478,7 +1482,7 @@ function ViewModeToggle({
   ];
   return (
     <div
-      className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden"
+      className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden dark:border-line dark:bg-surface-subtle"
       role="radiogroup"
       aria-label="View mode"
     >
@@ -1496,10 +1500,10 @@ function ViewModeToggle({
             title={it.title}
             className={cn(
               "px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
-              "border-r border-gray-200 last:border-r-0",
+              "border-r border-gray-200 last:border-r-0 dark:border-line",
               active
-                ? "bg-brand-50 text-brand-800"
-                : "text-gray-700 hover:bg-gray-50",
+                ? "bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-50"
+                : "text-gray-700 hover:bg-gray-50 dark:text-ink-muted dark:hover:bg-surface-muted",
             )}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -1538,18 +1542,18 @@ function PageDeleteConfirm({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-black/30 dark:bg-black/60"
         onClick={onCancel}
       />
-      <div className="relative bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-5">
-        <h3 className="text-sm font-semibold text-gray-900">
+      <div className="relative bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-5 dark:bg-surface-subtle dark:border dark:border-line">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-ink">
           Delete page {page} from {file.file_name}?
         </h3>
-        <p className="text-[12px] text-gray-600 mt-1">
+        <p className="text-[12px] text-gray-600 dark:text-ink-muted mt-1">
           This page will be hidden from the editor and skipped at
           extraction time.{" "}
           {regionCount > 0 ? (
-            <span className="text-amber-700">
+            <span className="text-amber-700 dark:text-yellow-200">
               {regionCount} region{regionCount === 1 ? "" : "s"} pinned
               to this page will be removed.
             </span>
@@ -1614,7 +1618,7 @@ function RightRailTabs({
     <div
       role="tablist"
       aria-label="Right rail"
-      className="flex items-center border-b border-gray-200 bg-gray-50 px-1"
+      className="flex items-center border-b border-gray-200 bg-gray-50 px-1 dark:border-line dark:bg-surface-muted"
     >
       <TabButton
         active={tab === "region"}
@@ -1628,7 +1632,7 @@ function RightRailTabs({
         badge={
           coverageBadge > 0 ? (
             <span
-              className="ml-1 px-1.5 py-[1px] rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 tabular-nums"
+              className="ml-1 px-1.5 py-[1px] rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 tabular-nums dark:bg-yellow-950/40 dark:text-yellow-200"
               title={`${coverageBadge} required column${
                 coverageBadge === 1 ? "" : "s"
               } unresolved`}
@@ -1662,8 +1666,8 @@ function TabButton({
       className={cn(
         "px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors",
         active
-          ? "border-brand-500 text-brand-800 bg-white"
-          : "border-transparent text-gray-600 hover:text-gray-800",
+          ? "border-brand-500 text-brand-800 bg-white dark:bg-surface-subtle dark:text-brand-50"
+          : "border-transparent text-gray-600 hover:text-gray-800 dark:text-ink-muted dark:hover:text-ink",
       )}
     >
       {label}
@@ -1716,15 +1720,17 @@ function ImportTemplateScopeSelect({
   return (
     <div className="flex items-center gap-1.5">
       <GitBranch
-        className="h-3 w-3 text-gray-500 shrink-0"
+        className="h-3 w-3 text-gray-500 dark:text-ink-subtle shrink-0"
         aria-hidden
       />
-      <span className="text-[11px] text-gray-600">Template:</span>
+      <span className="text-[11px] text-gray-600 dark:text-ink-muted">
+        Template:
+      </span>
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
         disabled={disabled}
-        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11.5px] text-gray-800 max-w-[14rem] focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
+        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11.5px] text-gray-800 max-w-[14rem] focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400 dark:border-line dark:bg-surface dark:text-ink dark:disabled:bg-surface-muted dark:disabled:text-ink-subtle"
         title="Filter coverage + region badges to one Import Builder template"
       >
         <option value="">

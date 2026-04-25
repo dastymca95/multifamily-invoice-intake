@@ -93,9 +93,11 @@ export function RegionInspector({
 
   if (!region) {
     return (
-      <div className="h-full bg-white border-l border-gray-200 px-4 py-4">
-        <h2 className="text-sm font-semibold text-gray-800">Region</h2>
-        <p className="text-[11.5px] text-gray-500 mt-2 leading-relaxed">
+      <div className="h-full bg-white border-l border-gray-200 px-4 py-4 dark:bg-surface-subtle dark:border-line">
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
+          Region
+        </h2>
+        <p className="text-[11.5px] text-gray-500 mt-2 leading-relaxed dark:text-ink-muted">
           No region selected.
           <br />
           Drag on the document to draw a new region, or click an
@@ -150,14 +152,16 @@ export function RegionInspector({
   }
 
   return (
-    <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-3 overflow-auto">
+    <div className="h-full bg-white border-l border-gray-200 px-4 py-4 space-y-3 overflow-auto dark:bg-surface-subtle dark:border-line">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-gray-800">Region</h2>
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
+          Region
+        </h2>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="text-red-600 hover:bg-red-50"
+          className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
           onClick={onDelete}
           disabled={disabled}
           title="Delete this region"
@@ -170,9 +174,9 @@ export function RegionInspector({
       {/* Orphan-key warning. Inline (not the InlineAlert component)
           so the layout stays compact in the right rail. */}
       {isUnknown && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5">
-          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-[1px] shrink-0" />
-          <p className="text-[11px] text-amber-800 leading-snug">
+        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 dark:border-yellow-900 dark:bg-yellow-950/40">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-yellow-400 mt-[1px] shrink-0" />
+          <p className="text-[11px] text-amber-800 leading-snug dark:text-yellow-200">
             This region is pinned to a field that no longer exists.
             Pick a replacement below to keep it useful at extraction
             time.
@@ -193,7 +197,7 @@ export function RegionInspector({
               onChange({ ...region, field_key: e.target.value })
             }
             disabled={disabled}
-            className="flex-1 min-w-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-[13px] text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50"
+            className="flex-1 min-w-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-[13px] text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50 dark:border-line dark:bg-surface dark:text-ink dark:disabled:bg-surface-muted"
           >
             {dropdownOptions.length === 0 ? (
               <option value={region.field_key}>
@@ -213,7 +217,7 @@ export function RegionInspector({
           </select>
         </div>
         {!isUnknown && usageOnThisField > 1 && (
-          <p className="text-[10.5px] text-gray-500 mt-1">
+          <p className="text-[10.5px] text-gray-500 mt-1 dark:text-ink-muted">
             {usageOnThisField} regions are pinned to this field.
           </p>
         )}
@@ -232,7 +236,7 @@ export function RegionInspector({
           disabled={disabled}
           maxLength={MAX_PATTERN_REGION_LABEL_LENGTH}
           placeholder={labelPlaceholder}
-          className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-[13px] text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50"
+          className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-[13px] text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle dark:disabled:bg-surface-muted"
         />
       </Field>
 
@@ -246,7 +250,7 @@ export function RegionInspector({
           maxLength={MAX_PATTERN_REGION_NOTES_LENGTH}
           rows={3}
           placeholder="e.g. Only on bills from 2025-Q3 onwards."
-          className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-[12.5px] text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50"
+          className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-[12.5px] text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle dark:disabled:bg-surface-muted"
         />
       </Field>
 
@@ -257,10 +261,10 @@ export function RegionInspector({
           than 0.700 / 0.030. The polygon path additionally surfaces
           the point count since the bbox is the polygon's enclosing
           rect (computed by the data-model helpers, not user-set). */}
-      <div className="pt-2 border-t border-gray-100 text-[10.5px] text-gray-500 space-y-0.5">
+      <div className="pt-2 border-t border-gray-100 text-[10.5px] text-gray-500 space-y-0.5 dark:border-line/60 dark:text-ink-subtle">
         <p>
           Shape:{" "}
-          <span className="text-gray-700 font-medium">
+          <span className="text-gray-700 font-medium dark:text-ink-muted">
             {regionShape(region) === "polygon"
               ? `Polygon (${region.points?.length ?? 0} points)`
               : "Rectangle"}
@@ -298,12 +302,14 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-[11.5px] font-semibold text-gray-700">
+      <span className="text-[11.5px] font-semibold text-gray-700 dark:text-ink-muted">
         {label}
       </span>
       <div className="mt-1">{children}</div>
       {help && (
-        <p className="text-[10.5px] text-gray-500 mt-0.5">{help}</p>
+        <p className="text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-subtle">
+          {help}
+        </p>
       )}
     </label>
   );

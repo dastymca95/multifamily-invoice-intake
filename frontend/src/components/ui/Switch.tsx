@@ -143,7 +143,7 @@ export function Switch({
         className={cn(
           "relative inline-flex shrink-0 cursor-pointer items-center rounded-full transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1",
-          checked ? "bg-brand-600" : "bg-gray-300",
+          checked ? "bg-brand-600" : "bg-gray-300 dark:bg-line-strong",
           disabled && "cursor-not-allowed opacity-50",
           sizes.track,
           className,
@@ -185,7 +185,7 @@ export function Switch({
         className={cn(
           "relative mt-0.5 inline-flex shrink-0 items-center rounded-full transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1",
-          checked ? "bg-brand-600" : "bg-gray-300",
+          checked ? "bg-brand-600" : "bg-gray-300 dark:bg-line-strong",
           disabled && "opacity-50",
           sizes.track,
         )}
@@ -202,14 +202,17 @@ export function Switch({
       <span className="flex flex-col leading-tight">
         <span
           id={labelId}
-          className={cn("font-medium text-gray-800", sizes.label)}
+          className={cn("font-medium text-gray-800 dark:text-ink", sizes.label)}
         >
           {label}
         </span>
         {description && (
           <span
             id={descriptionId}
-            className={cn("text-gray-500", sizes.description)}
+            className={cn(
+              "text-gray-500 dark:text-ink-subtle",
+              sizes.description,
+            )}
           >
             {description}
           </span>
