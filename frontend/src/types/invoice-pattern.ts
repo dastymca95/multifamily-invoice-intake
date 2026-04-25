@@ -20,6 +20,23 @@
  * NARROW; they don't gate.
  */
 
+import {
+  type ExtractedInvoiceFieldDescriptor as SharedExtractedInvoiceFieldDescriptor,
+  type InvoiceExtractedField,
+  normalizeExtractedFieldKey,
+  resolveExtractedFieldDescriptor,
+} from "./extracted-invoice-field";
+
+export type { InvoiceExtractedField };
+export {
+  INVOICE_EXTRACTED_FIELD_LABEL,
+  INVOICE_EXTRACTED_FIELDS,
+  getExtractedFieldAliases,
+  isKnownExtractedFieldKey,
+  normalizeExtractedFieldKey,
+  resolveExtractedFieldDescriptor,
+} from "./extracted-invoice-field";
+
 // ---------------------------------------------------------------------------
 // Bounds — kept in lockstep with `app/schemas/invoice_pattern.py`. Used
 // by the editor to enforce client-side caps before a POST is rejected.
@@ -34,6 +51,14 @@ export const MAX_PATTERN_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 export const MAX_PATTERN_REGIONS = 200;
 export const MAX_PATTERN_REGION_LABEL_LENGTH = 200;
 export const MAX_PATTERN_REGION_NOTES_LENGTH = 500;
+
+// Polygon (free-form region) bounds. The data model accepts polygon
+// regions today even though the editor only draws rectangles — see
+// `RegionShape` below for the migration plan. A polygon needs at
+// least 3 points to enclose an area; the upper cap mirrors the
+// backend so a runaway hand-drawn lasso doesn't bloat the row.
+export const MIN_POLYGON_POINTS = 3;
+export const MAX_POLYGON_POINTS = 200;
 
 // Operator-edited field universe — see `InvoicePatternFieldDefinition`.
 export const MAX_PATTERN_FIELD_DEFINITIONS = 100;
@@ -62,100 +87,8 @@ const FIELD_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 // `Invoice` model + the `InvoiceExtractedField` Literal first, then
 // mirror the addition here.
 
-export type InvoiceExtractedField =
-  // Vendor identity
-  | "vendor_name"
-  | "vendor_address"
-  | "vendor_tax_id"
-  // Bill-to / property
-  | "bill_to_name"
-  | "bill_to_address"
-  | "property_name"
-  | "property_code"
-  // Invoice metadata
-  | "invoice_number"
-  | "invoice_date"
-  | "due_date"
-  | "service_period_start"
-  | "service_period_end"
-  | "payment_terms"
-  // Amounts
-  | "subtotal"
-  | "tax_amount"
-  | "total_amount"
-  | "currency"
-  // Classification
-  | "invoice_type"
-  | "utility_type"
-  | "account_number"
-  | "meter_number";
-
-export const INVOICE_EXTRACTED_FIELDS: readonly InvoiceExtractedField[] = [
-  "vendor_name",
-  "vendor_address",
-  "vendor_tax_id",
-  "bill_to_name",
-  "bill_to_address",
-  "property_name",
-  "property_code",
-  "invoice_number",
-  "invoice_date",
-  "due_date",
-  "service_period_start",
-  "service_period_end",
-  "payment_terms",
-  "subtotal",
-  "tax_amount",
-  "total_amount",
-  "currency",
-  "invoice_type",
-  "utility_type",
-  "account_number",
-  "meter_number",
-] as const;
-
-/**
- * Friendly labels for the canonical fields. The runtime authority is
- * the `/invoice-patterns/canonical-fields` API response (so the
- * backend can update labels without a frontend redeploy); this
- * mirror is used as a synchronous fallback / typing aid when the
- * fetched descriptors haven't landed yet.
- */
-export const INVOICE_EXTRACTED_FIELD_LABEL: Record<
-  InvoiceExtractedField,
-  string
-> = {
-  vendor_name: "Vendor Name",
-  vendor_address: "Vendor Address",
-  vendor_tax_id: "Vendor Tax ID",
-  bill_to_name: "Bill To Name",
-  bill_to_address: "Bill To Address",
-  property_name: "Property Name",
-  property_code: "Property Code",
-  invoice_number: "Invoice Number",
-  invoice_date: "Invoice Date",
-  due_date: "Due Date",
-  service_period_start: "Service Period Start",
-  service_period_end: "Service Period End",
-  payment_terms: "Payment Terms",
-  subtotal: "Subtotal",
-  tax_amount: "Tax Amount",
-  total_amount: "Total Amount",
-  currency: "Currency",
-  invoice_type: "Invoice Type",
-  utility_type: "Utility Type",
-  account_number: "Account Number",
-  meter_number: "Meter Number",
-};
-
-/**
- * Canonical-field descriptor returned by the API. Frontend uses these
- * directly so the dropdown labels stay backend-authoritative.
- */
-export interface InvoiceExtractedFieldDescriptor {
-  key: InvoiceExtractedField;
-  label: string;
-}
+export type InvoiceExtractedFieldDescriptor =
+  SharedExtractedInvoiceFieldDescriptor;
 
 export interface InvoiceExtractedFieldsResponse {
   fields: InvoiceExtractedFieldDescriptor[];
@@ -189,6 +122,19 @@ export interface InvoicePatternSourceFile {
   page_count: number;
   data_url: string;
   uploaded_at?: string | null;
+  /**
+   * 1-based page numbers the operator hid from this file via the
+   * "Delete page" affordance. Pages stay physically present in the
+   * uploaded data URL — the editor just refuses to render or draw on
+   * them, and the runtime extractor skips them. Optional / defaults
+   * to `[]` for backward compat with rows persisted before the field
+   * existed; helpers below normalise an undefined value to an empty
+   * array so consumers don't have to.
+   *
+   * Stored sorted and unique. Each entry must be between 1 and
+   * `page_count` inclusive — backend validation enforces.
+   */
+  deleted_pages?: number[];
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +156,31 @@ export interface InvoiceRegionBBox {
   y: number;
   w: number;
   h: number;
+}
+
+/**
+ * Discriminator for `InvoicePatternRegion.shape`. Today every region
+ * is a rectangle (`bbox`); polygon support lands in a follow-up that
+ * fills out the editor surface. The data model accepts both now so
+ * the wire shape can stay stable across that release.
+ *
+ *   * `"rect"`    — bbox-defined rectangle (default; legacy + current).
+ *   * `"polygon"` — free-form closed polygon defined by `points`.
+ *                   `bbox` is still required (used as the bounding
+ *                   rectangle for hit testing + zoom-to-region).
+ */
+export type RegionShape = "rect" | "polygon";
+
+/**
+ * One vertex of a polygon region. Coordinates are normalized to
+ * `[0, 1]` (top-left = (0, 0)) — same coordinate system as
+ * `InvoiceRegionBBox`. Three or more points define an enclosed area;
+ * the polygon is implicitly closed (last vertex connects back to the
+ * first).
+ */
+export interface InvoiceRegionPoint {
+  x: number;
+  y: number;
 }
 
 /**
@@ -242,6 +213,20 @@ export interface InvoicePatternRegion {
   field_key: string;
   label?: string | null;
   notes?: string | null;
+  /**
+   * Region shape discriminator. Defaults to `"rect"` on read for
+   * backward compat with rows persisted before the column existed —
+   * helpers below normalise an undefined value. The editor only draws
+   * rectangles today; polygon support is shipped behind a tool-mode
+   * placeholder so the wire shape can stay stable across that release.
+   */
+  shape?: RegionShape;
+  /**
+   * Polygon vertices when `shape === "polygon"`. Three or more points,
+   * normalized to `[0, 1]`. Must be `null` / `undefined` for rect
+   * regions — backend validation rejects otherwise.
+   */
+  points?: InvoiceRegionPoint[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +336,22 @@ export interface InvoicePatternFieldOption {
    * what's there and can clear it). Always false on customs.
    */
   hidden: boolean;
+  /**
+   * Reverse-usage hint: how many regions on this pattern are pinned
+   * to this field. Surfaced inline in the Import Builder extraction-
+   * binding picker so the operator sees "Invoice Number · 5 regions"
+   * vs "(no region)" before committing a binding. Zero is a soft
+   * warning (the binding still works — extraction falls through to
+   * broad-universe — but it's almost always a mistake).
+   */
+  region_count: number;
+  /**
+   * 1-based page numbers (across all source files on the pattern,
+   * sorted, deduped) where at least one region is pinned to this
+   * field. Lets the picker show "p. 1, 3" tooltips without a second
+   * round-trip. Empty when `region_count` is 0.
+   */
+  region_pages: number[];
 }
 
 export interface InvoicePatternFieldOptionsResponse {
@@ -403,12 +404,19 @@ export function newRegionId(): string {
  * extraction picker) stay simple.
  */
 export function fieldDescriptor(
-  key: InvoiceExtractedField,
+  key: string,
   fetched: readonly InvoiceExtractedFieldDescriptor[] | undefined,
 ): InvoiceExtractedFieldDescriptor {
   const found = fetched?.find((d) => d.key === key);
   if (found) return found;
-  return { key, label: INVOICE_EXTRACTED_FIELD_LABEL[key] };
+  const normalized = normalizeExtractedFieldKey(key);
+  const fetchedAlias = normalized
+    ? fetched?.find((d) => d.key === normalized)
+    : null;
+  if (fetchedAlias) return fetchedAlias;
+  const descriptor = resolveExtractedFieldDescriptor(key);
+  if (descriptor) return descriptor;
+  return { key, label: key };
 }
 
 /**
@@ -490,6 +498,7 @@ export const DEFAULT_BUILTIN_FIELD_COLORS: Record<
   vendor_tax_id: "#facc15",
   bill_to_name: "#3b82f6",
   bill_to_address: "#60a5fa",
+  billing_address: "#2563eb",
   property_name: "#8b5cf6",
   property_code: "#a78bfa",
   invoice_number: "#10b981",
@@ -501,11 +510,18 @@ export const DEFAULT_BUILTIN_FIELD_COLORS: Record<
   subtotal: "#ec4899",
   tax_amount: "#f43f5e",
   total_amount: "#ef4444",
+  previous_balance: "#d946ef",
+  current_charges: "#db2777",
+  late_fee: "#be123c",
   currency: "#a855f7",
   invoice_type: "#6366f1",
   utility_type: "#22d3ee",
   account_number: "#f97316",
   meter_number: "#fb7185",
+  service_address: "#0ea5e9",
+  po_number: "#64748b",
+  line_item_description: "#059669",
+  notes: "#6b7280",
 };
 
 /**
@@ -526,6 +542,10 @@ export function colorForFieldKey(key: string): string {
   // Canonical default branch
   if (key in DEFAULT_BUILTIN_FIELD_COLORS) {
     return DEFAULT_BUILTIN_FIELD_COLORS[key as InvoiceExtractedField];
+  }
+  const normalized = normalizeExtractedFieldKey(key);
+  if (normalized && normalized in DEFAULT_BUILTIN_FIELD_COLORS) {
+    return DEFAULT_BUILTIN_FIELD_COLORS[normalized as InvoiceExtractedField];
   }
   // Hash → palette fallback. Small djb2-like loop, no external dep.
   let h = 0;
@@ -580,7 +600,14 @@ export function resolveFieldList(
   defs: readonly InvoicePatternFieldDefinition[] | undefined,
 ): ResolvedField[] {
   const defsArr = defs ?? [];
-  const defByKey = new Map(defsArr.map((d) => [d.key, d]));
+  const defByKey = new Map<string, InvoicePatternFieldDefinition>();
+  for (const d of defsArr) {
+    if (d.type === "built_in") {
+      defByKey.set(normalizeExtractedFieldKey(d.key) ?? d.key, d);
+    } else {
+      defByKey.set(d.key, d);
+    }
+  }
   const out: ResolvedField[] = [];
 
   for (const cf of canonical) {
@@ -630,7 +657,11 @@ export function findResolvedField(
   key: string,
   resolved: readonly ResolvedField[],
 ): ResolvedField | null {
-  return resolved.find((r) => r.key === key) ?? null;
+  const exact = resolved.find((r) => r.key === key);
+  if (exact) return exact;
+  const normalized = normalizeExtractedFieldKey(key);
+  if (!normalized || normalized === key) return null;
+  return resolved.find((r) => r.key === normalized) ?? null;
 }
 
 /**
@@ -696,6 +727,77 @@ export function countRegionsByFieldKey(
   const out: Record<string, number> = {};
   for (const r of regions) {
     out[r.field_key] = (out[r.field_key] ?? 0) + 1;
+    const normalized = normalizeExtractedFieldKey(r.field_key);
+    if (normalized && normalized !== r.field_key) {
+      out[normalized] = (out[normalized] ?? 0) + 1;
+    }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Shape + page-deletion helpers
+// ---------------------------------------------------------------------------
+//
+// Tiny accessors that paper over the optional-on-the-wire defaults
+// (`shape`, `deleted_pages`) so consumers don't have to repeat the
+// "undefined ⇒ default" branch at every call site.
+
+/**
+ * Effective region shape. Treats a missing / undefined value as
+ * `"rect"` so legacy rows keep rendering as rectangles.
+ */
+export function regionShape(
+  region: Pick<InvoicePatternRegion, "shape">,
+): RegionShape {
+  return region.shape ?? "rect";
+}
+
+/**
+ * Effective deleted-pages list for a source file. Undefined ⇒ empty.
+ * Returns a fresh array so callers can mutate without poisoning the
+ * persisted shape.
+ */
+export function effectiveDeletedPages(
+  file: Pick<InvoicePatternSourceFile, "deleted_pages">,
+): number[] {
+  return [...(file.deleted_pages ?? [])];
+}
+
+/** True iff the given 1-based page is in the file's deleted list. */
+export function isPageDeleted(
+  file: Pick<InvoicePatternSourceFile, "deleted_pages">,
+  page: number,
+): boolean {
+  const list = file.deleted_pages;
+  return list != null && list.includes(page);
+}
+
+/**
+ * 1-based page numbers that are still visible on the file. Useful for
+ * the page-paginator + thumbnail rail — both want to skip deleted
+ * pages without scanning the full count manually.
+ */
+export function nonDeletedPages(
+  file: Pick<InvoicePatternSourceFile, "page_count" | "deleted_pages">,
+): number[] {
+  const deleted = new Set(file.deleted_pages ?? []);
+  const out: number[] = [];
+  for (let p = 1; p <= file.page_count; p++) {
+    if (!deleted.has(p)) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * First non-deleted page on the file, or `null` if every page has been
+ * deleted. Editor uses this to pick a fallback active page when the
+ * current page becomes orphaned (e.g. operator deleted the page they
+ * were viewing).
+ */
+export function firstVisiblePage(
+  file: Pick<InvoicePatternSourceFile, "page_count" | "deleted_pages">,
+): number | null {
+  const visible = nonDeletedPages(file);
+  return visible.length > 0 ? visible[0] : null;
 }

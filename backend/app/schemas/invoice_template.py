@@ -71,6 +71,12 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
+from app.domain.extracted_invoice_fields import (
+    get_extracted_field_aliases,
+    is_known_extracted_field_key,
+    normalize_extracted_field_key,
+    resolve_extracted_field_descriptor,
+)
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # What an InvoiceTemplate's `source` field can take. Informational
@@ -148,7 +154,7 @@ ColumnSourceType = Literal[
 #
 # Each column declares its expected DATA TYPE and per-type FORMAT hints.
 # Independent from `source_type`: a column can pull from
-# `invoice_field='amount'` (where the value comes from) and ALSO declare
+# `invoice_field='total_amount'` (where the value comes from) and ALSO declare
 # `data_type='currency'` with `format.decimal_places=2` (how the value
 # is shaped on output). Phase 1 stores the contract; the renderer that
 # applies type coercion / format formatting at export time is
@@ -180,6 +186,30 @@ ColumnDataType = Literal[
 _REF_BINDING_SOURCES: frozenset[str] = frozenset(
     {"invoice_field", "property_field", "vendor_field", "gl_field"}
 )
+
+
+def normalize_invoice_field_key(key: str | None) -> str | None:
+    """Normalize an extracted invoice field key for read-side comparisons."""
+
+    return normalize_extracted_field_key(key)
+
+
+def resolve_invoice_field_descriptor(key: str | None):
+    """Resolve an extracted invoice field key or legacy alias."""
+
+    return resolve_extracted_field_descriptor(key)
+
+
+def is_known_invoice_field_key(key: str | None) -> bool:
+    """True when `key` is a built-in extracted field or legacy alias."""
+
+    return is_known_extracted_field_key(key)
+
+
+def get_invoice_field_aliases(key: str | None) -> tuple[str, ...]:
+    """Return compatibility aliases for an extracted invoice field."""
+
+    return get_extracted_field_aliases(key)
 
 # ---------------------------------------------------------------------------
 # Data-type ↔ Global-behavior compatibility matrix (ADVISORY)
@@ -1205,7 +1235,7 @@ _DEFAULT_COLUMN_SPECS: tuple[
 ] = (
     ("Invoice Number",         True,  "text",     "invoice_field",  "invoice_number",        "action"),
     ("Invoice Date",           True,  "date",     "invoice_field",  "invoice_date",          "action"),
-    ("Accounting Date",        False, "date",     "invoice_field",  "accounting_date",       "action"),
+    ("Accounting Date",        False, "date",     "invoice_field",  "invoice_date",          "action"),
     ("Vendor",                 True,  "text",     "vendor_field",   "vendor_name",           "condition"),
     ("Vendor Code",            True,  "text",     "vendor_field",   "vendor_code",           "condition"),
     ("Property Abbreviation",  True,  "text",     "property_field", "abbreviation",          "restriction"),
@@ -1213,9 +1243,9 @@ _DEFAULT_COLUMN_SPECS: tuple[
     ("Unit",                   False, "text",     "empty",          None,                    "restriction"),
     ("GL Account",             True,  "text",     "gl_field",       "gl_code",               "action"),
     ("Line Item Description",  False, "text",     "invoice_field",  "line_item_description", "action"),
-    ("Amount",                 True,  "currency", "invoice_field",  "amount",                "action"),
-    ("Tax",                    False, "currency", "invoice_field",  "tax",                   "action"),
-    ("Total",                  True,  "currency", "invoice_field",  "total",                 "action"),
+    ("Amount",                 True,  "currency", "invoice_field",  "total_amount",          "action"),
+    ("Tax",                    False, "currency", "invoice_field",  "tax_amount",            "action"),
+    ("Total",                  True,  "currency", "invoice_field",  "total_amount",          "action"),
     ("Currency",               False, "text",     "invoice_field",  "currency",              "action"),
     ("Due Date",               False, "date",     "invoice_field",  "due_date",              "action"),
     ("PO Number",              False, "text",     "invoice_field",  "po_number",             "action"),

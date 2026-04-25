@@ -1445,9 +1445,9 @@ function FieldPickerSection({
   sourceType: ColumnSourceType;
   onChange: (patch: Partial<InvoiceTemplateColumn>) => void;
 }) {
-  const options = fieldOptionsFor(sourceType);
   const currentRef = column.source_ref ?? { field: null };
   const currentField = currentRef.field ?? null;
+  const options = fieldOptionsFor(sourceType, currentField);
   return (
     <Section
       title="Source field"

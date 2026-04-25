@@ -9,6 +9,8 @@ import {
   type InvoicePatternRegion,
   MAX_PATTERN_REGION_LABEL_LENGTH,
   MAX_PATTERN_REGION_NOTES_LENGTH,
+  normalizeExtractedFieldKey,
+  regionShape,
   type ResolvedField,
   visibleFieldList,
 } from "@/types/invoice-pattern";
@@ -107,7 +109,12 @@ export function RegionInspector({
   const isHiddenBuiltin = resolved != null && resolved.hidden;
   const swatchColor = resolved?.color ?? "#6b7280";
   const labelPlaceholder = resolved?.label ?? "Unknown field";
-  const usageOnThisField = regionUsageByKey[region.field_key] ?? 0;
+  const normalizedFieldKey =
+    normalizeExtractedFieldKey(region.field_key) ?? region.field_key;
+  const usageOnThisField =
+    regionUsageByKey[region.field_key] ??
+    regionUsageByKey[normalizedFieldKey] ??
+    0;
 
   // Build dropdown options. Order:
   //   1. Optional "Unknown — reassign…" disabled placeholder (only
@@ -181,7 +188,7 @@ export function RegionInspector({
             aria-hidden
           />
           <select
-            value={region.field_key}
+            value={resolved?.key ?? region.field_key}
             onChange={(e) =>
               onChange({ ...region, field_key: e.target.value })
             }
@@ -243,16 +250,41 @@ export function RegionInspector({
         />
       </Field>
 
-      {/* Read-only diagnostic: where this region lives. */}
-      <div className="pt-2 border-t border-gray-100 text-[10.5px] text-gray-500">
+      {/* Read-only diagnostic: shape, page, geometry. Geometry is shown
+          as PERCENTAGES of the page rect (instead of normalized
+          decimals) because operators reason naturally about "this
+          region covers the right 30% of the page" — way more useful
+          than 0.700 / 0.030. The polygon path additionally surfaces
+          the point count since the bbox is the polygon's enclosing
+          rect (computed by the data-model helpers, not user-set). */}
+      <div className="pt-2 border-t border-gray-100 text-[10.5px] text-gray-500 space-y-0.5">
+        <p>
+          Shape:{" "}
+          <span className="text-gray-700 font-medium">
+            {regionShape(region) === "polygon"
+              ? `Polygon (${region.points?.length ?? 0} points)`
+              : "Rectangle"}
+          </span>
+        </p>
         <p>Page {region.page}</p>
-        <p className="mt-0.5 font-mono">
-          x {region.bbox.x.toFixed(3)} · y {region.bbox.y.toFixed(3)} ·{" "}
-          w {region.bbox.w.toFixed(3)} · h {region.bbox.h.toFixed(3)}
+        <p className="font-mono">
+          x {pct(region.bbox.x)} · y {pct(region.bbox.y)} · w{" "}
+          {pct(region.bbox.w)} · h {pct(region.bbox.h)}
         </p>
       </div>
     </div>
   );
+}
+
+/**
+ * Format a normalized [0, 1] coordinate as a 1-decimal-place
+ * percentage. 0.4567 → "45.7%". One decimal is the sweet spot for
+ * inspector copy: precise enough to confirm the operator dragged to
+ * the right spot, terse enough to fit on one line for all four
+ * geometry components.
+ */
+function pct(v: number): string {
+  return `${(v * 100).toFixed(1)}%`;
 }
 
 function Field({

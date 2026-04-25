@@ -25,6 +25,19 @@
  * shape; downstream resolution is intentionally deferred.
  */
 
+import {
+  EXTRACTED_INVOICE_FIELD_REGISTRY,
+  normalizeExtractedFieldKey,
+  resolveExtractedFieldDescriptor,
+} from "./extracted-invoice-field";
+
+export {
+  getExtractedFieldAliases,
+  isKnownExtractedFieldKey,
+  normalizeExtractedFieldKey,
+  resolveExtractedFieldDescriptor,
+} from "./extracted-invoice-field";
+
 /**
  * Where this template was originally seeded from. Informational —
  * drives a small "origin" hint in the UI but has no functional effect.
@@ -859,20 +872,13 @@ export const GL_FIELD_OPTIONS: readonly ColumnFieldOption[] = [
   { value: "description", label: "Description" },
 ] as const;
 
-export const INVOICE_FIELD_OPTIONS: readonly ColumnFieldOption[] = [
-  { value: "invoice_number", label: "Invoice number" },
-  { value: "invoice_date", label: "Invoice date" },
-  { value: "accounting_date", label: "Accounting date" },
-  { value: "due_date", label: "Due date" },
-  { value: "amount", label: "Amount" },
-  { value: "tax", label: "Tax" },
-  { value: "total", label: "Total" },
-  { value: "currency", label: "Currency" },
-  { value: "po_number", label: "PO number" },
-  { value: "line_item_description", label: "Line item description" },
-  { value: "vendor_name", label: "Vendor name (extracted)" },
-  { value: "notes", label: "Notes" },
-] as const;
+export const INVOICE_FIELD_OPTIONS: readonly ColumnFieldOption[] =
+  EXTRACTED_INVOICE_FIELD_REGISTRY.filter((field) => !field.output_only).map(
+    (field) => ({
+      value: field.key,
+      label: field.label,
+    }),
+  );
 
 /**
  * Look up the option list for a given ref-binding source type. Returns
@@ -881,6 +887,7 @@ export const INVOICE_FIELD_OPTIONS: readonly ColumnFieldOption[] = [
  */
 export function fieldOptionsFor(
   source: ColumnSourceType,
+  currentField?: string | null,
 ): readonly ColumnFieldOption[] {
   switch (source) {
     case "property_field":
@@ -889,8 +896,28 @@ export function fieldOptionsFor(
       return VENDOR_FIELD_OPTIONS;
     case "gl_field":
       return GL_FIELD_OPTIONS;
-    case "invoice_field":
-      return INVOICE_FIELD_OPTIONS;
+    case "invoice_field": {
+      if (
+        currentField == null ||
+        currentField === "" ||
+        INVOICE_FIELD_OPTIONS.some((opt) => opt.value === currentField)
+      ) {
+        return INVOICE_FIELD_OPTIONS;
+      }
+      const normalized = normalizeExtractedFieldKey(currentField);
+      const descriptor = resolveExtractedFieldDescriptor(currentField);
+      const suffix =
+        normalized && normalized !== currentField && descriptor
+          ? `legacy alias for ${descriptor.label}`
+          : "unknown field";
+      return [
+        {
+          value: currentField,
+          label: `${currentField} (${suffix})`,
+        },
+        ...INVOICE_FIELD_OPTIONS,
+      ];
+    }
     default:
       return [];
   }
@@ -1185,6 +1212,57 @@ export function newRule(columnIds: readonly string[]): InvoiceTemplateRule {
     lock_position: false,
     lock_editing: false,
   };
+}
+
+function cloneRuleValue<T>(value: T): T {
+  if (typeof globalThis.structuredClone === "function") {
+    try {
+      return globalThis.structuredClone(value);
+    } catch {
+      // Fall through to the plain recursive clone below. Rule payloads
+      // are JSON-shaped, but this keeps the helper tolerant of odd
+      // browser/test environments.
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneRuleValue(item)) as T;
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime()) as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      out[key] = cloneRuleValue(child);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/**
+ * Duplicate a rule without flattening its semantic cell shape.
+ *
+ * Rule cells can carry visible values plus structured catalog selections,
+ * explicit cell roles, legacy `extraction`, modern `extraction_bindings`,
+ * and future source-specific metadata. Duplication must preserve all of
+ * that and only replace the rule identity.
+ */
+export function cloneInvoiceTemplateRule(
+  source: InvoiceTemplateRule,
+): InvoiceTemplateRule {
+  const cloned = cloneRuleValue(source) as InvoiceTemplateRule &
+    Record<string, unknown>;
+  cloned.id = newRuleId();
+  if (typeof cloned.label === "string" && cloned.label.trim()) {
+    cloned.label = `${cloned.label} copy`;
+  }
+  if (typeof cloned.name === "string" && cloned.name.trim()) {
+    cloned.name = `${cloned.name} copy`;
+  }
+  return cloned as InvoiceTemplateRule;
 }
 
 // ---------------------------------------------------------------------------

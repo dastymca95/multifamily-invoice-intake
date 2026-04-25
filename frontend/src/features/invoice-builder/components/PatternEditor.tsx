@@ -5,12 +5,19 @@ import {
   ChevronRight,
   FileSearch,
   FileText,
+  GitBranch,
   Image as ImageIcon,
+  LayoutGrid,
   Loader2,
+  Maximize2,
+  Minus,
   Plus,
   Redo2,
+  Rows3,
   Save,
   Settings2,
+  Square,
+  StretchHorizontal,
   Trash2,
   Undo2,
   Upload,
@@ -30,6 +37,8 @@ import { InlineAlert } from "@/components/ui/InlineAlert";
 import { cn, formatDate } from "@/lib/utils";
 import {
   countRegionsByFieldKey,
+  effectiveDeletedPages,
+  firstVisiblePage,
   formatFileSize,
   type InvoiceExtractedFieldDescriptor,
   type InvoicePatternFieldDefinition,
@@ -37,23 +46,37 @@ import {
   type InvoicePatternRegion,
   type InvoicePatternSourceFile,
   type InvoicePatternUpdate,
+  isPageDeleted,
   MAX_PATTERN_DESCRIPTION_LENGTH,
   MAX_PATTERN_NAME_LENGTH,
   MAX_PATTERN_SOURCE_FILES,
   MAX_PATTERN_VENDOR_HINT_LENGTH,
+  nonDeletedPages,
   type ResolvedField,
   resolveFieldList,
   visibleFieldList,
 } from "@/types/invoice-pattern";
 
 import {
+  useInvoicePatternCoverage,
+} from "../hooks/useInvoicePatternCoverage";
+import {
   useRegionHistory,
   useRegionHistoryShortcuts,
 } from "../hooks/useRegionHistory";
+import { useViewerKeyboardShortcuts } from "../hooks/useViewerShortcuts";
 import { ingestFile, isAcceptedFileType } from "../lib/file-ingest";
+import {
+  DEFAULT_VIEWER_TOOL,
+  type ViewerTool,
+  VIEWER_TOOLS,
+} from "../lib/viewer-tools";
+import { ContinuousDocumentStack } from "./ContinuousDocumentStack";
+import { CoveragePanel } from "./CoveragePanel";
 import { DocumentViewer } from "./DocumentViewer";
 import { ManageFieldsModal } from "./ManageFieldsModal";
 import { RegionInspector } from "./RegionInspector";
+import { ThumbnailRail } from "./ThumbnailRail";
 
 /**
  * Center workspace for one open pattern.
@@ -149,10 +172,53 @@ export function PatternEditor({
   // re-points this whenever the current key gets hidden / deleted.
   const [drawFieldKey, setDrawFieldKey] = useState<string>("vendor_name");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Page-deletion confirm dialog — operator-confirmed because page
+  // deletion is NOT undoable today (the region cascade IS undoable
+  // via the region-history hook, but the source_file mutation is
+  // not). Storing the candidate page rather than a boolean lets the
+  // dialog name the page in its copy.
+  const [pageToDelete, setPageToDelete] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [manageFieldsOpen, setManageFieldsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // ---- Viewer tool / zoom / view-mode state -----------------------
+  //
+  // Tool: "select" / "draw_rect" / "pan" / "draw_polygon" — see
+  // `viewer-tools.ts`. Defaults to select so the editor opens in
+  // the "click to interact" mode operators expect.
+  // Zoom: 1.0 = 100%; range [0.5, 3.0]. Step size 0.1 (10%).
+  // View mode: "single" / "continuous" / "thumbnails" — see the
+  // toolbar segment further down for the contract.
+  const [viewerTool, setViewerTool] = useState<ViewerTool>(
+    DEFAULT_VIEWER_TOOL,
+  );
+  const [zoom, setZoom] = useState<number>(1);
+  type ViewMode = "single" | "continuous" | "thumbnails";
+  const [viewMode, setViewMode] = useState<ViewMode>("single");
+
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 3.0;
+  const ZOOM_STEP = 0.1;
+  const zoomIn = useCallback(
+    () => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2))),
+    [],
+  );
+  const zoomOut = useCallback(
+    () => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2))),
+    [],
+  );
+  const resetZoom = useCallback(() => setZoom(1), []);
+  // Fit-width and fit-page are aspirational — the page surface always
+  // hugs its container's width up to BASE_PAGE_WIDTH_PX × zoom. So
+  // "fit width" is just "set zoom such that 768px × zoom == container
+  // width". Without measuring the container live, the simplest
+  // interpretation is "100%" + a future enhancement to read the
+  // container width. For now both buttons map to 1.0 / 0.85 so the
+  // affordance is at least responsive.
+  const fitWidth = useCallback(() => setZoom(1), []);
+  const fitPage = useCallback(() => setZoom(0.85), []);
 
   // Re-materialize on a fresh `initial` (parent passes a re-keyed
   // `patternKey` on selection change so the component re-mounts; this
@@ -165,8 +231,12 @@ export function PatternEditor({
     setActivePage(1);
     setSelectedRegionId(null);
     setConfirmDelete(false);
+    setPageToDelete(null);
     setDrawFieldKey("vendor_name");
     setUploadError(null);
+    // Tool / zoom / view-mode preserved across saves — they're a UI
+    // preference, not a data field. Pattern switches re-mount the
+    // editor so they reset to defaults via the initial useState.
   }, [initial, resetRegions]);
 
   // ---- Resolved field universe ----------------------------------------
@@ -196,6 +266,80 @@ export function PatternEditor({
     [regions],
   );
 
+  // ---- Right-rail tab + Import Builder coverage scope ---------------
+  //
+  // Right rail flips between the per-region inspector and the
+  // pattern-level coverage panel. Defaults to Region (the per-selection
+  // editor is the more common interaction); the operator can flip to
+  // Coverage to see which Import Builder templates use this pattern.
+  //
+  // `templateScopeId` is the toolbar's current narrowing filter — null
+  // means "All templates", a specific id means "show me only this
+  // template's coverage + only badge regions linked from that
+  // template". The coverage hook always fetches the FULL set (one
+  // round-trip per pattern open / refresh) and the scope filter is
+  // applied client-side to keep template switching instant.
+  type RightTab = "region" | "coverage";
+  const [rightTab, setRightTab] = useState<RightTab>("region");
+  const [templateScopeId, setTemplateScopeId] = useState<string | null>(null);
+  const {
+    data: coverageData,
+    loading: coverageLoading,
+    error: coverageError,
+    refresh: refreshCoverage,
+  } = useInvoicePatternCoverage(initial.id, null);
+
+  // When the operator selects a region (e.g. clicks a region overlay)
+  // auto-flip to the Region tab. Lets the Coverage panel be a
+  // "background diagnostic" that doesn't block per-region edits.
+  useEffect(() => {
+    if (selectedRegionId) setRightTab("region");
+  }, [selectedRegionId]);
+
+  // Reset the toolbar template scope on every pattern switch — a
+  // scope id from a previous pattern is meaningless on the new one
+  // (templates may not even reference it). The hook above already
+  // null-pattern-clears its internal state.
+  useEffect(() => {
+    setTemplateScopeId(null);
+  }, [initial.id]);
+
+  // Drop the scope back to "All templates" if the selected template
+  // disappears from the response (e.g. operator deleted it in another
+  // tab and we just refetched).
+  useEffect(() => {
+    if (!templateScopeId || !coverageData) return;
+    const stillThere = coverageData.templates.some(
+      (t) => t.template_id === templateScopeId,
+    );
+    if (!stillThere) setTemplateScopeId(null);
+  }, [templateScopeId, coverageData]);
+
+  // Derived field-key sets for the region overlay badges. Honours the
+  // toolbar scope: when filtering to one template, only that
+  // template's bound fields get the "Linked" / "REQ" badges so the
+  // operator can isolate "what does THIS template need from this
+  // pattern?".
+  const { linkedFieldKeys, requiredFieldKeys } = useMemo(() => {
+    const linked = new Set<string>();
+    const required = new Set<string>();
+    if (!coverageData) return { linkedFieldKeys: linked, requiredFieldKeys: required };
+    const templates = templateScopeId
+      ? coverageData.templates.filter(
+          (t) => t.template_id === templateScopeId,
+        )
+      : coverageData.templates;
+    for (const t of templates) {
+      for (const uf of t.used_fields) {
+        linked.add(uf.field_key);
+        if (uf.used_by.some((u) => u.column_required)) {
+          required.add(uf.field_key);
+        }
+      }
+    }
+    return { linkedFieldKeys: linked, requiredFieldKeys: required };
+  }, [coverageData, templateScopeId]);
+
   // ---- Derived selections ---------------------------------------------
 
   const activeFile = useMemo(
@@ -207,6 +351,17 @@ export function PatternEditor({
     [regions, selectedRegionId],
   );
 
+  // Visible (non-deleted) page list for the active file. Drives the
+  // paginator + thumbnail rail so deleted pages disappear from the
+  // navigation surface — they remain in the underlying data URL but
+  // can't be drawn on.
+  const visiblePages = useMemo(
+    () => (activeFile ? nonDeletedPages(activeFile) : []),
+    [activeFile],
+  );
+  const activePageIsDeleted =
+    activeFile != null && isPageDeleted(activeFile, activePage);
+
   // If the operator hides / deletes the field that's currently the
   // draw target, re-pick the first visible field so the dropdown stays
   // in a valid state. No-op when the current key is still visible.
@@ -217,17 +372,46 @@ export function PatternEditor({
     }
   }, [visibleResolved, drawFieldKey]);
 
+  // If the active page has been deleted (e.g. operator just removed
+  // it and we need to slide focus elsewhere), re-anchor on the next
+  // visible page. No-op when the current page is still visible.
+  useEffect(() => {
+    if (!activeFile) return;
+    if (!isPageDeleted(activeFile, activePage)) return;
+    const next = firstVisiblePage(activeFile);
+    if (next != null) setActivePage(next);
+  }, [activeFile, activePage]);
+
   // Wire keyboard shortcuts. Disabled while modals are open so a
   // Cmd+Z inside ManageFieldsModal's label input doesn't surprise the
   // operator with a region-level undo. The hook itself also skips
   // keystrokes inside form controls; the modal-open guard is belt-
   // and-braces for the case where the modal opens with focus on a
   // non-input element.
-  useRegionHistoryShortcuts(
-    undo,
-    redo,
-    !manageFieldsOpen && !confirmDelete,
-  );
+  const shortcutsEnabled =
+    !manageFieldsOpen && !confirmDelete && pageToDelete == null;
+  useRegionHistoryShortcuts(undo, redo, shortcutsEnabled);
+
+  // Viewer-only shortcuts: tool switching (V/R/H), Space-pan,
+  // Delete/Backspace for the selected region, Ctrl/Cmd +/-/0 for
+  // zoom. Same skip rules as the history hook (text-input fields
+  // never see these), gated by the same modal kill-switch.
+  useViewerKeyboardShortcuts({
+    tool: viewerTool,
+    setTool: setViewerTool,
+    onDeleteSelected: () => {
+      if (!selectedRegionId) return;
+      setRegions(regions.filter((r) => r.id !== selectedRegionId));
+      setSelectedRegionId(null);
+    },
+    hasSelection: selectedRegionId != null,
+    canZoomIn: zoom < ZOOM_MAX,
+    canZoomOut: zoom > ZOOM_MIN,
+    onZoomIn: zoomIn,
+    onZoomOut: zoomOut,
+    onResetZoom: resetZoom,
+    enabled: shortcutsEnabled,
+  });
 
   // ---- Dirty check ----------------------------------------------------
   //
@@ -375,6 +559,63 @@ export function PatternEditor({
     },
     [form.source_files, regions, resetRegions, activeFileId],
   );
+
+  // ---- Page deletion -------------------------------------------------
+  //
+  // Hides one page of a file (the bytes stay; the renderer + extractor
+  // skip it). Cascade-removes regions on that page so the backend's
+  // cross-field consistency check can't reject the save.
+  //
+  // Reset (not push) the region history because the source-file
+  // mutation isn't undoable; pushing the region cascade alone would
+  // let undo resurrect regions that reference a deleted page →
+  // backend 422. Operator intuition matches the file-removal flow:
+  // page deletion is a structural action, not a tracked region edit.
+  // Hence the mandatory confirm dialog.
+
+  const performDeletePage = useCallback(
+    (page: number) => {
+      if (!activeFile) return;
+      const file = activeFile;
+      // Refuse to delete the last visible page — the source-file
+      // schema validator rejects "all pages deleted" with the same
+      // copy. Catching it here gives a friendlier path (operator can
+      // remove the file outright instead).
+      const remaining = nonDeletedPages(file).filter((p) => p !== page);
+      if (remaining.length === 0) {
+        setUploadError(
+          "Can't delete the last visible page of a file — remove the file instead.",
+        );
+        return;
+      }
+      const nextDeleted = [
+        ...effectiveDeletedPages(file),
+        page,
+      ].sort((a, b) => a - b);
+      const nextFiles = form.source_files.map((f) =>
+        f.id === file.id ? { ...f, deleted_pages: nextDeleted } : f,
+      );
+      const nextRegions = regions.filter(
+        (r) => !(r.source_file_id === file.id && r.page === page),
+      );
+      setForm((curr) => ({ ...curr, source_files: nextFiles }));
+      resetRegions(nextRegions);
+      // If we just deleted the page the operator was viewing, slide to
+      // the next visible page.
+      if (activePage === page) {
+        setActivePage(remaining[0]);
+        setSelectedRegionId(null);
+      }
+    },
+    [activeFile, activePage, form.source_files, regions, resetRegions],
+  );
+
+  const handleConfirmDeletePage = useCallback(() => {
+    if (pageToDelete == null) return;
+    const target = pageToDelete;
+    setPageToDelete(null);
+    performDeletePage(target);
+  }, [pageToDelete, performDeletePage]);
 
   // ---- Region edits ----------------------------------------------------
   //
@@ -617,14 +858,20 @@ export function PatternEditor({
             </Button>
           </div>
 
-          {/* Pagination — visible when active file has > 1 page */}
-          {activeFile && activeFile.page_count > 1 && (
+          {/* Pagination — visible when active file has > 1 page.
+              Steps OVER deleted pages so the operator never sees a
+              "Page N" they can't open. The "Delete page" trash icon
+              opens the confirmation dialog. */}
+          {activeFile && visiblePages.length > 1 && (
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
-                onClick={() => setActivePage((p) => Math.max(1, p - 1))}
-                disabled={activePage <= 1}
+                onClick={() => {
+                  const idx = visiblePages.indexOf(activePage);
+                  if (idx > 0) setActivePage(visiblePages[idx - 1]);
+                }}
+                disabled={visiblePages.indexOf(activePage) <= 0}
                 title="Previous page"
                 aria-label="Previous page"
               >
@@ -632,28 +879,102 @@ export function PatternEditor({
               </button>
               <span className="text-[11.5px] text-gray-700 tabular-nums">
                 Page {activePage} of {activeFile.page_count}
+                {activeFile.deleted_pages?.length ? (
+                  <span className="text-gray-400 ml-1">
+                    ({activeFile.deleted_pages.length} deleted)
+                  </span>
+                ) : null}
               </span>
               <button
                 type="button"
                 className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
-                onClick={() =>
-                  setActivePage((p) =>
-                    Math.min(activeFile.page_count, p + 1),
-                  )
+                onClick={() => {
+                  const idx = visiblePages.indexOf(activePage);
+                  if (idx >= 0 && idx < visiblePages.length - 1)
+                    setActivePage(visiblePages[idx + 1]);
+                }}
+                disabled={
+                  visiblePages.indexOf(activePage) >=
+                  visiblePages.length - 1
                 }
-                disabled={activePage >= activeFile.page_count}
                 title="Next page"
                 aria-label="Next page"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
+              {/* Delete-page button — disabled when only one visible
+                  page remains (matches the schema rule that refuses
+                  to delete the last visible page). */}
+              <button
+                type="button"
+                className="p-1 rounded hover:bg-red-50 text-gray-500 hover:text-red-600 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                onClick={() => setPageToDelete(activePage)}
+                disabled={visiblePages.length <= 1}
+                title="Delete this page"
+                aria-label="Delete this page"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
+
+          {/* Tool picker — segmented control. Each tool surfaces its
+              keyboard shortcut in the tooltip; the polygon entry is
+              rendered as "coming soon" so operators know the
+              capability is in flight. */}
+          <ToolPicker
+            value={viewerTool}
+            onChange={setViewerTool}
+            disabled={saving}
+          />
+
+          {/* Zoom controls — minus / value / plus / fit-width / fit-page
+              / 100%. The numeric label doubles as the "reset to 100%"
+              click target so the affordance is dense. */}
+          <ZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onResetZoom={resetZoom}
+            onFitWidth={fitWidth}
+            onFitPage={fitPage}
+            min={ZOOM_MIN}
+            max={ZOOM_MAX}
+          />
+
+          {/* View-mode toggle — single page, vertical scroll of all
+              pages, or thumbnails sidebar. Hidden when the active
+              file has only one visible page (no choice to make). */}
+          {activeFile && visiblePages.length > 1 && (
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+          )}
+
+          {/* Import Builder scope selector. Filters the right-rail
+              coverage panel + the region-overlay association badges
+              to a single template so the operator can answer
+              "what does THIS template need from this pattern?". The
+              dropdown is sourced from the coverage response (every
+              workspace template appears, not just wired ones) so the
+              labels stay backend-authoritative. */}
+          <div className="ml-auto flex items-center gap-1.5">
+            <ImportTemplateScopeSelect
+              templates={coverageData?.templates ?? []}
+              value={templateScopeId}
+              onChange={(next) => {
+                setTemplateScopeId(next);
+                // When the operator scopes to a specific template, flip
+                // the right rail to Coverage so they see what they just
+                // narrowed to. Don't flip when going back to "All".
+                if (next) setRightTab("coverage");
+              }}
+              disabled={coverageLoading && !coverageData}
+            />
+          </div>
 
           {/* Draw-target field selector. Includes a leading colored
               swatch so the operator sees at a glance which color the
               next region they draw will land in. */}
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-gray-600">Draw as:</span>
             <DrawFieldSelect
               value={drawFieldKey}
@@ -678,21 +999,96 @@ export function PatternEditor({
           </div>
         )}
 
-        {/* Viewer (with drop-target wrapping). Resolved field list is
-            forwarded down so the overlay tints + region inspector
-            label/swatch all read from the same single source. */}
-        <DocumentViewer
-          file={activeFile}
-          page={activePage}
-          regions={regions}
-          drawFieldKey={drawFieldKey}
-          selectedRegionId={selectedRegionId}
-          resolvedFields={resolved}
-          uploading={uploading}
-          onRegionsChange={setRegions}
-          onSelectRegion={setSelectedRegionId}
-          onFilesDropped={handleFilesDropped}
-        />
+        {/* Viewer area. Switches between three rendering surfaces based
+            on the operator's `viewMode`:
+              - "single"      → DocumentViewer on the active page only.
+              - "continuous"  → ContinuousDocumentStack (vertical scroll
+                                of all visible pages, drawable on each).
+              - "thumbnails"  → DocumentViewer in the main area, with a
+                                ThumbnailRail sidebar on the left for
+                                jumping between pages.
+            The DocumentViewer is the same component in single + thumbnails
+            modes — the rail just changes how the operator picks
+            `activePage`. Continuous mode swaps to the dedicated stack
+            because per-page mouse handlers + a single page surface
+            don't compose. Resolved field list is forwarded down so the
+            overlay tints + region inspector label/swatch all read from
+            the same single source. */}
+        {viewMode === "continuous" && activeFile ? (
+          <ContinuousDocumentStack
+            file={activeFile}
+            visiblePages={visiblePages}
+            regions={regions}
+            drawFieldKey={drawFieldKey}
+            selectedRegionId={selectedRegionId}
+            resolvedFields={resolved}
+            linkedFieldKeys={linkedFieldKeys}
+            requiredFieldKeys={requiredFieldKeys}
+            tool={viewerTool}
+            zoom={zoom}
+            uploading={uploading}
+            onRegionsChange={setRegions}
+            onSelectRegion={setSelectedRegionId}
+            onFilesDropped={handleFilesDropped}
+            onPageActivated={setActivePage}
+          />
+        ) : viewMode === "thumbnails" && activeFile ? (
+          <div className="flex-1 min-h-0 flex">
+            <ThumbnailRail
+              file={activeFile}
+              visiblePages={visiblePages}
+              activePage={activePage}
+              regions={regions}
+              resolvedFields={resolved}
+              onSelectPage={(p) => {
+                setActivePage(p);
+                setSelectedRegionId(null);
+              }}
+            />
+            <div className="flex-1 min-w-0 flex flex-col">
+              <DocumentViewer
+                file={activeFile}
+                page={activePage}
+                regions={regions}
+                drawFieldKey={drawFieldKey}
+                selectedRegionId={selectedRegionId}
+                resolvedFields={resolved}
+                linkedFieldKeys={linkedFieldKeys}
+                requiredFieldKeys={requiredFieldKeys}
+                tool={viewerTool}
+                zoom={zoom}
+                uploading={uploading}
+                onRegionsChange={setRegions}
+                onSelectRegion={setSelectedRegionId}
+                onFilesDropped={handleFilesDropped}
+              />
+            </div>
+          </div>
+        ) : (
+          <DocumentViewer
+            file={activeFile}
+            page={activePage}
+            regions={regions}
+            drawFieldKey={drawFieldKey}
+            selectedRegionId={selectedRegionId}
+            resolvedFields={resolved}
+            linkedFieldKeys={linkedFieldKeys}
+            requiredFieldKeys={requiredFieldKeys}
+            tool={viewerTool}
+            zoom={zoom}
+            uploading={uploading}
+            onRegionsChange={setRegions}
+            onSelectRegion={setSelectedRegionId}
+            onFilesDropped={handleFilesDropped}
+          />
+        )}
+
+        {activePageIsDeleted && (
+          <div className="px-4 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-t border-amber-200">
+            This page is marked deleted and is hidden from the
+            navigator. Use the page selector to pick a visible page.
+          </div>
+        )}
 
         {/* Footer hint — only shown when no files have been uploaded
             yet. Doubles up the file-picker entry-point for operators
@@ -718,16 +1114,38 @@ export function PatternEditor({
         )}
       </div>
 
-      {/* ---- Right rail: region inspector ---------------------- */}
-      <div className="w-[18rem] shrink-0">
-        <RegionInspector
-          region={selectedRegion}
-          resolvedFields={resolved}
-          regionUsageByKey={regionUsageByKey}
-          disabled={saving}
-          onChange={updateSelectedRegion}
-          onDelete={deleteSelectedRegion}
+      {/* ---- Right rail: tabbed Region | Coverage shell -------- */}
+      <div className="w-[18rem] shrink-0 flex flex-col bg-white border-l border-gray-200">
+        <RightRailTabs
+          tab={rightTab}
+          onChange={setRightTab}
+          coverageBadge={
+            coverageData
+              ? coverageData.aggregate.missing_required_columns
+              : 0
+          }
         />
+        <div className="flex-1 min-h-0">
+          {rightTab === "region" ? (
+            <RegionInspector
+              region={selectedRegion}
+              resolvedFields={resolved}
+              regionUsageByKey={regionUsageByKey}
+              disabled={saving}
+              onChange={updateSelectedRegion}
+              onDelete={deleteSelectedRegion}
+            />
+          ) : (
+            <CoveragePanel
+              data={coverageData}
+              loading={coverageLoading}
+              error={coverageError}
+              scopedTemplateId={templateScopeId}
+              resolvedFields={resolved}
+              onRefresh={refreshCoverage}
+            />
+          )}
+        </div>
       </div>
 
       {/* ---- Manage fields modal ------------------------------- */}
@@ -779,6 +1197,27 @@ export function PatternEditor({
           </div>
         </div>
       )}
+
+      {/* ---- Page-deletion confirm dialog ---------------------- */}
+      {/* Mandatory because page deletion is NOT undoable today: the
+          region cascade is undoable via `useRegionHistory`, but the
+          source_files mutation is not, and re-binding undo to also
+          revive the page would require tracking source-file history
+          (out of scope). We therefore require an explicit confirm and
+          name the impact (region count to be removed). */}
+      {pageToDelete != null && activeFile && (
+        <PageDeleteConfirm
+          page={pageToDelete}
+          file={activeFile}
+          regionCount={regions.filter(
+            (r) =>
+              r.source_file_id === activeFile.id &&
+              r.page === pageToDelete,
+          ).length}
+          onCancel={() => setPageToDelete(null)}
+          onConfirm={handleConfirmDeletePage}
+        />
+      )}
     </div>
   );
 }
@@ -825,6 +1264,480 @@ function DrawFieldSelect({
             </option>
           ))
         )}
+      </select>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ToolPicker
+// ---------------------------------------------------------------------------
+
+/**
+ * Segmented control for the active viewer tool. Buttons are pressed-in
+ * when active and surface the keyboard shortcut in the tooltip; the
+ * polygon entry adds a "coming soon" suffix because the underlying
+ * editor surface is deferred (the data model accepts polygons but the
+ * draw-by-clicks UI isn't built yet).
+ *
+ * Wired to / from the same `viewer-tools` constants the keyboard
+ * shortcut hook reads — single source of truth for tool ids, labels,
+ * and shortcut letters.
+ */
+function ToolPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ViewerTool;
+  onChange: (next: ViewerTool) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden"
+      role="radiogroup"
+      aria-label="Editor tool"
+    >
+      {VIEWER_TOOLS.map((t) => {
+        const Icon = t.icon;
+        const active = value === t.id;
+        const tip = t.comingSoon
+          ? `${t.hint}`
+          : `${t.label} (${t.shortcut})`;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={t.label}
+            disabled={disabled}
+            onClick={() => onChange(t.id)}
+            title={tip}
+            className={cn(
+              "px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
+              "border-r border-gray-200 last:border-r-0",
+              active
+                ? "bg-brand-50 text-brand-800"
+                : "text-gray-700 hover:bg-gray-50",
+              t.comingSoon && active && "bg-amber-50 text-amber-800",
+              disabled && "opacity-50 cursor-not-allowed",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ZoomControls
+// ---------------------------------------------------------------------------
+
+/**
+ * Zoom toolbar — minus / value-as-reset-button / plus, plus fit-width
+ * and fit-page convenience buttons. The percentage label doubles as the
+ * "reset to 100%" click target so the affordance stays compact.
+ *
+ * The two fit buttons are simple "set zoom to 1.0 / 0.85" today;
+ * fitting against actual container width would require a live measurement
+ * of the viewer surface, which we'll add when there's a clear ergonomic
+ * win (single-page wide PDFs at small viewports). The current behaviour
+ * still gives the operator two reasonable presets.
+ */
+function ZoomControls({
+  zoom,
+  onZoomIn,
+  onZoomOut,
+  onResetZoom,
+  onFitWidth,
+  onFitPage,
+  min,
+  max,
+}: {
+  zoom: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onResetZoom: () => void;
+  onFitWidth: () => void;
+  onFitPage: () => void;
+  min: number;
+  max: number;
+}) {
+  const pct = Math.round(zoom * 100);
+  return (
+    <div className="inline-flex items-center gap-1">
+      <div className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden">
+        <button
+          type="button"
+          className="px-1.5 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          onClick={onZoomOut}
+          disabled={zoom <= min}
+          title="Zoom out (Ctrl/Cmd -)"
+          aria-label="Zoom out"
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          className="px-2 py-1 text-[11.5px] tabular-nums text-gray-800 hover:bg-gray-50 border-l border-r border-gray-200 min-w-[3rem]"
+          onClick={onResetZoom}
+          title="Reset to 100% (Ctrl/Cmd 0)"
+          aria-label="Reset zoom to 100%"
+        >
+          {pct}%
+        </button>
+        <button
+          type="button"
+          className="px-1.5 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          onClick={onZoomIn}
+          disabled={zoom >= max}
+          title="Zoom in (Ctrl/Cmd +)"
+          aria-label="Zoom in"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={onFitWidth}
+        className="px-1.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+        title="Fit width"
+        aria-label="Fit page width"
+      >
+        <StretchHorizontal className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onFitPage}
+        className="px-1.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+        title="Fit page"
+        aria-label="Fit whole page"
+      >
+        <Maximize2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ViewModeToggle
+// ---------------------------------------------------------------------------
+
+/**
+ * Three-state segmented toggle for the page view mode:
+ *
+ *   * "single"      — One page at a time. Default; matches the editor's
+ *                     historical behaviour.
+ *   * "continuous"  — Vertical scroll of all visible pages. Useful for
+ *                     skimming long PDFs to find a region to draw on
+ *                     (the operator often knows the page by appearance,
+ *                     not number).
+ *   * "thumbnails"  — Page-thumbnails sidebar + the regular single-page
+ *                     viewer. Lets the operator jump between pages
+ *                     visually without giving up the focused-edit
+ *                     experience.
+ *
+ * Hidden by the parent when the active file has only one visible page
+ * (no choice to make).
+ */
+function ViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: "single" | "continuous" | "thumbnails";
+  onChange: (next: "single" | "continuous" | "thumbnails") => void;
+}) {
+  const items: {
+    id: "single" | "continuous" | "thumbnails";
+    label: string;
+    icon: typeof Square;
+    title: string;
+  }[] = [
+    {
+      id: "single",
+      label: "Single",
+      icon: Square,
+      title: "Single page",
+    },
+    {
+      id: "continuous",
+      label: "Scroll",
+      icon: Rows3,
+      title: "Continuous vertical scroll",
+    },
+    {
+      id: "thumbnails",
+      label: "Thumbs",
+      icon: LayoutGrid,
+      title: "Thumbnail rail",
+    },
+  ];
+  return (
+    <div
+      className="inline-flex items-center rounded-md border border-gray-300 bg-white overflow-hidden"
+      role="radiogroup"
+      aria-label="View mode"
+    >
+      {items.map((it) => {
+        const Icon = it.icon;
+        const active = value === it.id;
+        return (
+          <button
+            key={it.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={it.label}
+            onClick={() => onChange(it.id)}
+            title={it.title}
+            className={cn(
+              "px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
+              "border-r border-gray-200 last:border-r-0",
+              active
+                ? "bg-brand-50 text-brand-800"
+                : "text-gray-700 hover:bg-gray-50",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PageDeleteConfirm
+// ---------------------------------------------------------------------------
+
+/**
+ * Confirm dialog for hiding (`deleted_pages`) one page from a source
+ * file. Mandatory because the action is not part of the region undo
+ * stack — we re-anchor history (via `resetRegions`) so undo can't
+ * resurrect orphan regions referencing a now-deleted page. Naming the
+ * region count up-front gives the operator a chance to back out before
+ * losing work.
+ */
+function PageDeleteConfirm({
+  page,
+  file,
+  regionCount,
+  onCancel,
+  onConfirm,
+}: {
+  page: number;
+  file: InvoicePatternSourceFile;
+  regionCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-black/30"
+        onClick={onCancel}
+      />
+      <div className="relative bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-5">
+        <h3 className="text-sm font-semibold text-gray-900">
+          Delete page {page} from {file.file_name}?
+        </h3>
+        <p className="text-[12px] text-gray-600 mt-1">
+          This page will be hidden from the editor and skipped at
+          extraction time.{" "}
+          {regionCount > 0 ? (
+            <span className="text-amber-700">
+              {regionCount} region{regionCount === 1 ? "" : "s"} pinned
+              to this page will be removed.
+            </span>
+          ) : (
+            <span>No regions on this page.</span>
+          )}{" "}
+          You can&apos;t undo this from the region history — recover by
+          re-uploading the file.
+        </p>
+        <div className="flex justify-end gap-2 mt-4">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="danger"
+            size="sm"
+            onClick={onConfirm}
+          >
+            Delete page
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RightRailTabs
+// ---------------------------------------------------------------------------
+
+/**
+ * Two-tab strip for the right rail (Region | Coverage). Coverage
+ * carries an optional pill with the number of unsatisfied required
+ * columns so the operator notices it without having to flip tabs to
+ * see whether anything's broken.
+ *
+ * Kept inline (not a generic tabs primitive) because there are exactly
+ * two tabs and the badge logic is trivial — adding a Tabs component
+ * would be over-engineering for one consumer.
+ */
+function RightRailTabs({
+  tab,
+  onChange,
+  coverageBadge,
+}: {
+  tab: "region" | "coverage";
+  onChange: (next: "region" | "coverage") => void;
+  /**
+   * Number of unsatisfied required columns rolled up across every
+   * template in the coverage response. Surfaced as an amber pill on
+   * the Coverage tab; zero hides the pill.
+   */
+  coverageBadge: number;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Right rail"
+      className="flex items-center border-b border-gray-200 bg-gray-50 px-1"
+    >
+      <TabButton
+        active={tab === "region"}
+        onClick={() => onChange("region")}
+        label="Region"
+      />
+      <TabButton
+        active={tab === "coverage"}
+        onClick={() => onChange("coverage")}
+        label="Coverage"
+        badge={
+          coverageBadge > 0 ? (
+            <span
+              className="ml-1 px-1.5 py-[1px] rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 tabular-nums"
+              title={`${coverageBadge} required column${
+                coverageBadge === 1 ? "" : "s"
+              } unresolved`}
+            >
+              {coverageBadge}
+            </span>
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  label,
+  badge,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  badge?: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors",
+        active
+          ? "border-brand-500 text-brand-800 bg-white"
+          : "border-transparent text-gray-600 hover:text-gray-800",
+      )}
+    >
+      {label}
+      {badge}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ImportTemplateScopeSelect
+// ---------------------------------------------------------------------------
+
+/**
+ * Toolbar dropdown that filters the right-rail Coverage panel + the
+ * region-overlay association badges to a single Import Builder
+ * template (or "All templates"). The list is sourced from the
+ * coverage response so every workspace template appears, including
+ * templates that don't reference this pattern — the operator can flip
+ * to one and immediately see the empty "no fields used" state to
+ * confirm the wiring is intentional.
+ *
+ * Read-only narrowing: changing the scope NEVER writes back to either
+ * the pattern or the templates. It's a UI filter, not a binding.
+ */
+interface ImportTemplateScopeSelectOption {
+  template_id: string;
+  template_name: string;
+  used_field_keys: readonly string[];
+}
+
+function ImportTemplateScopeSelect({
+  templates,
+  value,
+  onChange,
+  disabled,
+}: {
+  templates: readonly ImportTemplateScopeSelectOption[];
+  value: string | null;
+  onChange: (next: string | null) => void;
+  disabled?: boolean;
+}) {
+  // Surface the wired count in the trigger ("All · 4 use this") so the
+  // operator gets a one-glance "is this pattern reaching anything?"
+  // before opening the dropdown.
+  const wiredCount = templates.filter(
+    (t) => t.used_field_keys.length > 0,
+  ).length;
+  const totalCount = templates.length;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <GitBranch
+        className="h-3 w-3 text-gray-500 shrink-0"
+        aria-hidden
+      />
+      <span className="text-[11px] text-gray-600">Template:</span>
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        disabled={disabled}
+        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11.5px] text-gray-800 max-w-[14rem] focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
+        title="Filter coverage + region badges to one Import Builder template"
+      >
+        <option value="">
+          {totalCount === 0
+            ? "No templates yet"
+            : `All templates · ${wiredCount} of ${totalCount} use this`}
+        </option>
+        {templates.map((t) => (
+          <option key={t.template_id} value={t.template_id}>
+            {t.used_field_keys.length > 0 ? "● " : "○ "}
+            {t.template_name}
+          </option>
+        ))}
       </select>
     </div>
   );

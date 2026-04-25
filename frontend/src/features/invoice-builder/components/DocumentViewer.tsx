@@ -2,6 +2,7 @@
 
 import { FileText, MousePointerSquareDashed, Upload } from "lucide-react";
 import {
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   useCallback,
@@ -18,9 +19,25 @@ import {
   type InvoicePatternSourceFile,
   type InvoiceRegionBBox,
   newRegionId,
+  normalizeExtractedFieldKey,
+  regionShape,
   type ResolvedField,
 } from "@/types/invoice-pattern";
 
+import {
+  ALL_RESIZE_HANDLES,
+  clientToNormalizedPoint,
+  normalizeBBoxFromCorners,
+  type ResizeHandle,
+  RESIZE_HANDLE_CURSORS,
+  resizeBBoxFromHandle,
+  translateBBox,
+} from "../lib/geometry";
+import {
+  DEFAULT_VIEWER_TOOL,
+  type ViewerTool,
+  viewerToolDescriptor,
+} from "../lib/viewer-tools";
 import { PdfPageCanvas } from "./PdfPageCanvas";
 
 /**
@@ -34,24 +51,40 @@ import { PdfPageCanvas } from "./PdfPageCanvas";
  * rendered page rect — that's the coordinate-system anchor for the
  * bbox overlay layer.
  *
- * The operator drags to draw a new bbox; existing regions for the
- * active page render as overlay rectangles tinted to the field's
- * resolved color (canonical default → per-pattern override → hash-
- * fallback for customs without a color set). The viewer also doubles
- * as a drop target for additional source files; files dropped onto
- * the gray surface are forwarded to `onFilesDropped` (the parent
- * funnels them through `ingestFile`).
+ * Tool modes (see `viewer-tools.ts`):
  *
- * State ownership: the viewer is a pure controlled component. It
- * draws what's in `regions` and emits `onRegionsChange` with the new
- * full list (replace-not-merge) on every edit. The editor owns the
- * canonical state.
+ *   * `"select"`     — Click a region to select it; drag inside a
+ *                      selected region to move it; drag a corner /
+ *                      side handle to resize. Clicking empty space
+ *                      clears the selection.
+ *   * `"draw_rect"`  — Drag empty space to draw a new rectangle.
+ *   * `"pan"`        — Drag anywhere to scroll the outer viewport
+ *                      (mouse wheel still works; this is for trackpads
+ *                      and operators that prefer a hand-drag pan).
+ *   * `"draw_polygon"` — Currently a placeholder (the data model
+ *                      accepts polygons but the editor surface is
+ *                      deferred). When this mode is active the
+ *                      surface refuses interactions.
+ *
+ * Zoom: the parent passes a `zoom` factor (1.0 = 100%). The page
+ * surface's CSS width is scaled accordingly; because the overlay
+ * layer uses CSS percentage positioning relative to that surface,
+ * region rectangles scale "for free" without per-overlay math.
+ *
+ * State ownership: the viewer is a controlled component for the
+ * region list — it emits `onRegionsChange` with the new full array
+ * (replace-not-merge) ONCE per gesture (single click, complete drag).
+ * Calling once per gesture (rather than once per `mousemove`) keeps
+ * the parent's undo stack tidy: one drag = one history entry.
+ *
+ * During an in-flight move / resize the viewer renders the in-progress
+ * region from a LOCAL override so the visual feedback is immediate.
+ * The override is dropped on `mouseup` after `onRegionsChange` lands.
  *
  * Coordinate system: bbox coordinates are normalized to [0, 1] of the
  * page's display rect. Mouse coordinates are translated using the
- * container's bounding rect, so the same region renders correctly
- * across viewport widths AND across image/PDF viewer kinds — both
- * paths preserve the container ↔ rendered-page rect equivalence.
+ * container's bounding rect — the same coordinate system survives
+ * zoom, viewport-width changes, and image vs. PDF media kinds.
  */
 interface DocumentViewerProps {
   file: InvoicePatternSourceFile | null;
@@ -67,6 +100,24 @@ interface DocumentViewerProps {
    * built-in still shows its real label rather than "Unknown".
    */
   resolvedFields: readonly ResolvedField[];
+  /**
+   * Field-key set referenced by at least one rule cell extraction
+   * binding under the current Import Builder template scope (or every
+   * template when scope is "All"). Drives the "Linked" badge on each
+   * region's overlay tag — operator sees at a glance which regions
+   * are actually wired up. Empty set ⇒ no badges.
+   */
+  linkedFieldKeys?: ReadonlySet<string>;
+  /**
+   * Subset of `linkedFieldKeys` that ALSO appears under at least one
+   * REQUIRED column in the current scope. Drives the amber "REQ"
+   * variant of the badge. Always a subset of `linkedFieldKeys`.
+   */
+  requiredFieldKeys?: ReadonlySet<string>;
+  /** Active tool — drives mouse handler interpretation + cursor. */
+  tool?: ViewerTool;
+  /** Zoom factor relative to base width. 1.0 = 100%. */
+  zoom?: number;
   /** True while the parent is awaiting `ingestFile` for dropped files. */
   uploading?: boolean;
   disabled?: boolean;
@@ -80,16 +131,57 @@ interface DocumentViewerProps {
   onFilesDropped: (files: File[]) => void;
 }
 
-interface DragState {
-  startX: number;
-  startY: number;
-  currentX: number;
-  currentY: number;
-}
+/**
+ * In-progress mouse interaction. Discriminated so the move handler
+ * can dispatch on `kind` without branching on multiple booleans.
+ */
+type Interaction =
+  | { kind: "idle" }
+  | {
+      kind: "drawing";
+      startX: number;
+      startY: number;
+      currentX: number;
+      currentY: number;
+    }
+  | {
+      kind: "moving";
+      regionId: string;
+      startBBox: InvoiceRegionBBox;
+      startNormX: number;
+      startNormY: number;
+      currentBBox: InvoiceRegionBBox;
+    }
+  | {
+      kind: "resizing";
+      regionId: string;
+      handle: ResizeHandle;
+      startBBox: InvoiceRegionBBox;
+      startNormX: number;
+      startNormY: number;
+      currentBBox: InvoiceRegionBBox;
+    }
+  | {
+      kind: "panning";
+      startScrollLeft: number;
+      startScrollTop: number;
+      startClientX: number;
+      startClientY: number;
+    };
+
+const IDLE: Interaction = { kind: "idle" };
 
 /** Neutral fallback for a region whose field_key isn't in resolvedFields. */
 const UNKNOWN_FIELD_COLOR = "#6b7280"; // gray-500
 const UNKNOWN_FIELD_LABEL = "Unknown field";
+
+/**
+ * Base CSS width for the page surface at zoom = 1.0. Matches the
+ * legacy `max-w-3xl` (48rem = 768px). Zoom multiplies this; the
+ * outer container (`overflow-auto`) handles scrolling when the
+ * scaled surface exceeds the viewport.
+ */
+const BASE_PAGE_WIDTH_PX = 768;
 
 export function DocumentViewer({
   file,
@@ -98,14 +190,19 @@ export function DocumentViewer({
   drawFieldKey,
   selectedRegionId,
   resolvedFields,
+  linkedFieldKeys,
+  requiredFieldKeys,
+  tool = DEFAULT_VIEWER_TOOL,
+  zoom = 1,
   uploading = false,
   disabled,
   onRegionsChange,
   onSelectRegion,
   onFilesDropped,
 }: DocumentViewerProps) {
+  const outerRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
+  const [interaction, setInteraction] = useState<Interaction>(IDLE);
   // Counter rather than boolean so nested elements firing dragenter/
   // dragleave don't flicker the overlay. Increment on enter, decrement
   // on leave, show overlay when > 0.
@@ -124,78 +221,261 @@ export function DocumentViewer({
     [file, page, regions],
   );
 
+  // Live override for the region currently being moved / resized.
+  // We render the override in place of the persisted version so the
+  // visual feedback is immediate, but only commit ONCE per gesture
+  // (on mouseup) to keep the undo stack tidy.
+  const liveOverride = useMemo(() => {
+    if (interaction.kind === "moving" || interaction.kind === "resizing") {
+      return {
+        id: interaction.regionId,
+        bbox: interaction.currentBBox,
+      };
+    }
+    return null;
+  }, [interaction]);
+
   const isImage = file != null && file.mime_type.startsWith("image/");
   const isPdf = file != null && file.mime_type === "application/pdf";
 
-  // ---- Mouse handlers (region drawing) -------------------------------
+  const isPolygonPlaceholder = tool === "draw_polygon";
+  const interactive = !disabled && file != null && !isPolygonPlaceholder;
 
-  const startDraw = useCallback(
+  // ---- Mouse handlers (dispatch on tool mode) ------------------------
+
+  const onSurfaceMouseDown = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
-      if (disabled || !file) return;
-      // Only left mouse, and only when the click landed on the page
-      // surface itself (not on an existing region overlay).
+      if (!interactive) return;
       if (e.button !== 0) return;
-      const target = e.target as HTMLElement;
-      if (target.dataset.regionInteractive === "true") return;
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const nx = (e.clientX - rect.left) / rect.width;
-      const ny = (e.clientY - rect.top) / rect.height;
-      // Clamp so a click slightly outside the bounds (rare on the
-      // edge) still produces a valid in-range start.
-      const cx = Math.max(0, Math.min(1, nx));
-      const cy = Math.max(0, Math.min(1, ny));
-      setDrag({ startX: cx, startY: cy, currentX: cx, currentY: cy });
-      // Clear selection on a fresh draw — selecting an existing
-      // region is its own click handler on the overlay.
-      onSelectRegion(null);
+
+      const target = e.target as HTMLElement;
+      // Resize-handle clicks dispatch their own onMouseDown handler
+      // (see ResizeHandleSquare). They stopPropagation so this branch
+      // never fires for them, but defensively bail just in case.
+      if (target.dataset.resizeHandle) return;
+
+      const onRegion = target.dataset.regionInteractive === "true";
+      const point = clientToNormalizedPoint(e.clientX, e.clientY, rect);
+
+      // Pan mode short-circuits everything — drag scrolls the outer
+      // viewport regardless of what we're hovering.
+      if (tool === "pan") {
+        const outer = outerRef.current;
+        if (!outer) return;
+        e.preventDefault();
+        setInteraction({
+          kind: "panning",
+          startScrollLeft: outer.scrollLeft,
+          startScrollTop: outer.scrollTop,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+        });
+        return;
+      }
+
+      if (tool === "draw_rect") {
+        // Don't draw on top of an existing region overlay — let the
+        // overlay's own click handler take selection instead.
+        if (onRegion) return;
+        setInteraction({
+          kind: "drawing",
+          startX: point.x,
+          startY: point.y,
+          currentX: point.x,
+          currentY: point.y,
+        });
+        // Clear selection on a fresh draw.
+        onSelectRegion(null);
+        return;
+      }
+
+      // Select mode (default): clicking empty space clears selection;
+      // clicking a region is handled by the region's own click handler
+      // (selection is set there); dragging on the SELECTED region
+      // initiates a move (handled below by checking the region under
+      // the click).
+      if (tool === "select") {
+        if (!onRegion) {
+          onSelectRegion(null);
+          return;
+        }
+        // Check if we clicked on the currently-selected region — if
+        // so, prep a move. Otherwise let the click handler on the
+        // overlay handle selection.
+        const overlayId = target.dataset.regionId;
+        if (
+          overlayId &&
+          overlayId === selectedRegionId &&
+          file != null
+        ) {
+          const region = regions.find((r) => r.id === overlayId);
+          if (!region) return;
+          // Only rect regions are draggable today (polygon UI deferred).
+          if (regionShape(region) !== "rect") return;
+          setInteraction({
+            kind: "moving",
+            regionId: region.id,
+            startBBox: region.bbox,
+            startNormX: point.x,
+            startNormY: point.y,
+            currentBBox: region.bbox,
+          });
+        }
+        return;
+      }
     },
-    [disabled, file, onSelectRegion],
+    [
+      interactive,
+      tool,
+      file,
+      regions,
+      selectedRegionId,
+      onSelectRegion,
+    ],
   );
 
-  const moveDraw = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
-    setDrag((prev) => {
-      if (!prev) return prev;
+  const onResizeHandleMouseDown = useCallback(
+    (
+      e: ReactMouseEvent<HTMLDivElement>,
+      regionId: string,
+      handle: ResizeHandle,
+    ) => {
+      if (!interactive || tool !== "select") return;
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const region = regions.find((r) => r.id === regionId);
+      if (!region) return;
       const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return prev;
-      const nx = (e.clientX - rect.left) / rect.width;
-      const ny = (e.clientY - rect.top) / rect.height;
-      return {
-        ...prev,
-        currentX: Math.max(0, Math.min(1, nx)),
-        currentY: Math.max(0, Math.min(1, ny)),
-      };
-    });
-  }, []);
+      if (!rect) return;
+      const point = clientToNormalizedPoint(e.clientX, e.clientY, rect);
+      setInteraction({
+        kind: "resizing",
+        regionId,
+        handle,
+        startBBox: region.bbox,
+        startNormX: point.x,
+        startNormY: point.y,
+        currentBBox: region.bbox,
+      });
+    },
+    [interactive, tool, regions],
+  );
 
-  const endDraw = useCallback(() => {
-    if (!drag || !file) {
-      setDrag(null);
-      return;
-    }
-    const bbox = normalizeBBox(
-      drag.startX,
-      drag.startY,
-      drag.currentX,
-      drag.currentY,
-    );
-    setDrag(null);
-    // Reject vanishingly small drags — those are usually accidental
-    // single clicks rather than intentional region drawings.
-    if (bbox.w < 0.005 || bbox.h < 0.005) return;
-    const region: InvoicePatternRegion = {
-      id: newRegionId(),
-      source_file_id: file.id,
-      page,
-      bbox,
-      field_key: drawFieldKey,
-      label: null,
-      notes: null,
+  // Global mousemove/mouseup. Listening on the document keeps the
+  // gesture alive even if the cursor leaves the page surface mid-drag
+  // (which `containerRef.onMouseLeave` would otherwise cancel).
+  useEffect(() => {
+    if (interaction.kind === "idle") return;
+
+    const onMove = (e: MouseEvent) => {
+      if (interaction.kind === "panning") {
+        const outer = outerRef.current;
+        if (!outer) return;
+        const dx = e.clientX - interaction.startClientX;
+        const dy = e.clientY - interaction.startClientY;
+        outer.scrollLeft = interaction.startScrollLeft - dx;
+        outer.scrollTop = interaction.startScrollTop - dy;
+        return;
+      }
+
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const point = clientToNormalizedPoint(e.clientX, e.clientY, rect);
+
+      if (interaction.kind === "drawing") {
+        setInteraction({
+          ...interaction,
+          currentX: point.x,
+          currentY: point.y,
+        });
+        return;
+      }
+
+      if (interaction.kind === "moving") {
+        const dx = point.x - interaction.startNormX;
+        const dy = point.y - interaction.startNormY;
+        const next = translateBBox(interaction.startBBox, dx, dy);
+        setInteraction({ ...interaction, currentBBox: next });
+        return;
+      }
+
+      if (interaction.kind === "resizing") {
+        const dx = point.x - interaction.startNormX;
+        const dy = point.y - interaction.startNormY;
+        const next = resizeBBoxFromHandle(
+          interaction.startBBox,
+          interaction.handle,
+          dx,
+          dy,
+        );
+        setInteraction({ ...interaction, currentBBox: next });
+        return;
+      }
     };
-    onRegionsChange([...regions, region]);
-    onSelectRegion(region.id);
+
+    const onUp = () => {
+      // Commit the gesture's effect to the parent's region list ONCE
+      // here so the undo stack gets a single entry per drag.
+      if (interaction.kind === "drawing" && file != null) {
+        const bbox = normalizeBBoxFromCorners(
+          { x: interaction.startX, y: interaction.startY },
+          { x: interaction.currentX, y: interaction.currentY },
+        );
+        // Reject vanishingly small drags — accidental single clicks.
+        if (bbox.w >= 0.005 && bbox.h >= 0.005) {
+          const region: InvoicePatternRegion = {
+            id: newRegionId(),
+            source_file_id: file.id,
+            page,
+            bbox,
+            field_key: drawFieldKey,
+            label: null,
+            notes: null,
+            shape: "rect",
+            points: null,
+          };
+          onRegionsChange([...regions, region]);
+          onSelectRegion(region.id);
+        }
+      } else if (interaction.kind === "moving") {
+        const next = regions.map((r) =>
+          r.id === interaction.regionId
+            ? { ...r, bbox: interaction.currentBBox }
+            : r,
+        );
+        // No-op when the move resolved to zero delta (operator clicked
+        // and released without dragging — common when re-selecting).
+        const same =
+          interaction.currentBBox.x === interaction.startBBox.x &&
+          interaction.currentBBox.y === interaction.startBBox.y;
+        if (!same) onRegionsChange(next);
+      } else if (interaction.kind === "resizing") {
+        const next = regions.map((r) =>
+          r.id === interaction.regionId
+            ? { ...r, bbox: interaction.currentBBox }
+            : r,
+        );
+        const same =
+          interaction.currentBBox.x === interaction.startBBox.x &&
+          interaction.currentBBox.y === interaction.startBBox.y &&
+          interaction.currentBBox.w === interaction.startBBox.w &&
+          interaction.currentBBox.h === interaction.startBBox.h;
+        if (!same) onRegionsChange(next);
+      }
+      setInteraction(IDLE);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
   }, [
-    drag,
+    interaction,
     file,
     page,
     drawFieldKey,
@@ -204,19 +484,15 @@ export function DocumentViewer({
     onSelectRegion,
   ]);
 
-  // Cancel an in-flight drag if the mouse leaves the surface — keeps
-  // a stale draft from sticking around when the user drags outside.
-  const cancelDraw = useCallback(() => setDrag(null), []);
-
   // Global escape cancels the current drag.
   useEffect(() => {
-    if (!drag) return;
+    if (interaction.kind === "idle") return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrag(null);
+      if (e.key === "Escape") setInteraction(IDLE);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [drag]);
+  }, [interaction]);
 
   // ---- Drag-and-drop file handlers ----------------------------------
   //
@@ -270,9 +546,31 @@ export function DocumentViewer({
   // ---- Render --------------------------------------------------------
 
   const dropping = dropDepth > 0;
+  const toolDescriptor = viewerToolDescriptor(tool);
+
+  // Cursor for the page surface depends on the active tool + drag state.
+  // During a pan-drag the cursor switches from `grab` to `grabbing` so
+  // the operator gets the same affordance feedback as PDF readers.
+  const surfaceCursor = !interactive
+    ? "not-allowed"
+    : interaction.kind === "panning"
+      ? "grabbing"
+      : interaction.kind === "moving"
+        ? "grabbing"
+        : tool === "pan"
+          ? "grab"
+          : tool === "draw_rect"
+            ? "crosshair"
+            : "default";
+
+  // Page-surface width — multiplied by zoom so the overlay layer (which
+  // uses CSS percentages) scales for free. Floors at the base width's
+  // 50% lower bound so a degenerate zoom can never collapse the surface.
+  const surfaceWidthPx = Math.max(50, BASE_PAGE_WIDTH_PX * zoom);
 
   return (
     <div
+      ref={outerRef}
       className="relative flex-1 min-h-0 overflow-auto bg-gray-200 p-4"
       onDragEnter={onDragEnterOuter}
       onDragOver={onDragOverOuter}
@@ -307,15 +605,14 @@ export function DocumentViewer({
           // surface.
           className={cn(
             "relative mx-auto bg-white shadow-md select-none",
-            isImage || isPdf
-              ? "max-w-3xl"
-              : "max-w-3xl aspect-[8.5/11]",
-            disabled ? "cursor-not-allowed" : "cursor-crosshair",
+            !isImage && !isPdf && "aspect-[8.5/11]",
           )}
-          onMouseDown={startDraw}
-          onMouseMove={moveDraw}
-          onMouseUp={endDraw}
-          onMouseLeave={cancelDraw}
+          style={{
+            width: `${surfaceWidthPx}px`,
+            maxWidth: "100%",
+            cursor: surfaceCursor,
+          }}
+          onMouseDown={onSurfaceMouseDown}
         >
           {/* ---- Page background -------------------------------------- */}
           {isImage && (
@@ -356,25 +653,55 @@ export function DocumentViewer({
             const isSelected = selectedRegionId === r.id;
             const isUnknown = resolved == null;
             const fillAlpha = isSelected ? 0.22 : 0.14;
+            // Association badges — mirror the Import Builder coverage
+            // for this pattern under the active template scope. Linked
+            // = some rule cell binds this field; REQ = at least one of
+            // those bindings sits on a required column. The two badges
+            // are mutually-inclusive (REQ implies Linked) so we render
+            // REQ instead of Linked when both apply — keeps the
+            // overlay tight.
+            const normalizedFieldKey =
+              normalizeExtractedFieldKey(r.field_key) ?? r.field_key;
+            const isLinked =
+              linkedFieldKeys?.has(r.field_key) ||
+              linkedFieldKeys?.has(normalizedFieldKey) ||
+              false;
+            const isRequired =
+              requiredFieldKeys?.has(r.field_key) ||
+              requiredFieldKeys?.has(normalizedFieldKey) ||
+              false;
+            // Prefer the live override geometry when the operator is
+            // mid-drag on this region — keeps the visual feedback in
+            // sync with the cursor before commit.
+            const bboxToRender =
+              liveOverride && liveOverride.id === r.id
+                ? liveOverride.bbox
+                : r.bbox;
+            // Cursor: in select mode, hovering an unselected region
+            // hints "click to select" (default); the SELECTED region
+            // hints "drag to move".
+            const overlayCursor =
+              tool === "select" && isSelected ? "move" : "pointer";
             return (
               <button
                 key={r.id}
                 type="button"
                 data-region-interactive="true"
+                data-region-id={r.id}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelectRegion(r.id);
                 }}
                 className={cn(
-                  "absolute group cursor-pointer text-left",
+                  "absolute group text-left",
                   "transition-shadow",
                   isSelected ? "shadow-md z-10" : "z-0",
                 )}
                 style={{
-                  left: `${r.bbox.x * 100}%`,
-                  top: `${r.bbox.y * 100}%`,
-                  width: `${r.bbox.w * 100}%`,
-                  height: `${r.bbox.h * 100}%`,
+                  left: `${bboxToRender.x * 100}%`,
+                  top: `${bboxToRender.y * 100}%`,
+                  width: `${bboxToRender.w * 100}%`,
+                  height: `${bboxToRender.h * 100}%`,
                   // Inline so dynamic palette colors don't need
                   // Tailwind safelisting. Selected = thicker border;
                   // unknown = dashed so the operator's eye picks it
@@ -383,30 +710,88 @@ export function DocumentViewer({
                     isUnknown ? "dashed" : "solid"
                   } ${color}`,
                   backgroundColor: withAlpha(color, fillAlpha),
+                  cursor: overlayCursor,
                 }}
-                title={isUnknown ? `${UNKNOWN_FIELD_LABEL} (${r.field_key})` : label}
+                title={
+                  isUnknown ? `${UNKNOWN_FIELD_LABEL} (${r.field_key})` : label
+                }
               >
+                {/* Overlay tag row — field label plus optional
+                    association badge. Wrapped in a flex container so
+                    the REQ/Linked chip flows next to the label
+                    without pixel-offset hackery. The whole strip is
+                    pointer-events:none — the parent button handles
+                    region selection. */}
                 <span
                   className={cn(
                     "absolute -top-[1.1rem] left-[-2px]",
-                    "px-1 py-[1px] text-[9.5px] font-bold uppercase tracking-wide",
-                    "rounded-t text-white",
+                    "inline-flex items-stretch pointer-events-none",
                   )}
-                  style={{ backgroundColor: color }}
                 >
-                  {label}
+                  <span
+                    className={cn(
+                      "px-1 py-[1px] text-[9.5px] font-bold uppercase tracking-wide",
+                      "rounded-tl text-white",
+                      !(isRequired || isLinked) && "rounded-tr",
+                    )}
+                    style={{ backgroundColor: color }}
+                  >
+                    {label}
+                  </span>
+                  {(isRequired || isLinked) && (
+                    <span
+                      className={cn(
+                        "px-1 py-[1px] text-[8.5px] font-bold uppercase tracking-wide",
+                        "rounded-tr text-white",
+                        isRequired ? "bg-amber-500" : "bg-emerald-600",
+                      )}
+                      title={
+                        isRequired
+                          ? "Bound to a required column on the selected template scope"
+                          : "Bound to a column on the selected template scope"
+                      }
+                    >
+                      {isRequired ? "REQ" : "Linked"}
+                    </span>
+                  )}
                 </span>
+                {/* Resize handles — only on the selected rect region
+                    while the select tool is active. Each handle stops
+                    propagation so its mousedown initiates a resize
+                    instead of a region click. */}
+                {isSelected &&
+                  tool === "select" &&
+                  regionShape(r) === "rect" &&
+                  ALL_RESIZE_HANDLES.map((h) => (
+                    <ResizeHandleSquare
+                      key={h}
+                      handle={h}
+                      onMouseDown={(e) =>
+                        onResizeHandleMouseDown(e, r.id, h)
+                      }
+                    />
+                  ))}
               </button>
             );
           })}
 
-          {/* ---- In-flight drag preview ------------------------------- */}
-          {drag && (
+          {/* ---- In-flight draw preview ------------------------------- */}
+          {interaction.kind === "drawing" && (
             <div
               className="absolute pointer-events-none border-2 border-brand-600 bg-brand-500/20"
-              style={previewStyle(drag)}
+              style={drawingPreviewStyle(interaction)}
             />
           )}
+        </div>
+      )}
+
+      {/* ---- Polygon-mode placeholder --------------------------- */}
+      {file && isPolygonPlaceholder && (
+        <div
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-sm border border-amber-300 px-3 py-1.5 rounded-md shadow text-[11.5px] text-amber-800 pointer-events-none"
+          aria-live="polite"
+        >
+          {toolDescriptor.label} — coming soon. Switch tools to keep editing.
         </div>
       )}
 
@@ -432,6 +817,71 @@ export function DocumentViewer({
 }
 
 // ---------------------------------------------------------------------------
+// Resize-handle square
+// ---------------------------------------------------------------------------
+
+/**
+ * One of the eight resize handles surfaced on a selected region. The
+ * handle catches its own `mousedown` (stopping propagation so the
+ * region's click handler doesn't also fire) and tells the parent
+ * which handle the operator grabbed.
+ *
+ * Visual: 8px square positioned at the matching corner / midpoint of
+ * the parent overlay. Tailwind `bg-white` + brand-500 border keeps
+ * the handle visible against arbitrary region tint colors. Hit area
+ * is intentionally a hair larger than the visual via `padding`-style
+ * margins (`-2` offsets) so the handle is easier to grab.
+ */
+function ResizeHandleSquare({
+  handle,
+  onMouseDown,
+}: {
+  handle: ResizeHandle;
+  onMouseDown: (e: ReactMouseEvent<HTMLDivElement>) => void;
+}) {
+  // Positioning: each handle sits at the corresponding edge midpoint
+  // or corner of the parent overlay. Translation centers the handle
+  // ON the edge rather than INSIDE / OUTSIDE.
+  const positionStyle: CSSProperties = {
+    position: "absolute",
+    width: 9,
+    height: 9,
+    transform: "translate(-50%, -50%)",
+    cursor: RESIZE_HANDLE_CURSORS[handle],
+  };
+  // Position keyed off the handle's compass direction.
+  if (handle === "n" || handle === "nw" || handle === "ne") {
+    positionStyle.top = 0;
+  } else if (handle === "s" || handle === "sw" || handle === "se") {
+    positionStyle.top = "100%";
+  } else {
+    positionStyle.top = "50%";
+  }
+  if (handle === "w" || handle === "nw" || handle === "sw") {
+    positionStyle.left = 0;
+  } else if (handle === "e" || handle === "ne" || handle === "se") {
+    positionStyle.left = "100%";
+  } else {
+    positionStyle.left = "50%";
+  }
+
+  return (
+    <div
+      data-resize-handle={handle}
+      role="presentation"
+      style={positionStyle}
+      className="bg-white border border-brand-600 rounded-[2px] shadow-sm"
+      onMouseDown={onMouseDown}
+      onClick={(e) => {
+        // Stop the click from bubbling to the region overlay's onClick
+        // (which would re-select / clear).
+        e.stopPropagation();
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Unknown-type placeholder
 // ---------------------------------------------------------------------------
 
@@ -451,34 +901,16 @@ function UnknownPlaceholder({ file }: { file: InvoicePatternSourceFile }) {
 }
 
 // ---------------------------------------------------------------------------
-// Geometry helpers
+// Inline render helpers
 // ---------------------------------------------------------------------------
 
-/** Normalize a drag (which may go in any direction) to a positive-w/h bbox. */
-function normalizeBBox(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-): InvoiceRegionBBox {
-  const x = Math.min(x1, x2);
-  const y = Math.min(y1, y2);
-  const w = Math.abs(x2 - x1);
-  const h = Math.abs(y2 - y1);
-  return {
-    x: clamp01(x),
-    y: clamp01(y),
-    w: Math.min(w, 1 - clamp01(x)),
-    h: Math.min(h, 1 - clamp01(y)),
-  };
-}
-
-function previewStyle(drag: DragState): React.CSSProperties {
-  const bbox = normalizeBBox(
-    drag.startX,
-    drag.startY,
-    drag.currentX,
-    drag.currentY,
+/** CSS positioning for the in-flight rectangle being drawn. */
+function drawingPreviewStyle(
+  interaction: Extract<Interaction, { kind: "drawing" }>,
+): CSSProperties {
+  const bbox = normalizeBBoxFromCorners(
+    { x: interaction.startX, y: interaction.startY },
+    { x: interaction.currentX, y: interaction.currentY },
   );
   return {
     left: `${bbox.x * 100}%`,
@@ -486,10 +918,6 @@ function previewStyle(drag: DragState): React.CSSProperties {
     width: `${bbox.w * 100}%`,
     height: `${bbox.h * 100}%`,
   };
-}
-
-function clamp01(v: number): number {
-  return Math.max(0, Math.min(1, v));
 }
 
 // ---------------------------------------------------------------------------

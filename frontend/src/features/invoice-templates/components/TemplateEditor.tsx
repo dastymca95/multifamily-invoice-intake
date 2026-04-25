@@ -59,13 +59,13 @@ import {
   columnAllowsRuleOverride,
   columnLockEditing,
   columnLockPosition,
+  cloneInvoiceTemplateRule,
   defaultColumnMetadata,
   effectiveCellRole,
   effectiveColumnDefaultRole,
   emptyRuleCell,
   newColumnId,
   newRule,
-  newRuleId,
 } from "@/types/invoice-template";
 
 import type { CatalogIndex } from "../hooks/useCatalogIndex";
@@ -482,32 +482,18 @@ export function TemplateEditor({
     );
   }, []);
 
-  /** Duplicate a rule (new id, same cells). Inserted directly after the source. */
+  /** Duplicate a rule (new id, full semantic clone). Inserted after source. */
   const duplicateRule = useCallback((ruleId: string) => {
     setRules((curr) => {
       if (curr.length >= MAX_RULES) return curr;
       const idx = curr.findIndex((r) => r.id === ruleId);
       if (idx === -1) return curr;
       const source = curr[idx];
-      // Deep-clone cells so the duplicate's edits don't mutate the
-      // source. Both the legacy `values` array AND the structured
-      // `selections` array (catalog cells only) need their own copies
-      // — sharing references between rules would let an edit in the
-      // duplicate silently mutate the source. Notes carry over verbatim
-      // — operator can prune later.
-      const clonedCells: Record<string, InvoiceTemplateRuleCell> = {};
-      for (const [colId, cell] of Object.entries(source.cells)) {
-        clonedCells[colId] = {
-          values: cell.values.slice(),
-          selections: (cell.selections ?? []).map((s) => ({ ...s })),
-        };
-      }
-      const dup: InvoiceTemplateRule = {
-        id: newRuleId(),
-        is_active: source.is_active,
-        cells: clonedCells,
-        notes: source.notes,
-      };
+      // Deep-clone the whole rule so edits on the duplicate never mutate
+      // the source. Both the legacy `values` array AND the structured
+      // `selections`, `role`, `extraction`, and `extraction_bindings`
+      // paths need their own copies; notes carry over verbatim.
+      const dup = cloneInvoiceTemplateRule(source);
       const next = curr.slice();
       next.splice(idx + 1, 0, dup);
       return next;

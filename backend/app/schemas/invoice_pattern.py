@@ -54,6 +54,12 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
+from app.domain.extracted_invoice_fields import (
+    EXTRACTED_INVOICE_FIELD_LABELS,
+    EXTRACTED_INVOICE_FIELDS,
+    get_extracted_field_registry,
+    normalize_extracted_field_key,
+)
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
@@ -86,6 +92,14 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 MAX_REGIONS = 200
 MAX_REGION_LABEL_LENGTH = 200
 MAX_REGION_NOTES_LENGTH = 500
+
+# Polygon (free-form region) bounds. The data model accepts polygon
+# regions even though the editor only draws rectangles today — see
+# `RegionShape` below for the migration plan. A polygon needs at
+# least 3 points to enclose an area; the cap stops a runaway hand-
+# drawn lasso from bloating the JSONB row.
+MIN_POLYGON_POINTS = 3
+MAX_POLYGON_POINTS = 200
 
 # Operator-edited field universe (custom fields + built-in overrides).
 # Sized to comfortably fit the canonical universe (~21 fields) plus a
@@ -129,91 +143,20 @@ FIELD_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # deliberately excluded — they're computed by the extractor, not
 # operator-pinned.
 
-InvoiceExtractedField = Literal[
-    # Vendor identity
-    "vendor_name",
-    "vendor_address",
-    "vendor_tax_id",
-    # Bill-to / property
-    "bill_to_name",
-    "bill_to_address",
-    "property_name",
-    "property_code",
-    # Invoice metadata
-    "invoice_number",
-    "invoice_date",
-    "due_date",
-    "service_period_start",
-    "service_period_end",
-    "payment_terms",
-    # Amounts
-    "subtotal",
-    "tax_amount",
-    "total_amount",
-    "currency",
-    # Classification
-    "invoice_type",
-    "utility_type",
-    "account_number",
-    "meter_number",
-]
+InvoiceExtractedField = str
 
 
 # Tuple form for callers that need to iterate (e.g. seed UI, validators
 # that work without typing.get_args). Kept in the same order as the
 # Literal above for diff-friendliness.
-INVOICE_EXTRACTED_FIELDS: tuple[InvoiceExtractedField, ...] = (
-    "vendor_name",
-    "vendor_address",
-    "vendor_tax_id",
-    "bill_to_name",
-    "bill_to_address",
-    "property_name",
-    "property_code",
-    "invoice_number",
-    "invoice_date",
-    "due_date",
-    "service_period_start",
-    "service_period_end",
-    "payment_terms",
-    "subtotal",
-    "tax_amount",
-    "total_amount",
-    "currency",
-    "invoice_type",
-    "utility_type",
-    "account_number",
-    "meter_number",
-)
+INVOICE_EXTRACTED_FIELDS = EXTRACTED_INVOICE_FIELDS
 
 
 # Human-friendly labels for the canonical fields. Surfaced in the
 # region inspector dropdown / chip — the API ships these so the
 # frontend doesn't have to maintain a parallel translation table that
 # can drift from the backend's view of the canonical universe.
-INVOICE_EXTRACTED_FIELD_LABELS: dict[str, str] = {
-    "vendor_name": "Vendor Name",
-    "vendor_address": "Vendor Address",
-    "vendor_tax_id": "Vendor Tax ID",
-    "bill_to_name": "Bill To Name",
-    "bill_to_address": "Bill To Address",
-    "property_name": "Property Name",
-    "property_code": "Property Code",
-    "invoice_number": "Invoice Number",
-    "invoice_date": "Invoice Date",
-    "due_date": "Due Date",
-    "service_period_start": "Service Period Start",
-    "service_period_end": "Service Period End",
-    "payment_terms": "Payment Terms",
-    "subtotal": "Subtotal",
-    "tax_amount": "Tax Amount",
-    "total_amount": "Total Amount",
-    "currency": "Currency",
-    "invoice_type": "Invoice Type",
-    "utility_type": "Utility Type",
-    "account_number": "Account Number",
-    "meter_number": "Meter Number",
-}
+INVOICE_EXTRACTED_FIELD_LABELS = EXTRACTED_INVOICE_FIELD_LABELS
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +202,13 @@ class InvoicePatternSourceFile(BaseModel):
     # (Pydantic parses it to datetime), the API stamps the canonical
     # value on POST.
     uploaded_at: datetime | None = None
+    # 1-based page numbers the operator hid via the editor's "Delete
+    # page" affordance. Pages stay physically present in the data URL
+    # — the renderer just skips them, and so does the runtime
+    # extractor. Defaults to `[]` so legacy rows materialise as "no
+    # pages deleted". Each entry must be unique, sorted, and within
+    # `[1, page_count]`; the validator enforces.
+    deleted_pages: list[int] = Field(default_factory=list)
 
     @field_validator("file_name")
     @classmethod
@@ -275,6 +225,36 @@ class InvoicePatternSourceFile(BaseModel):
         if not v:
             raise ValueError("mime_type cannot be blank")
         return v
+
+    @model_validator(mode="after")
+    def _check_deleted_pages(self) -> "InvoicePatternSourceFile":
+        # Per-entry bounds + uniqueness. Sorting is normalised here so
+        # the persisted shape is always deterministic regardless of the
+        # order the editor pushed entries in.
+        if not self.deleted_pages:
+            return self
+        for p in self.deleted_pages:
+            if not isinstance(p, int) or isinstance(p, bool):
+                raise ValueError("deleted_pages entries must be integers")
+            if p < 1 or p > self.page_count:
+                raise ValueError(
+                    f"deleted_pages entry {p} is outside [1, {self.page_count}]"
+                )
+        if len(set(self.deleted_pages)) != len(self.deleted_pages):
+            raise ValueError("deleted_pages entries must be unique")
+        # Refusing to delete EVERY page on the file. An empty file is
+        # the same shape as no file at all, but with the bytes still
+        # taking up the JSONB payload — operator should remove the
+        # file outright instead. This also makes downstream "first
+        # visible page" logic simpler (it can rely on at least one).
+        if len(self.deleted_pages) >= self.page_count:
+            raise ValueError(
+                "deleted_pages cannot cover every page — remove the file instead"
+            )
+        # Normalise to sorted unique. Mutating in place is fine post-
+        # validation; the model is still mid-construction here.
+        self.deleted_pages = sorted(set(self.deleted_pages))
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +292,29 @@ class InvoiceRegionBBox(BaseModel):
         if self.y + self.h > 1.0:
             raise ValueError("bbox extends past page bottom edge (y + h > 1)")
         return self
+
+
+# Region shape discriminator. Today every region is a rectangle
+# (`bbox`); polygon support lands behind a tool-mode placeholder in a
+# follow-up that fills out the editor surface. The data model accepts
+# both now so the wire shape can stay stable across that release.
+#
+# Backward compat: `shape` defaults to `"rect"` so legacy rows
+# (persisted before the column existed) materialise as rectangles.
+RegionShape = Literal["rect", "polygon"]
+
+
+class InvoiceRegionPoint(BaseModel):
+    """
+    One vertex of a polygon region. Coordinates normalised to `[0, 1]`
+    (top-left = (0, 0)) — same coordinate system as
+    `InvoiceRegionBBox`. Three or more points define an enclosed area;
+    the polygon is implicitly closed (last vertex connects back to the
+    first).
+    """
+
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
 
 
 class InvoicePatternRegion(BaseModel):
@@ -358,6 +361,19 @@ class InvoicePatternRegion(BaseModel):
     field_key: str = Field(min_length=1, max_length=MAX_FIELD_KEY_LENGTH)
     label: str | None = Field(default=None, max_length=MAX_REGION_LABEL_LENGTH)
     notes: str | None = Field(default=None, max_length=MAX_REGION_NOTES_LENGTH)
+    # Region shape. Defaults to "rect" so legacy rows (persisted before
+    # the field existed) keep validating without migration. The editor
+    # only draws rectangles today; polygon support lands later behind a
+    # tool-mode placeholder, but the wire shape accepts both now so we
+    # don't have to bump anything when it ships.
+    shape: RegionShape = "rect"
+    # Polygon vertices. Required when `shape == "polygon"`, must be
+    # absent or empty for `shape == "rect"`. Each vertex is normalised
+    # to [0, 1]. The model validator below enforces both branches.
+    # `bbox` is still REQUIRED for polygon regions (used as the bounding
+    # rectangle for hit testing + zoom-to-region) — the editor derives
+    # it from the points before persisting.
+    points: list[InvoiceRegionPoint] | None = Field(default=None)
 
     @field_validator("field_key")
     @classmethod
@@ -385,6 +401,43 @@ class InvoicePatternRegion(BaseModel):
             return None
         v = v.strip()
         return v or None
+
+    @model_validator(mode="after")
+    def _check_shape_points_consistency(self) -> "InvoicePatternRegion":
+        # Rectangle: `points` must be unset or empty. Tolerating an
+        # empty list (rather than just None) is intentional — the
+        # frontend may serialise an empty array on a fresh rect region
+        # and we'd rather accept it than 422 on a no-op shape.
+        if self.shape == "rect":
+            if self.points:
+                raise ValueError(
+                    "rect regions cannot carry `points`; clear it or "
+                    "switch shape to 'polygon'"
+                )
+            # Normalise to None so the persisted shape is canonical.
+            self.points = None
+            return self
+        # Polygon: must have at least MIN_POLYGON_POINTS vertices and
+        # at most MAX_POLYGON_POINTS. Length cap is also enforced via
+        # explicit check (rather than Field(max_length=)) so we get a
+        # consistent error message regardless of the entry path.
+        if self.shape == "polygon":
+            if not self.points:
+                raise ValueError(
+                    "polygon regions require `points` (at least "
+                    f"{MIN_POLYGON_POINTS} vertices)"
+                )
+            if len(self.points) < MIN_POLYGON_POINTS:
+                raise ValueError(
+                    f"polygon regions need at least {MIN_POLYGON_POINTS} "
+                    f"points (got {len(self.points)})"
+                )
+            if len(self.points) > MAX_POLYGON_POINTS:
+                raise ValueError(
+                    f"polygon regions support at most {MAX_POLYGON_POINTS} "
+                    f"points (got {len(self.points)})"
+                )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -481,10 +534,17 @@ def _check_region_file_consistency(
     """
     Application-enforced integrity: every region.source_file_id must
     match a source_files[*].id on the same row, AND region.page must
-    fit inside that file's page_count.
+    fit inside that file's page_count, AND must not point at a page
+    the operator deleted.
 
     Raises ValueError with a specific message — Pydantic model
     validators surface this as a 422 with the field path included.
+
+    Page-deletion contract: a region cannot reference a page that
+    appears in the file's `deleted_pages` list. The editor enforces
+    this on its end via cascade-delete (deleting a page removes its
+    regions through the undo stack), so a 422 here means a payload
+    constructed manually or out of band.
     """
     file_index: dict[str, InvoicePatternSourceFile] = {f.id: f for f in source_files}
     for r in regions:
@@ -498,6 +558,11 @@ def _check_region_file_consistency(
             raise ValueError(
                 f"region {r.id!r} references page {r.page} but source "
                 f"file {owner.id!r} only has {owner.page_count} page(s)"
+            )
+        if owner.deleted_pages and r.page in owner.deleted_pages:
+            raise ValueError(
+                f"region {r.id!r} references page {r.page} of source "
+                f"file {owner.id!r}, which has been deleted"
             )
 
 
@@ -678,8 +743,15 @@ class InvoiceExtractedFieldDescriptor(BaseModel):
     source of truth.
     """
 
-    key: InvoiceExtractedField
+    key: str
     label: str
+    description: str | None = None
+    default_data_type: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    category: str | None = None
+    built_in: bool = True
+    commonly_required: bool = False
+    output_only: bool = False
 
 
 class InvoiceExtractedFieldsResponse(BaseModel):
@@ -692,10 +764,17 @@ def build_canonical_field_descriptors() -> list[InvoiceExtractedFieldDescriptor]
     """Pure helper — assembles the canonical-fields list for the API."""
     return [
         InvoiceExtractedFieldDescriptor(
-            key=key,
-            label=INVOICE_EXTRACTED_FIELD_LABELS.get(key, key),
+            key=field.key,
+            label=field.label,
+            description=field.description,
+            default_data_type=field.default_data_type,
+            aliases=list(field.aliases),
+            category=field.category,
+            built_in=field.built_in,
+            commonly_required=field.commonly_required,
+            output_only=field.output_only,
         )
-        for key in INVOICE_EXTRACTED_FIELDS
+        for field in get_extracted_field_registry()
     ]
 
 
@@ -729,6 +808,12 @@ class InvoicePatternFieldOption(BaseModel):
     operator sees what's there and can clear it). Filtering is the
     consumer's responsibility — this payload reports the truth.
 
+    `region_count` / `region_pages` carry pattern-level usage so the
+    Import Builder picker can warn "(no region drawn yet)" or hint
+    "5 regions on pages 1, 2, 3" without re-fetching the full pattern.
+    Default 0 / `[]` so callers that don't pass `regions` (e.g. the
+    coverage service, which doesn't need usage) pay nothing extra.
+
     Response shape stays compatible with `InvoicePatternFieldDefinition`
     plus a synthesized `built_in` row for every canonical key so the
     frontend doesn't have to fold against a separate canonical-fields
@@ -742,6 +827,12 @@ class InvoicePatternFieldOption(BaseModel):
     # Built-in only: canonical fields the operator hid from this
     # pattern's Draw-as dropdown. False / absent on customs.
     hidden: bool = False
+    # Reverse-awareness counters — number of regions on this pattern
+    # pinned to this `key`, and the sorted-unique 1-based page numbers
+    # those regions live on. Default 0 / `[]` for callers that don't
+    # pass `regions` to the builder.
+    region_count: int = 0
+    region_pages: list[int] = Field(default_factory=list)
 
 
 class InvoicePatternFieldOptionsResponse(BaseModel):
@@ -764,6 +855,7 @@ class InvoicePatternFieldOptionsResponse(BaseModel):
 
 def build_pattern_field_options(
     field_definitions: list[InvoicePatternFieldDefinition] | None,
+    regions: list[InvoicePatternRegion] | None = None,
 ) -> list[InvoicePatternFieldOption]:
     """
     Assemble the per-pattern field option universe.
@@ -778,6 +870,13 @@ def build_pattern_field_options(
          with a key matching a canonical field is treated as an
          override of that built-in, not a duplicate).
 
+    `regions` (optional) — when supplied, each option carries
+    pattern-level usage counters (`region_count` and sorted-unique
+    `region_pages`). Drives the Import Builder picker's reverse-
+    awareness UI without forcing the caller to do its own join.
+    Omitting `regions` keeps the legacy zero-cost path (counts default
+    to 0 / `[]`).
+
     Defensive against malformed data: a `field_definitions` row whose
     `key` doesn't match any canonical field AND whose `type` is
     `built_in` is treated as a stale row (the canonical universe
@@ -788,14 +887,36 @@ def build_pattern_field_options(
     customs: list[InvoicePatternFieldDefinition] = []
     for d in field_definitions or []:
         if d.type == "built_in":
-            overrides_by_key[d.key] = d
+            normalized_key = normalize_extracted_field_key(d.key) or d.key
+            overrides_by_key[normalized_key] = d
         else:
             customs.append(d)
+
+    custom_keys = {d.key for d in customs}
+
+    def _field_usage_key(key: str) -> str:
+        if key in custom_keys:
+            return key
+        return normalize_extracted_field_key(key) or key
+
+    # Pre-aggregate region usage once so the per-option resolution
+    # below is O(1). Pages stored as raw lists during the gather step;
+    # sorted-unique lifted out at construction time.
+    pages_by_key: dict[str, list[int]] = {}
+    for r in regions or []:
+        pages_by_key.setdefault(_field_usage_key(r.field_key), []).append(r.page)
+
+    def _usage(key: str) -> tuple[int, list[int]]:
+        pages = pages_by_key.get(key)
+        if not pages:
+            return (0, [])
+        return (len(pages), sorted(set(pages)))
 
     options: list[InvoicePatternFieldOption] = []
     # 1. Built-ins, with overrides folded in.
     for key in INVOICE_EXTRACTED_FIELDS:
         override = overrides_by_key.get(key)
+        rc, rp = _usage(key)
         if override is not None:
             options.append(
                 InvoicePatternFieldOption(
@@ -804,6 +925,8 @@ def build_pattern_field_options(
                     type="built_in",
                     color=override.color,
                     hidden=override.hidden,
+                    region_count=rc,
+                    region_pages=rp,
                 )
             )
         else:
@@ -814,6 +937,8 @@ def build_pattern_field_options(
                     type="built_in",
                     color=None,
                     hidden=False,
+                    region_count=rc,
+                    region_pages=rp,
                 )
             )
 
@@ -824,6 +949,7 @@ def build_pattern_field_options(
     for d in customs:
         if d.key in canonical_keys:
             continue
+        rc, rp = _usage(d.key)
         options.append(
             InvoicePatternFieldOption(
                 key=d.key,
@@ -831,6 +957,8 @@ def build_pattern_field_options(
                 type="custom",
                 color=d.color,
                 hidden=False,
+                region_count=rc,
+                region_pages=rp,
             )
         )
 

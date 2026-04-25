@@ -46,6 +46,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from app.dependencies import DB, CurrentUser
 from app.models.invoice_pattern import InvoicePattern
 from app.repositories.invoice_pattern_repo import InvoicePatternRepository
+from app.repositories.invoice_template_repo import InvoiceTemplateRepository
 from app.schemas.invoice_pattern import (
     InvoiceExtractedFieldsResponse,
     InvoicePatternCreate,
@@ -60,6 +61,10 @@ from app.schemas.invoice_pattern import (
     _check_region_file_consistency,
     build_canonical_field_descriptors,
     build_pattern_field_options,
+)
+from app.schemas.invoice_pattern_coverage import InvoicePatternImportCoverage
+from app.services.invoice_pattern_coverage import (
+    compute_pattern_import_coverage,
 )
 
 router = APIRouter(prefix="/invoice-patterns", tags=["invoice-patterns"])
@@ -229,10 +234,83 @@ async def get_invoice_pattern_fields(
         InvoicePatternFieldDefinition.model_validate(d)
         for d in (row.field_definitions or [])
     ]
+    # Region usage is folded into each option (region_count +
+    # region_pages) so the Import Builder picker can show
+    # "(no region drawn)" / "5 regions on pages 1, 2, 3" without doing
+    # its own join. Same defensive re-parse — a malformed region row
+    # surfaces here as a 422 rather than silently dropping coverage.
+    parsed_regions_for_options = [
+        InvoicePatternRegion.model_validate(r)
+        for r in (row.regions or [])
+    ]
     return InvoicePatternFieldOptionsResponse(
         pattern_id=str(row.id),
-        items=build_pattern_field_options(parsed_defs),
+        items=build_pattern_field_options(
+            parsed_defs, parsed_regions_for_options
+        ),
     )
+
+
+@router.get(
+    "/{pattern_id}/import-coverage",
+    response_model=InvoicePatternImportCoverage,
+)
+async def get_invoice_pattern_import_coverage(
+    pattern_id: uuid.UUID,
+    db: DB,
+    user: CurrentUser,
+    template_id: uuid.UUID | None = None,
+) -> InvoicePatternImportCoverage:
+    """Return Import Builder coverage for one Invoice Builder pattern.
+
+    Coverage = which fields on the pattern are referenced by Import
+    Builder template rule cells via extraction bindings, plus the
+    satisfied/missing breakdown of each template's required columns.
+
+    Query params:
+
+      * `template_id` (optional) — filter to coverage for one specific
+        Import Builder template. Omit to receive coverage for every
+        saved template; templates that don't reference this pattern
+        appear with empty `used_field_keys` (not omitted) so the picker
+        can render the "All templates" view consistently.
+
+    Why a single endpoint with optional filter (not two endpoints): the
+    derivation cost is dominated by the per-template parse + walk; a
+    single-template request and an all-templates request use the same
+    `compute_pattern_import_coverage(...)` core, just over a different
+    `templates` list. Two endpoints would just duplicate the wiring
+    around it.
+
+    Read-only — never mutates Import Builder mappings. The pattern row
+    itself doesn't track which templates reference it; this endpoint
+    derives the reverse view at read time, which keeps the two modules
+    independent and avoids the dual-write integrity problems of a
+    bidirectional reference.
+
+    404 only when the pattern itself doesn't exist. A `?template_id`
+    that points at a non-existent template returns an empty `templates`
+    list rather than 404 — the picker handles "no such template"
+    upstream and a "deleted template still referenced somewhere"
+    response would be confusing to read.
+    """
+    pattern_repo = InvoicePatternRepository(db)
+    pattern = await pattern_repo.get(pattern_id)
+    if pattern is None:
+        raise HTTPException(
+            status_code=404, detail="Invoice pattern not found"
+        )
+    template_repo = InvoiceTemplateRepository(db)
+    if template_id is not None:
+        single = await template_repo.get(template_id)
+        templates = [single] if single is not None else []
+    else:
+        # Generous slice — coverage walks every template's rule cells
+        # but the workspace usually carries dozens, not hundreds. A
+        # paginated endpoint is overkill for this denormalised read;
+        # bumping the cap later is a one-liner if it ever bites.
+        templates = await template_repo.list_recent(limit=500, offset=0)
+    return compute_pattern_import_coverage(pattern, templates)
 
 
 @router.patch("/{pattern_id}", response_model=InvoicePatternOut)

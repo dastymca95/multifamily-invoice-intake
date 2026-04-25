@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getApiErrorMessage, invoicePatternsApi } from "@/lib/api";
+import { EXTRACTED_INVOICE_FIELD_REGISTRY } from "@/types/extracted-invoice-field";
 import type {
   InvoiceExtractedFieldDescriptor,
   InvoicePatternCreate,
@@ -124,7 +125,9 @@ export function useInvoicePatterns(): UseInvoicePatternsResult {
         if (!cancelled) setCanonicalFields(resp.fields);
       })
       .catch(() => {
-        if (!cancelled) setCanonicalFields([]);
+        if (!cancelled) {
+          setCanonicalFields([...EXTRACTED_INVOICE_FIELD_REGISTRY]);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingCanonicalFields(false);

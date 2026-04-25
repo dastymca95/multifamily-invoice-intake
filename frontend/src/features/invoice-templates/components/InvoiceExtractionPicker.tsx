@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   EyeOff,
   Loader2,
+  MapPin,
   Plus,
   Sparkles,
   Wand2,
@@ -23,10 +24,12 @@ import {
   type RuleCellExtractionBinding,
 } from "@/types/invoice-template";
 import {
-  type InvoiceExtractedField,
   INVOICE_EXTRACTED_FIELDS,
   INVOICE_EXTRACTED_FIELD_LABEL,
   type InvoicePatternFieldOption,
+  isKnownExtractedFieldKey,
+  normalizeExtractedFieldKey,
+  resolveExtractedFieldDescriptor,
 } from "@/types/invoice-pattern";
 
 /**
@@ -297,6 +300,10 @@ function BindingRow({
 }: BindingRowProps) {
   const currentPatternId = binding.pattern_id ?? null;
   const currentFieldKey = binding.field_key ?? null;
+  const normalizedCurrentFieldKey = useMemo(
+    () => (currentFieldKey ? normalizeExtractedFieldKey(currentFieldKey) : null),
+    [currentFieldKey],
+  );
 
   // Resolve the live label for the bound pattern; fall back to the
   // cached label when the pattern was deleted post-binding so the
@@ -328,13 +335,19 @@ function BindingRow({
     // Fallback: the canonical built-ins as ad-hoc options. Lets the
     // operator finish a pick even if the per-pattern fetch hasn't
     // landed (e.g. broken network) — extra safety net so the UI
-    // doesn't deadlock waiting for a fetch.
+    // doesn't deadlock waiting for a fetch. Reverse-usage fields
+    // (`region_count` / `region_pages`) are zeroed out here — without
+    // the per-pattern fetch we don't know which fields have regions,
+    // and a "(0 regions)" warning would be misleading. The picker
+    // suppresses the warning chip when the fetch hasn't resolved.
     return INVOICE_EXTRACTED_FIELDS.map((key) => ({
       key,
       label: INVOICE_EXTRACTED_FIELD_LABEL[key],
       type: "built_in" as const,
       color: null,
       hidden: false,
+      region_count: 0,
+      region_pages: [],
     }));
   }, [fieldsEntry]);
 
@@ -347,30 +360,44 @@ function BindingRow({
   //     "(unknown field)" row in the dropdown)
   const visibleOptions = useMemo(() => {
     return fieldOptions.filter(
-      (o) => !o.hidden || o.key === currentFieldKey,
+      (o) =>
+        !o.hidden ||
+        o.key === currentFieldKey ||
+        o.key === normalizedCurrentFieldKey,
     );
-  }, [fieldOptions, currentFieldKey]);
+  }, [fieldOptions, currentFieldKey, normalizedCurrentFieldKey]);
   const boundOption = useMemo(
     () =>
       currentFieldKey
-        ? fieldOptions.find((o) => o.key === currentFieldKey) ?? null
+        ? fieldOptions.find((o) => o.key === currentFieldKey) ??
+          (normalizedCurrentFieldKey
+            ? fieldOptions.find((o) => o.key === normalizedCurrentFieldKey) ??
+              null
+            : null)
         : null,
-    [currentFieldKey, fieldOptions],
+    [currentFieldKey, fieldOptions, normalizedCurrentFieldKey],
   );
   const isFieldUnknown =
     currentFieldKey != null &&
     !boundOption &&
     fieldsEntry?.status === "ready";
   const isFieldHidden = boundOption?.hidden === true;
+  // Soft warning — the binding still works (extraction falls through
+  // to broad-universe) but the operator almost certainly meant to draw
+  // a region first. We only surface this once the per-pattern fetch is
+  // ready; the canonical-fields fallback list zeroes `region_count`,
+  // which would falsely flag every field while loading.
+  const isFieldNoRegions =
+    boundOption != null &&
+    fieldsEntry?.status === "ready" &&
+    boundOption.region_count === 0;
 
   // Default-field placeholder copy. Read the column's bound field key
   // when caller passed it; falls back to a generic label.
   const defaultFieldLabel = useMemo(() => {
     if (!defaultFieldKey) return "(default for column)";
-    const known = INVOICE_EXTRACTED_FIELDS.find(
-      (k) => k === (defaultFieldKey as InvoiceExtractedField),
-    );
-    if (known) return INVOICE_EXTRACTED_FIELD_LABEL[known];
+    const descriptor = resolveExtractedFieldDescriptor(defaultFieldKey);
+    if (descriptor) return descriptor.label;
     return defaultFieldKey;
   }, [defaultFieldKey]);
 
@@ -399,7 +426,7 @@ function BindingRow({
       field_key:
         currentFieldKey ??
         (defaultFieldKey && isCanonicalField(defaultFieldKey)
-          ? defaultFieldKey
+          ? normalizeExtractedFieldKey(defaultFieldKey)
           : null),
     });
   };
@@ -420,12 +447,16 @@ function BindingRow({
   // ---- Render ----------------------------------------------------------
 
   // Sub-row warnings collapsed into a single tone class for the field
-  // dropdown so the operator's eye lands on the problem cell.
+  // dropdown so the operator's eye lands on the problem cell. Order of
+  // priority: unknown (red, hard error) > hidden (amber, fixable) >
+  // no-regions (amber, soft hint) > default neutral.
   const fieldDropdownTone = isFieldUnknown
     ? "border-red-300 text-red-700"
     : isFieldHidden
       ? "border-amber-300 text-amber-800"
-      : "border-gray-300 text-gray-800";
+      : isFieldNoRegions
+        ? "border-amber-300 text-amber-800"
+        : "border-gray-300 text-gray-800";
 
   return (
     <div className="flex items-start gap-1 min-w-0">
@@ -468,7 +499,7 @@ function BindingRow({
             unknown surfaced inline. */}
         <div className="relative flex items-center gap-0.5 min-w-0">
           <select
-            value={currentFieldKey ?? ""}
+            value={boundOption?.key ?? currentFieldKey ?? ""}
             onChange={(e) => handleFieldChange(e.target.value)}
             disabled={disabled || fieldsLoading || !currentPatternId}
             className={cn(
@@ -481,9 +512,13 @@ function BindingRow({
                 ? `Field "${currentFieldKey}" is no longer defined on this pattern.`
                 : isFieldHidden
                   ? `Field "${boundOption?.label ?? currentFieldKey}" is hidden on this pattern but the cell is still bound to it.`
-                  : currentPatternId
-                    ? "Field within the bound pattern"
-                    : "Pick a pattern first"
+                  : isFieldNoRegions
+                    ? `Field "${boundOption?.label ?? currentFieldKey}" has no regions on this pattern. Extraction will fall through to broad-universe — open the Invoice Builder and draw a region to wire it up.`
+                    : currentPatternId
+                      ? boundOption && boundOption.region_count > 0
+                        ? `${boundOption.label} · ${boundOption.region_count} region${boundOption.region_count === 1 ? "" : "s"}${boundOption.region_pages.length > 0 ? ` on p. ${boundOption.region_pages.join(", ")}` : ""}`
+                        : "Field within the bound pattern"
+                      : "Pick a pattern first"
             }
           >
             <option value="">{defaultFieldLabel}</option>
@@ -492,6 +527,14 @@ function BindingRow({
                 {opt.label}
                 {opt.type === "custom" ? " (custom)" : ""}
                 {opt.hidden ? " (hidden)" : ""}
+                {/* Suffix the region count so the operator can see at a
+                    glance which field has training material on this
+                    pattern. "(no region)" is the soft warning case —
+                    the binding still resolves via broad-universe but
+                    the operator probably wants to draw something. */}
+                {opt.region_count > 0
+                  ? ` · ${opt.region_count} region${opt.region_count === 1 ? "" : "s"}`
+                  : " · (no region)"}
               </option>
             ))}
             {isFieldUnknown && currentFieldKey && (
@@ -518,6 +561,15 @@ function BindingRow({
               aria-label="Field is no longer defined on this pattern"
             />
           )}
+          {!fieldsLoading &&
+            !isFieldUnknown &&
+            !isFieldHidden &&
+            isFieldNoRegions && (
+              <MapPin
+                className="h-3 w-3 shrink-0 text-amber-600"
+                aria-label="Field has no regions on this pattern"
+              />
+            )}
         </div>
       </div>
 
@@ -550,6 +602,6 @@ function BindingRow({
   );
 }
 
-function isCanonicalField(key: string): key is InvoiceExtractedField {
-  return (INVOICE_EXTRACTED_FIELDS as readonly string[]).includes(key);
+function isCanonicalField(key: string): boolean {
+  return isKnownExtractedFieldKey(key);
 }

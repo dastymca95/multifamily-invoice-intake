@@ -1,3 +1,4 @@
+import type { InvoicePatternImportCoverage } from "@/types/invoice-pattern-coverage";
 import type {
   InvoiceExtractedFieldsResponse,
   InvoicePatternCreate,
@@ -53,6 +54,29 @@ export const invoicePatternsApi = {
     apiClient
       .get<InvoicePatternFieldOptionsResponse>(
         `/invoice-patterns/${id}/fields`,
+      )
+      .then((r) => r.data),
+
+  /**
+   * Import Builder coverage view for a single pattern. With no
+   * `templateId` argument, the response covers EVERY workspace
+   * template — that's what the right-rail Coverage panel needs to
+   * power its "All templates" drop-down. Pass a `templateId` to scope
+   * down to one (Coverage panel after the operator picks a single
+   * template; cheaper round-trip when the picker is filtered).
+   *
+   * The pattern row never tracks reverse pointers — this endpoint
+   * derives them from `extraction_bindings` on each rule cell at read
+   * time. Safe to refetch on every pattern open / template change.
+   */
+  getImportCoverage: (
+    id: string,
+    templateId?: string,
+  ): Promise<InvoicePatternImportCoverage> =>
+    apiClient
+      .get<InvoicePatternImportCoverage>(
+        `/invoice-patterns/${id}/import-coverage`,
+        { params: templateId ? { template_id: templateId } : undefined },
       )
       .then((r) => r.data),
 
