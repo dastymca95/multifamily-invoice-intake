@@ -23,10 +23,10 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="bg-white rounded-xl border p-5 space-y-1">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      {sub && <p className="text-xs text-gray-400">{sub}</p>}
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-1 dark:bg-surface-subtle dark:border-line">
+      <p className="text-sm text-gray-500 dark:text-ink-muted">{label}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-ink">{value}</p>
+      {sub && <p className="text-xs text-gray-400 dark:text-ink-subtle">{sub}</p>}
     </div>
   );
 }
@@ -87,7 +87,12 @@ export function DashboardStats() {
     }
   };
 
-  if (loading) return <div className="text-sm text-gray-400">Loading dashboard…</div>;
+  if (loading)
+    return (
+      <div className="text-sm text-gray-400 dark:text-ink-subtle">
+        Loading dashboard…
+      </div>
+    );
 
   if (loadError) {
     return (
@@ -115,17 +120,19 @@ export function DashboardStats() {
 
       {exportError && <InlineAlert tone="error">{exportError}</InlineAlert>}
 
-      <div className="bg-white rounded-xl border">
-        <div className="px-5 py-4 border-b flex items-center justify-between">
+      <div className="bg-white rounded-xl border border-gray-200 dark:bg-surface-subtle dark:border-line">
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between dark:border-line">
           <div>
-            <h2 className="text-sm font-semibold text-gray-700">Recent Batches</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-ink">
+              Recent Batches
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5 dark:text-ink-muted">
               Open a batch to review documents or create exports.
             </p>
           </div>
           <Link
             href="/upload"
-            className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
+            className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-50/80"
           >
             <Upload className="h-3.5 w-3.5" />
             New batch
@@ -133,13 +140,15 @@ export function DashboardStats() {
         </div>
         {batches.length === 0 ? (
           <div className="px-5 py-12 text-center">
-            <p className="text-sm font-medium text-gray-700">No batches yet</p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-sm font-medium text-gray-700 dark:text-ink">
+              No batches yet
+            </p>
+            <p className="text-xs text-gray-500 mt-1 dark:text-ink-muted">
               Upload your first batch of invoices to get started.
             </p>
             <Link
               href="/upload"
-              className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+              className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-50/80"
             >
               Upload documents <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -147,7 +156,7 @@ export function DashboardStats() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-gray-500 text-xs">
+              <tr className="border-b border-gray-200 text-gray-500 text-xs dark:border-line dark:text-ink-subtle">
                 <th className="text-left px-5 py-3 font-medium">Name</th>
                 <th className="text-left px-5 py-3 font-medium">Status</th>
                 <th className="text-left px-5 py-3 font-medium">Documents</th>
@@ -159,11 +168,14 @@ export function DashboardStats() {
               {batches.map((b) => {
                 const status = displayBatchStatus(b);
                 return (
-                  <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <tr
+                    key={b.id}
+                    className="border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-line/60 dark:hover:bg-surface-muted"
+                  >
                     <td className="px-5 py-3">
                       <Link
                         href={`/batches/${b.id}`}
-                        className="font-medium text-brand-600 hover:underline"
+                        className="font-medium text-brand-600 hover:underline dark:text-brand-50"
                       >
                         {b.name}
                       </Link>
@@ -171,10 +183,12 @@ export function DashboardStats() {
                     <td className="px-5 py-3">
                       <Badge color={status.tone}>{status.label}</Badge>
                     </td>
-                    <td className="px-5 py-3 text-gray-600">
+                    <td className="px-5 py-3 text-gray-600 dark:text-ink-muted">
                       {b.processed_documents} / {b.total_documents}
                     </td>
-                    <td className="px-5 py-3 text-gray-400">{formatDate(b.created_at)}</td>
+                    <td className="px-5 py-3 text-gray-400 dark:text-ink-subtle">
+                      {formatDate(b.created_at)}
+                    </td>
                     <td className="px-5 py-3 text-right">
                       <Button
                         variant="secondary"

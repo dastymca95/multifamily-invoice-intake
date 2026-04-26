@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { FloatingHelpChat } from "@/components/help-chat";
+
 import { Sidebar } from "./Sidebar";
 
 interface AppShellProps {
@@ -17,12 +19,19 @@ interface AppShellProps {
  * page renders before the theme provider mounts (it won't paint
  * before the boot script applies the resolved class, but the
  * fallback keeps any future SSR-only render readable).
+ *
+ * `<FloatingHelpChat />` is mounted ONCE here (not per-page) so its
+ * open/closed state and message transcript persist across route
+ * changes. The component pins itself to the bottom-right corner
+ * with `position: fixed`, so adding it as a sibling of `<main>`
+ * doesn't affect the sidebar/content flex layout.
  */
 export function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-surface">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">{children}</main>
+      <FloatingHelpChat />
     </div>
   );
 }

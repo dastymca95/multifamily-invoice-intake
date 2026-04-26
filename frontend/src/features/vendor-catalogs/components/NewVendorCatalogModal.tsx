@@ -457,7 +457,7 @@ function SetupStep({
           maxLength={255}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder="e.g. Active Vendors 2026"
-          className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
         />
       </div>
 
@@ -469,7 +469,7 @@ function SetupStep({
           rows={2}
           placeholder="Optional — what's this catalog for?"
           onChange={(e) => onDescriptionChange(e.target.value)}
-          className="w-full resize-none rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          className="w-full resize-none rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-line dark:bg-surface dark:text-ink dark:placeholder:text-ink-subtle"
         />
       </div>
 
@@ -585,14 +585,14 @@ function UploadedSourceCard({
     parsed != null && parsed.source_columns.length === 0;
 
   return (
-    <div className="ml-10 rounded-md border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-[11px]">
-      <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5">
+    <div className="ml-10 rounded-md border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-[11px] dark:border-line dark:bg-surface-muted/50">
+      <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5 dark:text-ink-subtle">
         Vendor file for this draft
       </p>
 
       {uploading ? (
         <div className="space-y-1.5">
-          <p className="inline-flex items-center gap-1.5 text-gray-700 font-medium">
+          <p className="inline-flex items-center gap-1.5 text-gray-700 font-medium dark:text-ink-muted">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" />
             Reading vendor master…
           </p>
@@ -602,7 +602,7 @@ function UploadedSourceCard({
               style={{ width: `${Math.max(2, progress)}%` }}
             />
           </div>
-          <p className="text-[10px] text-gray-500">
+          <p className="text-[10px] text-gray-500 dark:text-ink-muted">
             {progress}% · once read, you&apos;ll map its columns next.
           </p>
         </div>
@@ -616,24 +616,24 @@ function UploadedSourceCard({
               <>
                 <span className="font-medium">{parsed!.source_columns.length}</span>{" "}
                 column{parsed!.source_columns.length === 1 ? "" : "s"}
-                <span className="text-gray-300 mx-1">·</span>
+                <span className="text-gray-300 dark:text-line-strong mx-1">·</span>
                 <span className="font-medium">{parsed!.source_rows.length}</span>{" "}
                 row{parsed!.source_rows.length === 1 ? "" : "s"}
                 {parsed!.detected_format && (
                   <>
-                    <span className="text-gray-300 mx-1">·</span>
+                    <span className="text-gray-300 dark:text-line-strong mx-1">·</span>
                     {parsed!.detected_format.toUpperCase()}
                   </>
                 )}
               </>
             }
           />
-          <p className="text-[10.5px] text-gray-600 mt-1">
+          <p className="text-[10.5px] text-gray-600 mt-1 dark:text-ink-muted">
             Click <span className="font-medium">Continue to mapping</span> to
             match these columns to BillsIQ&apos;s vendor fields.
           </p>
           {parsed!.parse_warning && (
-            <p className="text-[10.5px] text-yellow-700 italic">
+            <p className="text-[10.5px] text-yellow-700 italic dark:text-yellow-200">
               {parsed!.parse_warning}
             </p>
           )}
@@ -647,7 +647,7 @@ function UploadedSourceCard({
             <>
               No usable columns could be extracted.
               {parsed!.parse_warning && (
-                <span className="block text-yellow-700/80 mt-0.5 italic">
+                <span className="block text-yellow-700/80 dark:text-yellow-200/80 mt-0.5 italic">
                   {parsed!.parse_warning}
                 </span>
               )}
@@ -655,14 +655,14 @@ function UploadedSourceCard({
           }
         />
       ) : (
-        <p className="text-gray-600">
+        <p className="text-gray-600 dark:text-ink-muted">
           No file picked yet. Upload a vendor master (CSV or Excel)
           to use its rows as the starting point for this catalog.
         </p>
       )}
 
       {uploadError && !uploading && (
-        <p className="mt-2 inline-flex items-start gap-1.5 text-red-600 text-[11px]">
+        <p className="mt-2 inline-flex items-start gap-1.5 text-red-600 text-[11px] dark:text-red-400">
           <FileWarning className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <span>{uploadError}</span>
         </p>
@@ -692,7 +692,7 @@ function UploadedSourceCard({
       )}
 
       {hasFile && (
-        <p className="text-[10px] text-gray-400 mt-2">
+        <p className="text-[10px] text-gray-400 mt-2 dark:text-ink-subtle">
           The file isn&apos;t stored — only the rows you confirm in the
           mapping step become the saved catalog.
         </p>
@@ -715,7 +715,10 @@ function SourceMetaRow({
   const tones =
     tone === "ok"
       ? { iconBg: "bg-brand-50", iconColor: "text-brand-700" }
-      : { iconBg: "bg-yellow-100", iconColor: "text-yellow-700" };
+      : {
+          iconBg: "bg-yellow-100 dark:bg-yellow-950/40",
+          iconColor: "text-yellow-700 dark:text-yellow-200",
+        };
   return (
     <div className="flex items-start gap-2">
       <div
@@ -728,12 +731,12 @@ function SourceMetaRow({
       </div>
       <div className="flex-1 min-w-0">
         <p
-          className="text-[12px] font-semibold text-gray-800 truncate"
+          className="text-[12px] font-semibold text-gray-800 truncate dark:text-ink"
           title={filename}
         >
           {filename}
         </p>
-        <p className="text-[10.5px] text-gray-600">{summary}</p>
+        <p className="text-[10.5px] text-gray-600 dark:text-ink-muted">{summary}</p>
       </div>
     </div>
   );
@@ -787,17 +790,20 @@ function MappingStep({
 
   return (
     <div className="space-y-4">
-      <p className="text-[12.5px] text-gray-600">
+      <p className="text-[12.5px] text-gray-600 dark:text-ink-muted">
         Match each BillsIQ vendor field to a column from{" "}
-        <span className="font-medium text-gray-800">{parsed.filename}</span>.
-        Required fields are marked with{" "}
-        <span className="text-red-600 font-semibold">*</span>; optional
+        <span className="font-medium text-gray-800 dark:text-ink">
+          {parsed.filename}
+        </span>
+        . Required fields are marked with{" "}
+        <span className="text-red-600 font-semibold dark:text-red-400">*</span>;
+        optional
         fields can be left as <span className="italic">— None —</span>.
       </p>
 
       {/* ---- Mapping grid ---------------------------------------------- */}
-      <div className="rounded-md border border-gray-200">
-        <div className="grid grid-cols-[1fr_1fr] gap-x-4 px-3 py-2 border-b border-gray-200 bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500 font-semibold">
+      <div className="rounded-md border border-gray-200 dark:border-line">
+        <div className="grid grid-cols-[1fr_1fr] gap-x-4 px-3 py-2 border-b border-gray-200 bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500 font-semibold dark:border-line dark:bg-surface-muted dark:text-ink-subtle">
           <span>BillsIQ vendor field</span>
           <span>Column from your file</span>
         </div>
@@ -811,13 +817,15 @@ function MappingStep({
                 className="grid grid-cols-[1fr_1fr] gap-x-4 px-3 py-2.5 items-start"
               >
                 <div className="min-w-0">
-                  <p className="text-[12.5px] font-semibold text-gray-800">
+                  <p className="text-[12.5px] font-semibold text-gray-800 dark:text-ink">
                     {field.label}
                     {field.required && (
-                      <span className="text-red-600 ml-0.5">*</span>
+                      <span className="text-red-600 ml-0.5 dark:text-red-400">
+                        *
+                      </span>
                     )}
                   </p>
-                  <p className="text-[10.5px] text-gray-500 mt-0.5">
+                  <p className="text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-muted">
                     {field.hint}
                   </p>
                 </div>
@@ -831,11 +839,11 @@ function MappingStep({
                       )
                     }
                     className={cn(
-                      "w-full rounded-md border px-2 py-1.5 text-sm bg-white",
+                      "w-full rounded-md border px-2 py-1.5 text-sm bg-white dark:bg-surface dark:text-ink",
                       "focus:outline-none focus:ring-2 focus:ring-brand-500",
                       missingRequired
                         ? "border-red-300 ring-1 ring-red-100"
-                        : "border-gray-300",
+                        : "border-gray-300 dark:border-line",
                     )}
                   >
                     <option value="">— None —</option>
@@ -848,7 +856,7 @@ function MappingStep({
                     ))}
                   </select>
                   {missingRequired && (
-                    <p className="text-[10px] text-red-600 mt-1">
+                    <p className="text-[10px] text-red-600 mt-1 dark:text-red-400">
                       Required — pick the source column that holds this.
                     </p>
                   )}
@@ -867,10 +875,10 @@ function MappingStep({
           full row on the next screen. */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <p className="text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold">
+          <p className="text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold dark:text-ink-subtle">
             Preview
           </p>
-          <p className="text-[10.5px] text-gray-500">
+          <p className="text-[10.5px] text-gray-500 dark:text-ink-muted">
             {requiredFieldsMapped ? (
               <>
                 Showing first {previewRows.length} of {importableCount}{" "}
@@ -885,26 +893,26 @@ function MappingStep({
           </p>
         </div>
         {requiredFieldsMapped && previewRows.length > 0 ? (
-          <div className="overflow-x-auto rounded-md border border-gray-200">
+          <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-line">
             <table className="w-full text-[11.5px]">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="bg-gray-50 border-b border-gray-200 dark:bg-surface-muted dark:border-line">
                 <tr>
-                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5">
+                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5 dark:text-ink-muted">
                     Vendor name
                   </th>
-                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5">
+                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5 dark:text-ink-muted">
                     Code
                   </th>
-                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5">
+                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5 dark:text-ink-muted">
                     Aliases
                   </th>
-                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5">
+                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5 dark:text-ink-muted">
                     City
                   </th>
-                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5">
+                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5 dark:text-ink-muted">
                     State
                   </th>
-                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5">
+                  <th className="text-left font-semibold text-gray-600 px-2.5 py-1.5 dark:text-ink-muted">
                     Active
                   </th>
                 </tr>
@@ -913,38 +921,42 @@ function MappingStep({
                 {previewRows.map((entry) => (
                   <tr
                     key={entry.id}
-                    className="border-t border-gray-100 odd:bg-white even:bg-gray-50/30"
+                    className="border-t border-gray-100 odd:bg-white even:bg-gray-50/30 dark:border-line/60 dark:odd:bg-surface dark:even:bg-surface-muted/30"
                   >
-                    <td className="px-2.5 py-1.5 font-medium text-gray-800">
+                    <td className="px-2.5 py-1.5 font-medium text-gray-800 dark:text-ink">
                       {entry.vendor_name}
                     </td>
-                    <td className="px-2.5 py-1.5 font-mono text-gray-700">
+                    <td className="px-2.5 py-1.5 font-mono text-gray-700 dark:text-ink-muted">
                       {entry.vendor_code ?? (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300 dark:text-ink-subtle">—</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-1.5 text-gray-600 max-w-[14rem] truncate">
+                    <td className="px-2.5 py-1.5 text-gray-600 dark:text-ink-muted max-w-[14rem] truncate">
                       {entry.aliases.length > 0 ? (
                         entry.aliases.join(", ")
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300 dark:text-ink-subtle">—</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-1.5 text-gray-600">
+                    <td className="px-2.5 py-1.5 text-gray-600 dark:text-ink-muted">
                       {entry.city ?? (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300 dark:text-ink-subtle">—</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-1.5 text-gray-600">
+                    <td className="px-2.5 py-1.5 text-gray-600 dark:text-ink-muted">
                       {entry.state ?? (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300 dark:text-ink-subtle">—</span>
                       )}
                     </td>
                     <td className="px-2.5 py-1.5">
                       {entry.active ? (
-                        <span className="text-emerald-700">Active</span>
+                        <span className="text-emerald-700 dark:text-green-300">
+                          Active
+                        </span>
                       ) : (
-                        <span className="text-gray-500">Inactive</span>
+                        <span className="text-gray-500 dark:text-ink-subtle">
+                          Inactive
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -953,14 +965,14 @@ function MappingStep({
             </table>
           </div>
         ) : (
-          <div className="rounded-md border border-dashed border-gray-300 px-3 py-6 text-center text-[11.5px] text-gray-500">
+          <div className="rounded-md border border-dashed border-gray-300 px-3 py-6 text-center text-[11.5px] text-gray-500 dark:border-line dark:text-ink-muted">
             {requiredFieldsMapped
               ? "Mapping is set, but no rows produced importable entries — every row was either blank or a duplicate of an earlier row."
               : "Preview unavailable until the required field is mapped."}
           </div>
         )}
         {requiredFieldsMapped && previewRows.length > 0 && (
-          <p className="text-[10px] text-gray-400 mt-1.5">
+          <p className="text-[10px] text-gray-400 mt-1.5 dark:text-ink-subtle">
             Address, contact, and notes columns aren&apos;t shown here to
             keep the preview readable — they&apos;re carried into the
             editor on the next screen.
@@ -971,8 +983,8 @@ function MappingStep({
       {/* ---- Counters / warnings --------------------------------------- */}
       <ul className="space-y-1 text-[11.5px]">
         {requiredFieldsMapped && (
-          <li className="text-gray-700 inline-flex items-center gap-1.5">
-            <span className="font-semibold text-gray-900">
+          <li className="text-gray-700 dark:text-ink-muted inline-flex items-center gap-1.5">
+            <span className="font-semibold text-gray-900 dark:text-ink">
               {importableCount}
             </span>{" "}
             of {totalSourceRows} source row
@@ -980,20 +992,20 @@ function MappingStep({
           </li>
         )}
         {blankRequiredCount > 0 && (
-          <li className="text-yellow-700">
+          <li className="text-yellow-700 dark:text-yellow-200">
             Skipping {blankRequiredCount} row
             {blankRequiredCount === 1 ? "" : "s"} with a blank vendor name.
           </li>
         )}
         {duplicateCodeCount > 0 && (
-          <li className="text-yellow-700">
+          <li className="text-yellow-700 dark:text-yellow-200">
             Dropping {duplicateCodeCount} duplicate vendor code
             {duplicateCodeCount === 1 ? "" : "s"} (first occurrence wins;
             rows without a code are kept).
           </li>
         )}
         {requiredFieldsMapped && activeUnmapped && (
-          <li className="text-gray-500">
+          <li className="text-gray-500 dark:text-ink-muted">
             No <span className="font-medium">Active / Inactive</span>{" "}
             column mapped — every imported row defaults to active. You
             can flip individual rows in the editor.
@@ -1075,7 +1087,7 @@ function StartOption({
         "w-full text-left rounded-md border px-3 py-2.5 transition-colors flex items-start gap-2.5",
         selected
           ? "border-brand-500 bg-brand-50/60 ring-1 ring-brand-200"
-          : "border-gray-200 hover:bg-gray-50",
+          : "border-gray-200 hover:bg-gray-50 dark:border-line dark:hover:bg-surface-muted",
         disabled && "opacity-50 cursor-not-allowed hover:bg-transparent",
       )}
       aria-pressed={selected}
@@ -1089,7 +1101,9 @@ function StartOption({
         <Icon
           className={cn(
             "h-4 w-4",
-            selected ? "text-brand-700" : "text-gray-600",
+            selected
+              ? "text-brand-700 dark:text-brand-50"
+              : "text-gray-600 dark:text-ink-muted",
           )}
         />
       </div>
@@ -1097,12 +1111,16 @@ function StartOption({
         <p
           className={cn(
             "text-[12.5px] font-semibold",
-            selected ? "text-brand-800" : "text-gray-800",
+            selected
+              ? "text-brand-800 dark:text-brand-50"
+              : "text-gray-800 dark:text-ink",
           )}
         >
           {title}
         </p>
-        <p className="text-[10.5px] text-gray-500 mt-0.5">{description}</p>
+        <p className="text-[10.5px] text-gray-500 mt-0.5 dark:text-ink-muted">
+          {description}
+        </p>
       </div>
     </button>
   );
@@ -1118,7 +1136,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="block text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1"
+      className="block text-[10.5px] uppercase tracking-wide text-gray-500 font-semibold mb-1 dark:text-ink-subtle"
     >
       {children}
     </label>

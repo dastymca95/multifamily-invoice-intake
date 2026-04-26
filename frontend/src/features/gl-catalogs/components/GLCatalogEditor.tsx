@@ -315,7 +315,7 @@ export function GLCatalogEditor({
       />
 
       {entries.length >= MAX_ENTRIES && (
-        <p className="px-5 pb-2 text-[11px] text-yellow-700 bg-gray-50">
+        <p className="px-5 pb-2 text-[11px] text-yellow-700 bg-gray-50 dark:text-yellow-200 dark:bg-surface">
           Reached the {MAX_ENTRIES}-entry cap — remove rows to add more.
         </p>
       )}

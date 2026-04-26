@@ -46,22 +46,25 @@ const SEVERITY_META: Record<
   error: {
     label: "Errors",
     Icon: CircleAlert,
-    badge: "bg-red-50 text-red-700 border-red-200",
-    section: "border-red-200",
+    badge:
+      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900",
+    section: "border-red-200 dark:border-red-900",
     empty: "No blocking errors.",
   },
   warning: {
     label: "Warnings",
     Icon: AlertTriangle,
-    badge: "bg-yellow-50 text-yellow-800 border-yellow-200",
-    section: "border-yellow-200",
+    badge:
+      "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900",
+    section: "border-yellow-200 dark:border-yellow-900",
     empty: "No warnings.",
   },
   info: {
     label: "Info",
     Icon: Info,
-    badge: "bg-blue-50 text-blue-700 border-blue-200",
-    section: "border-blue-200",
+    badge:
+      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900",
+    section: "border-blue-200 dark:border-blue-900",
     empty: "No info diagnostics.",
   },
 };
@@ -88,8 +91,8 @@ export function ImportTemplateValidationPanel({
         )}
 
         {loading && (
-          <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-600">
-            <Loader2 className="h-4 w-4 animate-spin text-brand-600" />
+          <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+            <Loader2 className="h-4 w-4 animate-spin text-brand-600 dark:text-brand-50" />
             Checking template readiness...
           </div>
         )}
@@ -102,27 +105,31 @@ export function ImportTemplateValidationPanel({
               className={cn(
                 "rounded-md border px-4 py-3 flex items-center justify-between gap-4",
                 result.ready
-                  ? "border-green-200 bg-green-50"
-                  : "border-red-200 bg-red-50",
+                  ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/40"
+                  : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40",
               )}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <StatusIcon
                   className={cn(
                     "h-5 w-5 shrink-0",
-                    result.ready ? "text-green-600" : "text-red-600",
+                    result.ready
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-red-600 dark:text-red-400",
                   )}
                 />
                 <div className="min-w-0">
                   <div
                     className={cn(
                       "text-sm font-semibold",
-                      result.ready ? "text-green-800" : "text-red-800",
+                      result.ready
+                        ? "text-green-800 dark:text-green-200"
+                        : "text-red-800 dark:text-red-200",
                     )}
                   >
                     {result.ready ? "Ready to use" : "Not ready"}
                   </div>
-                  <div className="text-xs text-gray-600 truncate">
+                  <div className="text-xs text-gray-600 truncate dark:text-ink-muted">
                     {result.template_name}
                   </div>
                 </div>
@@ -191,20 +198,22 @@ function IssueSection({
   const Icon = meta.Icon;
 
   return (
-    <section className={cn("rounded-md border bg-white", meta.section)}>
-      <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800">
+    <section className={cn("rounded-md border bg-white dark:bg-surface-subtle", meta.section)}>
+      <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-line/60">
+        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-ink">
           <Icon className="h-4 w-4" />
           {meta.label}
         </div>
-        <span className="text-xs font-semibold text-gray-500">
+        <span className="text-xs font-semibold text-gray-500 dark:text-ink-muted">
           {issues.length}
         </span>
       </div>
       {issues.length === 0 ? (
-        <div className="px-3 py-3 text-xs text-gray-500">{meta.empty}</div>
+        <div className="px-3 py-3 text-xs text-gray-500 dark:text-ink-muted">
+          {meta.empty}
+        </div>
       ) : (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-line/60">
           {issues.map((issue, idx) => (
             <IssueRow key={`${issue.code}-${issue.path ?? ""}-${idx}`} issue={issue} />
           ))}
@@ -225,20 +234,26 @@ function IssueRow({ issue }: { issue: ImportTemplateValidationIssue }) {
     <div className="px-3 py-2.5 text-xs">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-medium text-gray-900">{issue.message}</p>
+          <p className="font-medium text-gray-900 dark:text-ink">
+            {issue.message}
+          </p>
           {context.length > 0 && (
-            <p className="mt-1 text-gray-500">{context.join(" | ")}</p>
+            <p className="mt-1 text-gray-500 dark:text-ink-muted">
+              {context.join(" | ")}
+            </p>
           )}
           {issue.recommendation && (
-            <p className="mt-1 text-gray-700">{issue.recommendation}</p>
+            <p className="mt-1 text-gray-700 dark:text-ink-muted">
+              {issue.recommendation}
+            </p>
           )}
         </div>
-        <span className="shrink-0 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-gray-500">
+        <span className="shrink-0 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-gray-500 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
           {issue.code}
         </span>
       </div>
       {issue.path && (
-        <div className="mt-1 font-mono text-[10px] text-gray-400">
+        <div className="mt-1 font-mono text-[10px] text-gray-400 dark:text-ink-subtle">
           {issue.path}
         </div>
       )}

@@ -185,13 +185,25 @@ const SOURCE_BADGE: Record<
   InvoiceTemplateSource,
   { label: string; tone: string }
 > = {
-  default: { label: "Default", tone: "bg-blue-50 text-blue-700" },
-  blank: { label: "Blank", tone: "bg-gray-100 text-gray-700" },
+  default: {
+    label: "Default",
+    tone: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200",
+  },
+  blank: {
+    label: "Blank",
+    tone:
+      "bg-gray-100 text-gray-700 dark:bg-surface-muted dark:text-ink-muted",
+  },
   from_upload: {
     label: "From upload",
-    tone: "bg-purple-50 text-purple-700",
+    tone:
+      "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-200",
   },
-  custom: { label: "Custom", tone: "bg-brand-50 text-brand-700" },
+  custom: {
+    label: "Custom",
+    tone:
+      "bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-50",
+  },
 };
 
 // Same icon set the inspector uses; mirrored here so the per-header
@@ -230,15 +242,18 @@ const HEADER_RULE_ROLE_SHORT: Record<RuleRole, string> = {
 // rule rows. Same swatch in both places so a scan of one column down
 // the table reads as a single colored band.
 const HEADER_RULE_ROLE_CHIP_TONE: Record<RuleRole, string> = {
-  condition: "bg-amber-50 text-amber-700",
-  restriction: "bg-violet-50 text-violet-700",
-  action: "bg-emerald-50 text-emerald-700",
+  condition: "bg-amber-50 text-amber-700 dark:bg-yellow-950/40 dark:text-yellow-200",
+  restriction: "bg-violet-50 text-violet-700 dark:bg-purple-950/40 dark:text-purple-200",
+  action: "bg-emerald-50 text-emerald-700 dark:bg-green-950/40 dark:text-green-200",
 };
 
 const BODY_RULE_ROLE_CELL_TONE: Record<RuleRole, string> = {
-  condition: "bg-amber-50/40",
-  restriction: "bg-violet-50/40",
-  action: "bg-emerald-50/30",
+  // Translucent body tints — kept light in light mode and shifted to a
+  // mid-slate tint with a hint of color in dark mode so the role band
+  // still scans down the column without burning the eye.
+  condition: "bg-amber-50/40 dark:bg-yellow-950/20",
+  restriction: "bg-violet-50/40 dark:bg-purple-950/20",
+  action: "bg-emerald-50/30 dark:bg-green-950/20",
 };
 
 // Padding row count used when the template has zero rule rows — keeps
@@ -755,9 +770,9 @@ export function TemplateEditor({
           stays the dominant surface even when the inspector is open. */}
       <div className="flex-1 min-w-0 flex flex-col">
       {/* ------------------ Compact toolbar (name + actions) ------------------ */}
-      <header className="border-b bg-white shrink-0">
+      <header className="border-b border-gray-200 bg-white shrink-0 dark:border-line dark:bg-surface-subtle">
         <div className="flex items-center gap-2 px-4 pt-3">
-          <FileSpreadsheet className="h-4 w-4 text-brand-700 shrink-0" />
+          <FileSpreadsheet className="h-4 w-4 text-brand-700 dark:text-brand-50 shrink-0" />
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -765,10 +780,10 @@ export function TemplateEditor({
             maxLength={255}
             aria-label="Template name"
             className={cn(
-              "flex-1 max-w-md min-w-0 text-[14px] font-semibold text-gray-800",
-              "bg-transparent rounded-md px-2 py-1 outline-none",
-              "hover:bg-gray-50 focus:bg-white focus:ring-2 focus:ring-brand-500",
-              name.trim().length === 0 && "ring-1 ring-red-300",
+              "flex-1 max-w-md min-w-0 text-[14px] font-semibold text-gray-800 dark:text-ink",
+              "bg-transparent rounded-md px-2 py-1 outline-none placeholder:text-gray-400 dark:placeholder:text-ink-subtle",
+              "hover:bg-gray-50 focus:bg-white focus:ring-2 focus:ring-brand-500 dark:hover:bg-surface-muted dark:focus:bg-surface",
+              name.trim().length === 0 && "ring-1 ring-red-300 dark:ring-red-900",
             )}
           />
           <span
@@ -780,17 +795,17 @@ export function TemplateEditor({
             {sourceBadge.label}
           </span>
           {isDraft && (
-            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-orange-50 text-orange-700 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-orange-50 text-orange-700 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-orange-950/40 dark:text-orange-200">
               <Sparkles className="h-2.5 w-2.5" />
               Unsaved
             </span>
           )}
           {dirty && !isDraft && (
-            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-orange-600">
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
               Unsaved changes
             </span>
           )}
-          <span className="shrink-0 text-[10.5px] text-gray-400">
+          <span className="shrink-0 text-[10.5px] text-gray-400 dark:text-ink-subtle">
             {columns.length} / {MAX_COLUMNS} cols
           </span>
           <div className="flex-1" />
@@ -855,7 +870,7 @@ export function TemplateEditor({
         </div>
 
         <div className="px-4 pt-1 pb-2 flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold shrink-0">
+          <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold shrink-0 dark:text-ink-subtle">
             About
           </span>
           <input
@@ -863,7 +878,7 @@ export function TemplateEditor({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Describe this template (optional)"
             aria-label="Template description"
-            className="flex-1 min-w-0 text-[11.5px] text-gray-600 bg-transparent rounded-md px-2 py-1 outline-none hover:bg-gray-50 focus:bg-white focus:ring-2 focus:ring-brand-500"
+            className="flex-1 min-w-0 text-[11.5px] text-gray-600 bg-transparent rounded-md px-2 py-1 outline-none hover:bg-gray-50 focus:bg-white focus:ring-2 focus:ring-brand-500 dark:text-ink-muted dark:placeholder:text-ink-subtle dark:hover:bg-surface-muted dark:focus:bg-surface"
           />
         </div>
 
@@ -887,9 +902,9 @@ export function TemplateEditor({
         )}
 
         {confirmingDelete && onDelete && (
-          <div className="mx-4 mb-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2.5 text-[11.5px] text-yellow-900 space-y-1.5">
+          <div className="mx-4 mb-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2.5 text-[11.5px] text-yellow-900 space-y-1.5 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200">
             <p className="font-semibold">Delete this template?</p>
-            <p className="text-yellow-900/80">
+            <p className="text-yellow-900/80 dark:text-yellow-200/80">
               The column shape and its name will be lost. Existing
               exports already produced with this template are not
               affected.
@@ -987,33 +1002,39 @@ export function TemplateEditor({
           canRemoveColumn={columns.length > MIN_COLUMNS}
         />
       ) : (
-      <div className="flex-1 min-h-0 overflow-hidden p-4 bg-gray-50">
-        <div className="h-full rounded-lg border border-gray-200 bg-white shadow-sm flex flex-col min-h-0">
+      <div className="flex-1 min-h-0 overflow-hidden p-4 bg-gray-50 dark:bg-surface">
+        <div className="h-full rounded-lg border border-gray-200 bg-white shadow-sm flex flex-col min-h-0 dark:border-line dark:bg-surface-subtle">
           {/* Help strip — quick reminder of what the table supports.
               Two distinct concerns: schema (header) and rules (rows). */}
-          <div className="border-b bg-gray-50/60 px-3 py-1.5 text-[10.5px] text-gray-500 flex items-center gap-3 flex-wrap shrink-0">
+          <div className="border-b border-gray-200 bg-gray-50/60 px-3 py-1.5 text-[10.5px] text-gray-500 flex items-center gap-3 flex-wrap shrink-0 dark:border-line dark:bg-surface-muted/60 dark:text-ink-muted">
             <span className="inline-flex items-center gap-1">
-              <GripVertical className="h-3 w-3 text-gray-400" />
+              <GripVertical className="h-3 w-3 text-gray-400 dark:text-ink-subtle" />
               Drag a header to reorder
             </span>
-            <span className="text-gray-300">·</span>
+            <span className="text-gray-300 dark:text-line-strong">·</span>
             <span className="inline-flex items-center gap-1">
-              <Settings2 className="h-3 w-3 text-gray-400" />
+              <Settings2 className="h-3 w-3 text-gray-400 dark:text-ink-subtle" />
               Open the inspector for column-level contract
             </span>
-            <span className="text-gray-300">·</span>
+            <span className="text-gray-300 dark:text-line-strong">·</span>
             <span className="inline-flex items-center gap-1">
-              <Plus className="h-3 w-3 text-gray-400" />
+              <Plus className="h-3 w-3 text-gray-400 dark:text-ink-subtle" />
               Add columns at the trailing cell, rules at the bottom
             </span>
-            <span className="text-gray-300">·</span>
+            <span className="text-gray-300 dark:text-line-strong">·</span>
             <span className="inline-flex items-center gap-1">
-              <Scale className="h-3 w-3 text-amber-600" />
-              <span className="text-amber-700 font-semibold">CND</span>
-              <CornerDownRight className="h-3 w-3 ml-2 text-violet-600" />
-              <span className="text-violet-700 font-semibold">RST</span>
-              <Target className="h-3 w-3 ml-2 text-emerald-600" />
-              <span className="text-emerald-700 font-semibold">ACT</span>
+              <Scale className="h-3 w-3 text-amber-600 dark:text-yellow-400" />
+              <span className="text-amber-700 font-semibold dark:text-yellow-200">
+                CND
+              </span>
+              <CornerDownRight className="h-3 w-3 ml-2 text-violet-600 dark:text-purple-300" />
+              <span className="text-violet-700 font-semibold dark:text-purple-200">
+                RST
+              </span>
+              <Target className="h-3 w-3 ml-2 text-emerald-600 dark:text-green-400" />
+              <span className="text-emerald-700 font-semibold dark:text-green-200">
+                ACT
+              </span>
             </span>
           </div>
 
@@ -1027,7 +1048,7 @@ export function TemplateEditor({
                       rule row's left toolbar (active switch + index
                       + actions), not just a row number. */}
                   <th
-                    className="sticky top-0 left-0 z-30 bg-gray-100 border-r border-b border-gray-200 px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-[7rem] min-w-[7rem]"
+                    className="sticky top-0 left-0 z-30 bg-gray-100 border-r border-b border-gray-200 px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-[7rem] min-w-[7rem] dark:bg-surface-muted dark:border-line dark:text-ink-subtle"
                     aria-label="Rule"
                   >
                     Rule
@@ -1112,7 +1133,7 @@ export function TemplateEditor({
                   <tr>
                     <td
                       colSpan={2}
-                      className="px-3 py-6 text-center text-[11.5px] text-gray-500 italic"
+                      className="px-3 py-6 text-center text-[11.5px] text-gray-500 italic dark:text-ink-muted"
                     >
                       Add a column with the &quot;+&quot; cell at the right
                       to get started.
@@ -1129,13 +1150,15 @@ export function TemplateEditor({
                     {Array.from({ length: EMPTY_PLACEHOLDER_ROW_COUNT }).map(
                       (_, ri) => {
                         const stripeClass =
-                          ri % 2 === 0 ? "bg-white" : "bg-gray-50/40";
+                          ri % 2 === 0
+                            ? "bg-white dark:bg-surface"
+                            : "bg-gray-50/40 dark:bg-surface-muted/40";
                         return (
                           <tr key={`placeholder-${ri}`} className={stripeClass}>
                             <th
                               scope="row"
                               className={cn(
-                                "sticky left-0 z-10 border-r border-b border-gray-200 px-2 py-1 text-left align-middle text-[10px] font-mono text-gray-300 w-[7rem] min-w-[7rem]",
+                                "sticky left-0 z-10 border-r border-b border-gray-200 px-2 py-1 text-left align-middle text-[10px] font-mono text-gray-300 w-[7rem] min-w-[7rem] dark:border-line dark:text-ink-subtle",
                                 stripeClass,
                               )}
                             >
@@ -1165,7 +1188,7 @@ export function TemplateEditor({
                                       : undefined
                                   }
                                   className={cn(
-                                    "border-r border-b border-gray-200 px-3 py-1 text-gray-200 italic whitespace-nowrap min-w-[12rem] max-w-[20rem]",
+                                    "border-r border-b border-gray-200 px-3 py-1 text-gray-200 italic whitespace-nowrap min-w-[12rem] max-w-[20rem] dark:border-line dark:text-line-strong",
                                     "transition-[opacity,transform] duration-150",
                                     draggedIdx === ci && "opacity-40",
                                     // Carry the column-wide selected tint
@@ -1173,14 +1196,14 @@ export function TemplateEditor({
                                     // band runs uninterrupted from header
                                     // to footer even on a fresh template.
                                     selectedColumnId === col.id &&
-                                      "bg-brand-50/40",
+                                      "bg-brand-50/40 dark:bg-brand-900/20",
                                   )}
                                 >
                                   —
                                 </td>
                               );
                             })}
-                            <td className="border-b border-gray-100 w-[3.5rem] min-w-[3.5rem]" />
+                            <td className="border-b border-gray-100 w-[3.5rem] min-w-[3.5rem] dark:border-line/60" />
                           </tr>
                         );
                       },
@@ -1243,7 +1266,7 @@ export function TemplateEditor({
           {/* Footer — Add-rule action + counts. Sits below the scroll
               surface so the action stays visible regardless of how
               far the user has horizontally scrolled the table. */}
-          <div className="border-t bg-gray-50/60 px-3 py-2 flex items-center justify-between gap-3 shrink-0 flex-wrap">
+          <div className="border-t border-gray-200 bg-gray-50/60 px-3 py-2 flex items-center justify-between gap-3 shrink-0 flex-wrap dark:border-line dark:bg-surface-muted/60">
             <Button
               type="button"
               variant="secondary"
@@ -1261,14 +1284,14 @@ export function TemplateEditor({
               <Plus className="h-3.5 w-3.5" />
               Add rule
             </Button>
-            <div className="text-[10.5px] text-gray-500 flex items-center gap-3">
+            <div className="text-[10.5px] text-gray-500 flex items-center gap-3 dark:text-ink-muted">
               <span>
                 {columns.length} column{columns.length === 1 ? "" : "s"} ·{" "}
                 {rules.length} rule{rules.length === 1 ? "" : "s"} (max{" "}
                 {MAX_RULES})
               </span>
               {rules.length === 0 && columns.length > 0 && (
-                <span className="text-gray-400 italic">
+                <span className="text-gray-400 italic dark:text-ink-subtle">
                   No rules yet — add one to start scoping behavior.
                 </span>
               )}
@@ -1537,10 +1560,12 @@ function HeaderCell({
         // and the role-tint body cells remain unobstructed, and the
         // selected state coexists cleanly with required / locked /
         // hover without piling visuals on top of each other.
-        isSelected ? "bg-brand-100" : "bg-gray-50",
+        isSelected
+          ? "bg-brand-100 dark:bg-brand-900/40"
+          : "bg-gray-50 dark:bg-surface-muted",
         // Stable 2px transparent borders so the drop indicator doesn't
         // shift cell widths when it appears.
-        "border-l-2 border-l-transparent border-r border-b border-gray-200",
+        "border-l-2 border-l-transparent border-r border-b border-gray-200 dark:border-line",
         "px-2 py-1.5 text-left align-top whitespace-nowrap",
         "min-w-[12rem] max-w-[20rem]",
         // Grab cursor on the entire header — communicates "this whole
@@ -1570,7 +1595,7 @@ function HeaderCell({
             it ride along with the cell-level drag. */}
         <span
           aria-hidden="true"
-          className="shrink-0 -ml-1 px-0.5 py-1 text-gray-300 group-hover:text-gray-500 transition-colors"
+          className="shrink-0 -ml-1 px-0.5 py-1 text-gray-300 group-hover:text-gray-500 transition-colors dark:text-ink-subtle dark:group-hover:text-ink-muted"
           title="Drag header to reorder"
         >
           <GripVertical className="h-3.5 w-3.5" />
@@ -1598,9 +1623,10 @@ function HeaderCell({
               }
             }}
             className={cn(
-              "flex-1 min-w-0 px-1.5 py-1 text-[12.5px] font-semibold text-gray-800",
-              "bg-white rounded outline-none ring-2 ring-brand-500",
-              empty && "!ring-red-300 placeholder:text-red-400",
+              "flex-1 min-w-0 px-1.5 py-1 text-[12.5px] font-semibold text-gray-800 dark:text-ink",
+              "bg-white rounded outline-none ring-2 ring-brand-500 dark:bg-surface-subtle",
+              empty &&
+                "!ring-red-300 placeholder:text-red-400 dark:!ring-red-900 dark:placeholder:text-red-400",
             )}
           />
         ) : (
@@ -1631,12 +1657,12 @@ function HeaderCell({
             className={cn(
               "flex-1 min-w-0 px-1.5 py-1 text-left text-[12.5px] font-semibold rounded truncate",
               "select-none",
-              "hover:bg-white/70 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+              "hover:bg-white/70 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-surface-subtle/70 dark:focus-visible:bg-surface-subtle",
               empty
-                ? "text-red-400 italic ring-1 ring-red-300"
+                ? "text-red-400 italic ring-1 ring-red-300 dark:text-red-400 dark:ring-red-900"
                 : isSelected
-                  ? "text-brand-900"
-                  : "text-gray-800",
+                  ? "text-brand-900 dark:text-brand-50"
+                  : "text-gray-800 dark:text-ink",
             )}
           >
             {col.name || "Untitled column"}
@@ -1651,7 +1677,7 @@ function HeaderCell({
           <span
             title="Required column — this column must have a resolved value at extract time."
             aria-label="Required column"
-            className="shrink-0 inline-flex items-center rounded bg-red-100 text-red-700 px-1 py-px text-[9px] font-bold uppercase tracking-wide ring-1 ring-red-200"
+            className="shrink-0 inline-flex items-center rounded bg-red-100 text-red-700 px-1 py-px text-[9px] font-bold uppercase tracking-wide ring-1 ring-red-200 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-900"
           >
             REQ
           </span>
@@ -1665,7 +1691,7 @@ function HeaderCell({
           <span
             title="Position locked — this column can't be drag-reordered. Toggle in the column inspector to unlock."
             aria-label="Position locked"
-            className="shrink-0 inline-flex items-center justify-center rounded bg-gray-200 text-gray-600 p-0.5 ring-1 ring-gray-300"
+            className="shrink-0 inline-flex items-center justify-center rounded bg-gray-200 text-gray-600 p-0.5 ring-1 ring-gray-300 dark:bg-surface-muted dark:text-ink-muted dark:ring-line"
           >
             <Pin className="h-3 w-3" />
           </span>
@@ -1681,7 +1707,7 @@ function HeaderCell({
           <span
             title="Editing locked — schema fields (name / source / type / format / validation) are read-only. Rule cells under this column remain editable. Toggle in the column inspector to unlock."
             aria-label="Editing locked"
-            className="shrink-0 inline-flex items-center justify-center rounded bg-slate-200 text-slate-700 p-0.5 ring-1 ring-slate-300"
+            className="shrink-0 inline-flex items-center justify-center rounded bg-slate-200 text-slate-700 p-0.5 ring-1 ring-slate-300 dark:bg-surface-muted dark:text-ink-muted dark:ring-line"
           >
             <LockKeyhole className="h-3 w-3" />
           </span>
@@ -1691,7 +1717,7 @@ function HeaderCell({
           <span
             title="Allow rule override is OFF — global behavior wins; rule cells under this column won't apply at resolve time."
             aria-label="Rule override locked"
-            className="shrink-0 inline-flex items-center justify-center rounded bg-amber-100 text-amber-700 p-0.5 ring-1 ring-amber-200"
+            className="shrink-0 inline-flex items-center justify-center rounded bg-amber-100 text-amber-700 p-0.5 ring-1 ring-amber-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:ring-yellow-900"
           >
             <Lock className="h-3 w-3" />
           </span>
@@ -1716,8 +1742,8 @@ function HeaderCell({
           className={cn(
             "shrink-0 p-0.5 rounded transition-opacity cursor-pointer",
             isSelected
-              ? "opacity-100 text-brand-700 bg-brand-100 hover:bg-brand-200"
-              : "opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-gray-700 hover:bg-gray-100",
+              ? "opacity-100 text-brand-700 bg-brand-100 hover:bg-brand-200 dark:bg-brand-900/40 dark:text-brand-50 dark:hover:bg-brand-900/60"
+              : "opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-ink-subtle dark:hover:text-ink dark:hover:bg-surface-muted",
           )}
         >
           <Settings2 className="h-3.5 w-3.5" />
@@ -1742,7 +1768,7 @@ function HeaderCell({
         </span>
       </div>
       <div className="mt-0.5 ml-5 flex items-center gap-1 max-w-[18rem]">
-        <span className="text-[9.5px] text-gray-400 font-mono shrink-0">
+        <span className="text-[9.5px] text-gray-400 font-mono shrink-0 dark:text-ink-subtle">
           col {index + 1}
         </span>
         {/* Rule-role chip — always shown (even for `action`, the
@@ -1769,8 +1795,8 @@ function HeaderCell({
             className={cn(
               "shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide",
               sourceIncomplete
-                ? "bg-orange-50 text-orange-700"
-                : "bg-gray-100 text-gray-600",
+                ? "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-200"
+                : "bg-gray-100 text-gray-600 dark:bg-surface-muted dark:text-ink-muted",
             )}
           >
             <SourceIcon className="h-2.5 w-2.5" />
@@ -1781,7 +1807,7 @@ function HeaderCell({
         )}
         {col.source_column && (
           <span
-            className="text-[9.5px] text-gray-400 font-mono truncate"
+            className="text-[9.5px] text-gray-400 font-mono truncate dark:text-ink-subtle"
             title={`Original upload header: ${col.source_column}`}
           >
             · from {col.source_column}
@@ -1813,8 +1839,8 @@ function TrailingAddCell({
     <th
       scope="col"
       className={cn(
-        "sticky top-0 z-20 bg-gray-50",
-        "border-l-2 border-l-transparent border-r border-b border-gray-200",
+        "sticky top-0 z-20 bg-gray-50 dark:bg-surface-muted",
+        "border-l-2 border-l-transparent border-r border-b border-gray-200 dark:border-line",
         "px-1 py-1.5 align-middle w-[3.5rem] min-w-[3.5rem]",
         isDropTarget && "!border-l-brand-500",
       )}
@@ -1835,8 +1861,8 @@ function TrailingAddCell({
         }
         aria-label="Add column"
         className={cn(
-          "w-full inline-flex items-center justify-center rounded-md py-1.5 text-gray-500",
-          "border border-dashed border-gray-300 hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700",
+          "w-full inline-flex items-center justify-center rounded-md py-1.5 text-gray-500 dark:text-ink-muted",
+          "border border-dashed border-gray-300 hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700 dark:border-line dark:hover:bg-brand-900/30 dark:hover:text-brand-50",
           "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-500",
         )}
       >
@@ -1886,7 +1912,7 @@ function AddRuleInlineRow({
         // spacer cell that aligns with the "+ column" header.
         colSpan={columnCount + 2}
         className={cn(
-          "border-t border-dashed border-gray-300 bg-gray-50/40",
+          "border-t border-dashed border-gray-300 bg-gray-50/40 dark:border-line dark:bg-surface-muted/40",
           "px-3 py-1.5",
         )}
       >
@@ -1902,8 +1928,8 @@ function AddRuleInlineRow({
           }
           className={cn(
             "w-full inline-flex items-center justify-center gap-1.5 rounded-md py-1 text-[12px] font-medium",
-            "text-gray-500 border border-dashed border-gray-300",
-            "hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700",
+            "text-gray-500 border border-dashed border-gray-300 dark:text-ink-muted dark:border-line",
+            "hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 dark:hover:text-brand-50",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1",
             "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:bg-transparent disabled:hover:text-gray-500",
           )}
@@ -2019,8 +2045,8 @@ function HeaderMenu({
         aria-label="Open column menu"
         aria-expanded={open}
         className={cn(
-          "p-0.5 rounded text-gray-400 transition-opacity",
-          "hover:text-gray-700 hover:bg-gray-100",
+          "p-0.5 rounded text-gray-400 transition-opacity dark:text-ink-subtle",
+          "hover:text-gray-700 hover:bg-gray-100 dark:hover:text-ink dark:hover:bg-surface-muted",
           open ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus:opacity-100",
         )}
       >
@@ -2042,7 +2068,7 @@ function HeaderMenu({
               right: menuPos.right,
               zIndex: 50,
             }}
-            className="min-w-[11rem] rounded-md border border-gray-200 bg-white shadow-lg py-1"
+            className="min-w-[11rem] rounded-md border border-gray-200 bg-white shadow-lg py-1 dark:border-line dark:bg-surface-subtle"
           >
             <MenuItem
               icon={Pencil}
@@ -2062,7 +2088,7 @@ function HeaderMenu({
             >
               Column settings
             </MenuItem>
-            <div className="border-t border-gray-100 my-1" />
+            <div className="border-t border-gray-100 my-1 dark:border-line/60" />
             {/* Lock toggles surface inline (Part 9) so operators don't have
                 to open the inspector for these high-frequency actions.
                 Mirrors the inspector's "E. Locks" section with the same
@@ -2085,7 +2111,7 @@ function HeaderMenu({
             >
               {lockEditing ? "Unlock editing" : "Lock editing"}
             </MenuItem>
-            <div className="border-t border-gray-100 my-1" />
+            <div className="border-t border-gray-100 my-1 dark:border-line/60" />
             <MenuItem
               icon={ArrowLeftFromLine}
               disabled={!canInsert}
@@ -2106,7 +2132,7 @@ function HeaderMenu({
             >
               Insert column right
             </MenuItem>
-            <div className="border-t border-gray-100 my-1" />
+            <div className="border-t border-gray-100 my-1 dark:border-line/60" />
             <MenuItem
               icon={Trash2}
               danger
@@ -2147,8 +2173,8 @@ function MenuItem({
       className={cn(
         "w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-[11.5px]",
         danger
-          ? "text-red-600 hover:bg-red-50"
-          : "text-gray-700 hover:bg-gray-50",
+          ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+          : "text-gray-700 hover:bg-gray-50 dark:text-ink dark:hover:bg-surface-muted",
         "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent",
       )}
     >
@@ -2236,7 +2262,9 @@ function RuleRow({
   );
 
   const stripeClass =
-    ruleIndex % 2 === 0 ? "bg-white" : "bg-gray-50/40";
+    ruleIndex % 2 === 0
+      ? "bg-white dark:bg-surface"
+      : "bg-gray-50/40 dark:bg-surface-muted/40";
   const inactive = !rule.is_active;
 
   return (
@@ -2247,13 +2275,13 @@ function RuleRow({
         <th
           scope="row"
           className={cn(
-            "sticky left-0 z-10 border-r border-b border-gray-200 px-1.5 py-1 align-top w-[7rem] min-w-[7rem]",
+            "sticky left-0 z-10 border-r border-b border-gray-200 px-1.5 py-1 align-top w-[7rem] min-w-[7rem] dark:border-line",
             stripeClass,
           )}
         >
           <div className="flex items-center gap-1">
             <span
-              className="text-[10px] font-mono text-gray-400 w-5 shrink-0 text-right"
+              className="text-[10px] font-mono text-gray-400 w-5 shrink-0 text-right dark:text-ink-subtle"
               title={`Rule #${ruleIndex + 1}`}
             >
               {ruleIndex + 1}
@@ -2274,7 +2302,7 @@ function RuleRow({
               onClick={onDuplicate}
               title="Duplicate rule"
               aria-label={`Duplicate rule ${ruleIndex + 1}`}
-              className="p-0.5 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              className="p-0.5 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-ink-subtle dark:hover:bg-surface-muted dark:hover:text-ink"
             >
               <Copy className="h-3 w-3" />
             </button>
@@ -2283,7 +2311,7 @@ function RuleRow({
               onClick={onRemove}
               title="Delete rule"
               aria-label={`Delete rule ${ruleIndex + 1}`}
-              className="p-0.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600"
+              className="p-0.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600 dark:text-ink-subtle dark:hover:bg-red-950/40 dark:hover:text-red-400"
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -2294,8 +2322,8 @@ function RuleRow({
             className={cn(
               "mt-0.5 ml-5 text-[9.5px] uppercase tracking-wide font-semibold transition-colors",
               notesOpen || rule.notes
-                ? "text-brand-700"
-                : "text-gray-400 hover:text-gray-600",
+                ? "text-brand-700 dark:text-brand-50"
+                : "text-gray-400 hover:text-gray-600 dark:text-ink-subtle dark:hover:text-ink-muted",
             )}
             aria-expanded={notesOpen}
             title={notesOpen ? "Hide notes" : "Add a note"}
@@ -2340,7 +2368,7 @@ function RuleRow({
                   : undefined
               }
               className={cn(
-                "border-r border-b border-gray-200 px-2 py-1 align-top whitespace-nowrap min-w-[12rem] max-w-[20rem]",
+                "border-r border-b border-gray-200 px-2 py-1 align-top whitespace-nowrap min-w-[12rem] max-w-[20rem] dark:border-line/60",
                 // Smooth transitions (Part 3) — opacity for the
                 // dragged-source dim, transform for the sortable
                 // "make room" slide. Both share the 150ms duration so
@@ -2358,7 +2386,7 @@ function RuleRow({
                 // tone underneath stays scannable, and the selection
                 // coexists with required / locked / hover without
                 // visual conflict.
-                isSelectedColumn && "bg-brand-50",
+                isSelectedColumn && "bg-brand-50 dark:bg-brand-900/30",
               )}
             >
               <RuleCellEditor
@@ -2379,10 +2407,10 @@ function RuleRow({
         <tr className={stripeClass}>
           <td
             colSpan={columns.length + 2}
-            className="border-b border-gray-100 px-3 py-1.5"
+            className="border-b border-gray-100 px-3 py-1.5 dark:border-line/60"
           >
             <div className="flex items-start gap-2">
-              <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mt-1.5 shrink-0">
+              <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mt-1.5 shrink-0 dark:text-ink-subtle">
                 Notes
               </span>
               <input
@@ -2394,7 +2422,7 @@ function RuleRow({
                 disabled={inactive}
                 aria-label={`Notes for rule ${ruleIndex + 1}`}
                 className={cn(
-                  "flex-1 min-w-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-[12px] text-gray-700",
+                  "flex-1 min-w-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-[12px] text-gray-700 dark:border-line dark:bg-surface dark:text-ink-muted dark:placeholder:text-ink-subtle",
                   "focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500",
                   inactive && "cursor-not-allowed bg-gray-50 opacity-70",
                 )}

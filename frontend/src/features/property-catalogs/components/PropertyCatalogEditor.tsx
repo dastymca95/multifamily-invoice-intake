@@ -346,7 +346,7 @@ export function PropertyCatalogEditor({
       />
 
       {entries.length >= MAX_ENTRIES && (
-        <p className="px-5 pb-2 text-[11px] text-yellow-700 bg-gray-50">
+        <p className="px-5 pb-2 text-[11px] text-yellow-700 bg-gray-50 dark:text-yellow-200 dark:bg-surface">
           Reached the {MAX_ENTRIES}-entry cap — remove rows to add more.
         </p>
       )}
@@ -518,7 +518,11 @@ function PropertyEditorGrid({
   );
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-gray-50">
+    // Outer grid wrapper. The catalog editor's search/add-row toolbar
+    // and the grid card sit inside this band — without the dark
+    // counterpart the band stayed light around an otherwise-dark grid
+    // and read as a stranded white strip. Matches GL's editor wrapper.
+    <div className="flex-1 min-h-0 flex flex-col bg-gray-50 dark:bg-surface">
       <div className="px-5 pt-3 pb-2 flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 dark:text-ink-subtle" />
