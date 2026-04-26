@@ -248,6 +248,8 @@ const HEADER_RULE_ROLE_CHIP_TONE: Record<RuleRole, string> = {
   restriction: "bg-violet-50 text-violet-700 dark:bg-purple-950/40 dark:text-purple-200",
   action: "bg-emerald-50 text-emerald-700 dark:bg-green-950/40 dark:text-green-200",
 };
+const HEADER_NO_RULE_ROLE_CHIP_TONE =
+  "bg-gray-100 text-gray-600 dark:bg-surface-muted dark:text-ink-muted";
 
 const BODY_RULE_ROLE_CELL_TONE: Record<RuleRole, string> = {
   // Translucent body tints — kept light in light mode and shifted to a
@@ -257,6 +259,7 @@ const BODY_RULE_ROLE_CELL_TONE: Record<RuleRole, string> = {
   restriction: "bg-violet-50/40 dark:bg-purple-950/20",
   action: "bg-emerald-50/30 dark:bg-green-950/20",
 };
+const BODY_NO_RULE_ROLE_CELL_TONE = "bg-gray-50/40 dark:bg-surface-muted/20";
 
 // Padding row count used when the template has zero rule rows — keeps
 // the table feeling like a workspace rather than collapsing to a
@@ -1448,18 +1451,13 @@ function HeaderCell({
   const empty = col.name.trim().length === 0;
   const sourceType: ColumnSourceType = col.source_type ?? "empty";
   const required = col.required ?? false;
-  // Resolve via the helper so the legacy `rule_role` AND the new
-  // `default_rule_role` are reconciled in one place. `?? "action"` here
-  // covers the explicit "no suggestion" (null) state at HEADER render
-  // time only — the cell-level role override (Phase 2 / Part 4) reads
-  // its own truth via `effectiveCellRole(cell, col)`.
-  const ruleRole: RuleRole = effectiveColumnDefaultRole(col) ?? "action";
-  // When the column's `allow_rule_override` is OFF, rule cells under
-  // this column are recorded but inert — the global behavior wins at
-  // resolve time. Surface that lock state right on the header so the
-  // operator can scan the table and immediately see which columns
-  // ignore rule rows. The same icon appears on the rule-cell badge
-  // inside `RuleCellEditor` so the two surfaces tell a coherent story.
+  // Resolve via the helper so the legacy `rule_role` AND the canonical
+  // `default_rule_role` are reconciled in one place. Null is a real
+  // authored "no default role" state, so the header renders neutral.
+  const ruleRole = effectiveColumnDefaultRole(col);
+  // When the column's `allow_rule_override` is OFF, FILL/action writes
+  // under this column cannot replace the global behavior. IF/LIMIT cells
+  // may still scope rules, so this is a write-precedence lock.
   const ruleOverrideLocked = !columnAllowsRuleOverride(col);
   // Phase 2 — separate lock concepts (Part 7). Each has its own visual
   // affordance with a distinct icon:
@@ -1467,8 +1465,8 @@ function HeaderCell({
   //   * LockKeyhole   — `lock_editing`:  column schema (name/source/
   //     (slate)         type/format/validation) is frozen; rule cells
   //                     under it remain editable.
-  //   * Lock (amber)  — `allow_rule_override = false`: rule cells under
-  //                     this column are inert at resolve time.
+  //   * Lock (amber)  — `allow_rule_override = false`: FILL/action writes
+  //                     cannot override the global behavior.
   // Three distinct icons + colors so the operator can scan a header
   // and read each lock at a glance without hovering for tooltips.
   const lockPosition = columnLockPosition(col);
@@ -1478,7 +1476,7 @@ function HeaderCell({
   // adds visual noise without information.
   const showSourceChip = sourceType !== "empty";
   const SourceIcon = HEADER_SOURCE_ICONS[sourceType];
-  const RoleIcon = HEADER_RULE_ROLE_ICONS[ruleRole];
+  const RoleIcon = ruleRole ? HEADER_RULE_ROLE_ICONS[ruleRole] : Square;
   // The ref-binding kinds need a target field to actually emit a value;
   // we surface "no field picked yet" inline with an orange tint on the
   // chip so the operator notices the gap without opening the inspector.
@@ -1761,7 +1759,7 @@ function HeaderCell({
 
         {ruleOverrideLocked && (
           <span
-            title="Allow rule override is OFF — global behavior wins; rule cells under this column won't apply at resolve time."
+            title="Allow rule override is OFF — FILL/action writes cannot override the global behavior. IF/LIMIT cells can still scope rules."
             aria-label="Rule override locked"
             className="shrink-0 inline-flex items-center justify-center rounded bg-amber-100 text-amber-700 p-0.5 ring-1 ring-amber-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:ring-yellow-900"
           >
@@ -1822,14 +1820,20 @@ function HeaderCell({
             column without ambiguity. The same color tint shows up in
             the corresponding rule-row body cells. */}
         <span
-          title={`Rule role: ${RULE_ROLE_LABEL[ruleRole]}`}
+          title={
+            ruleRole
+              ? `Rule role: ${RULE_ROLE_LABEL[ruleRole]}`
+              : "No default rule role"
+          }
           className={cn(
             "shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide",
-            HEADER_RULE_ROLE_CHIP_TONE[ruleRole],
+            ruleRole
+              ? HEADER_RULE_ROLE_CHIP_TONE[ruleRole]
+              : HEADER_NO_RULE_ROLE_CHIP_TONE,
           )}
         >
           <RoleIcon className="h-2.5 w-2.5" />
-          {HEADER_RULE_ROLE_SHORT[ruleRole]}
+          {ruleRole ? HEADER_RULE_ROLE_SHORT[ruleRole] : "NONE"}
         </span>
         {showSourceChip && (
           <span
@@ -2387,11 +2391,9 @@ function RuleRow({
           // Body cell tint follows the EFFECTIVE per-cell role so a
           // cell that overrides the column default (e.g. column says
           // "FILL" but this cell pinned itself to "IF") paints with
-          // its own band color rather than the column's. Falls back to
-          // "action" only when neither cell nor column has a role —
-          // matches the legacy default and keeps tone tables happy.
-          const ruleRole: RuleRole =
-            effectiveCellRole(cell, col) ?? "action";
+          // its own band color rather than the column's. Null remains
+          // neutral; it no longer falls back to legacy action.
+          const ruleRole = effectiveCellRole(cell, col);
           const isSelectedColumn = selectedColumnId === col.id;
           // Sortable shift (Part 3 of UX polish) — same math the
           // header above uses, computed inline per body cell so every
@@ -2421,7 +2423,9 @@ function RuleRow({
                 // the column reads as a single coordinated unit during
                 // drag.
                 "transition-[opacity,transform] duration-150",
-                BODY_RULE_ROLE_CELL_TONE[ruleRole],
+                ruleRole
+                  ? BODY_RULE_ROLE_CELL_TONE[ruleRole]
+                  : BODY_NO_RULE_ROLE_CELL_TONE,
                 draggedIdx === ci && "opacity-40",
                 // Column-wide selected highlight — paints a brand fill
                 // (`bg-brand-50`) on top of the role band so the

@@ -43,6 +43,7 @@ from app.schemas.invoice_template import (
     RuleCellExtractionBinding,
     RuleRole,
     ValidationSeverity,
+    effective_rule_cell_role,
     is_global_mode_compatible_with,
 )
 
@@ -537,12 +538,12 @@ async def _validate_rules(parsed: ParsedTemplate, ctx: ValidationContext) -> Non
                     path=cell_path,
                 )
 
-            if not column.allow_rule_override and cell_has_data:
+            if role == "action" and not column.allow_rule_override and cell_has_data:
                 ctx.add(
                     "warning",
-                    "RULE_CELL_IGNORED_BY_GLOBAL_OVERRIDE",
-                    f"Rule cell under {column.name} contains data but the column prevents rule overrides.",
-                    recommendation="Enable rule override for the column or clear the rule cell.",
+                    "RULE_ACTION_IGNORED_BY_GLOBAL_OVERRIDE",
+                    f"FILL/action cell under {column.name} contains data but the column prevents rule overrides.",
+                    recommendation="Enable rule override for the column, or clear the FILL/action value if the global behavior should always win.",
                     column=column,
                     rule=rule,
                     cell_key=cell_key,
@@ -1152,7 +1153,7 @@ def _cell_has_data(cell: InvoiceTemplateRuleCell) -> bool:
 def _effective_role(
     cell: InvoiceTemplateRuleCell, column: InvoiceTemplateColumn
 ) -> RuleRole | None:
-    return cell.role or column.default_rule_role or column.rule_role
+    return effective_rule_cell_role(cell, column)
 
 
 def _has_rule_action_for_column(

@@ -1228,16 +1228,14 @@ function FieldLabelCell({
   canRemove: boolean;
 }) {
   const sourceType = column.source_type ?? "empty";
-  // Resolve via the helper so the legacy `rule_role` AND the new
-  // `default_rule_role` are reconciled in one place. `?? "action"`
-  // covers the explicit "no suggestion" (null) state at FIELD render
-  // time only — the cell-level role override (Phase 2 / Part 4) reads
-  // its own truth via `effectiveCellRole(cell, col)`.
-  const role: RuleRole = effectiveColumnDefaultRole(column) ?? "action";
+  // Resolve via the helper so the legacy `rule_role` AND the canonical
+  // `default_rule_role` are reconciled in one place. Null is a real
+  // authored "no default role" state, so the field header is neutral.
+  const role = effectiveColumnDefaultRole(column);
   const required = column.required ?? false;
   const empty = column.name.trim().length === 0;
   const SourceIcon = SOURCE_ICONS[sourceType];
-  const RoleIcon = ROLE_ICONS[role];
+  const RoleIcon = role ? ROLE_ICONS[role] : Square;
   // Lock indicators — three distinct concepts (Part 7). Each gets its
   // own visual affordance with a distinct icon so the operator can scan
   // the field-label cell and read each lock at a glance:
@@ -1245,8 +1243,8 @@ function FieldLabelCell({
   //   * LockKeyhole   — `lock_editing`:  schema (name/source/type/
   //     (slate)         format/validation) is frozen; rule cells across
   //                     this row remain editable.
-  //   * Lock (amber)  — `allow_rule_override = false`: rule cells in
-  //                     this row are inert at resolve time.
+  //   * Lock (amber)  — `allow_rule_override = false`: FILL/action writes
+  //                     cannot override the global behavior.
   const ruleOverrideLocked = !columnAllowsRuleOverride(column);
   const lockPosition = columnLockPosition(column);
   const lockEditing = columnLockEditing(column);
@@ -1348,7 +1346,7 @@ function FieldLabelCell({
         // Existing borders kept (thinner gray) inset of the indicator
         // axes — left role-band lives on its own border-l-2.
         "border-r border-l-2 border-gray-200 dark:border-line",
-        ROLE_BAND[role],
+        role ? ROLE_BAND[role] : ROLE_BAND_NONE,
         // Selected row gets a stronger brand fill on the LABEL cell
         // (`bg-brand-100`) and a paler `bg-brand-50` continues across
         // the body cells in `RuleCellWrap`, so the inspected field
@@ -1439,7 +1437,7 @@ function FieldLabelCell({
 
         {ruleOverrideLocked && (
           <span
-            title="Allow rule override is OFF — global behavior wins; rule cells in this row won't apply at resolve time."
+            title="Allow rule override is OFF — FILL/action writes cannot override the global behavior. IF/LIMIT cells can still scope rules."
             aria-label="Rule override locked"
             className="shrink-0 inline-flex items-center justify-center rounded bg-amber-100 text-amber-700 p-0.5 ring-1 ring-amber-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:ring-yellow-900"
           >
@@ -1566,12 +1564,14 @@ function FieldLabelCell({
         <span
           className={cn(
             "inline-flex items-center gap-0.5 rounded px-1 py-px text-[9.5px] font-medium uppercase tracking-wide",
-            ROLE_TONE[role],
+            role ? ROLE_TONE[role] : ROLE_TONE_NONE,
           )}
-          title={`Rule role: ${RULE_ROLE_LABEL[role]}`}
+          title={
+            role ? `Rule role: ${RULE_ROLE_LABEL[role]}` : "No default rule role"
+          }
         >
           <RoleIcon className="h-2.5 w-2.5" />
-          {ROLE_SHORT[role]}
+          {role ? ROLE_SHORT[role] : "NONE"}
         </span>
         {/* Source chip — only when there's a binding to display. */}
         {sourceType !== "empty" && (
@@ -1770,6 +1770,8 @@ const ROLE_TONE: Record<RuleRole, string> = {
   restriction: "bg-violet-50 text-violet-700 dark:bg-purple-950/40 dark:text-purple-200",
   action: "bg-emerald-50 text-emerald-700 dark:bg-green-950/40 dark:text-green-200",
 };
+const ROLE_TONE_NONE =
+  "bg-gray-100 text-gray-600 dark:bg-surface-muted dark:text-ink-muted";
 
 const ROLE_BAND: Record<RuleRole, string> = {
   // Thin left-edge accent on each field-label cell — keeps the role
@@ -1778,6 +1780,7 @@ const ROLE_BAND: Record<RuleRole, string> = {
   restriction: "border-l-violet-400",
   action: "border-l-emerald-400",
 };
+const ROLE_BAND_NONE = "border-l-gray-300 dark:border-l-line-strong";
 
 const ROLE_SHORT: Record<RuleRole, string> = {
   condition: "CND",

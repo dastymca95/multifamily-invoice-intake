@@ -69,7 +69,7 @@ Backward compatibility:
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from app.domain.extracted_invoice_fields import (
     get_extracted_field_aliases,
@@ -584,6 +584,18 @@ class InvoiceTemplateColumn(BaseModel):
     # `role` inherit this value at resolve time.
     default_rule_role: RuleRole | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _promote_legacy_default_rule_role(cls, data: Any) -> Any:
+        """Backfill the canonical role key for legacy column payloads."""
+        if not isinstance(data, dict):
+            return data
+        if "default_rule_role" in data:
+            return data
+        next_data = dict(data)
+        next_data["default_rule_role"] = next_data.get("rule_role", "action")
+        return next_data
+
     # Phase 2 — locking flags. Independent levers; the inspector / header
     # menu surfaces each separately.
     #
@@ -656,6 +668,32 @@ class InvoiceTemplateColumn(BaseModel):
             if self.source_ref is None:
                 self.source_ref = ColumnSourceRef(field=None)
         return self
+
+
+def column_has_own_default_rule_role(column: InvoiceTemplateColumn) -> bool:
+    """True when `default_rule_role` was present in the source payload."""
+
+    return "default_rule_role" in column.model_fields_set
+
+
+def effective_column_default_rule_role(
+    column: InvoiceTemplateColumn,
+) -> RuleRole | None:
+    """Resolve the column default role using the canonical fallback chain."""
+
+    if column_has_own_default_rule_role(column):
+        return column.default_rule_role
+    return column.rule_role
+
+
+def effective_rule_cell_role(
+    cell: "InvoiceTemplateRuleCell", column: InvoiceTemplateColumn
+) -> RuleRole | None:
+    """Resolve the actual role for one rule cell."""
+
+    if cell.role is not None:
+        return cell.role
+    return effective_column_default_rule_role(column)
 
 
 # ---------------------------------------------------------------------------

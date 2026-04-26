@@ -61,10 +61,12 @@ import {
   coerceColumnForDataType,
   columnAllowsRuleOverride,
   columnDataType,
+  effectiveColumnDefaultRole,
   columnGlobalMode,
   columnLockEditing,
   columnLockPosition,
   fieldOptionsFor,
+  setColumnDefaultRolePatch,
 } from "@/types/invoice-template";
 
 import {
@@ -355,8 +357,10 @@ export function ColumnInspector({
           hint="How this column behaves when it appears inside a rule row underneath."
         >
           <RuleRoleSection
-            role={column.rule_role ?? "action"}
-            onChange={(next) => onChange({ rule_role: next })}
+            role={effectiveColumnDefaultRole(column)}
+            onChange={(next) =>
+              onChange(setColumnDefaultRolePatch(column, next))
+            }
           />
 
           <RuleInteractionBanner
@@ -508,8 +512,8 @@ function RuleRoleSection({
   role,
   onChange,
 }: {
-  role: RuleRole;
-  onChange: (next: RuleRole) => void;
+  role: RuleRole | null;
+  onChange: (next: RuleRole | null) => void;
 }) {
   return (
     <Section
@@ -517,6 +521,46 @@ function RuleRoleSection({
       hint="Determines how this column's cells are interpreted inside rule rows below."
     >
       <div className="rounded-md border border-gray-200 overflow-hidden dark:border-line">
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          aria-pressed={role === null}
+          className={cn(
+            "w-full text-left px-3 py-2 flex items-start gap-2.5 border-b border-gray-100 transition-colors dark:border-line/60",
+            role === null
+              ? "bg-gray-100/80 dark:bg-surface-muted"
+              : "bg-white hover:bg-gray-50 dark:bg-surface-subtle dark:hover:bg-surface-muted",
+          )}
+        >
+          <div
+            className={cn(
+              "h-6 w-6 shrink-0 rounded flex items-center justify-center mt-0.5",
+              role === null
+                ? "bg-gray-200 text-gray-700 dark:bg-surface-muted dark:text-ink"
+                : "bg-gray-100 text-gray-500 dark:bg-surface-muted dark:text-ink-subtle",
+            )}
+          >
+            <Square className="h-3 w-3" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p
+              className={cn(
+                "text-[12px] font-semibold",
+                role === null
+                  ? "text-gray-900 dark:text-ink"
+                  : "text-gray-700 dark:text-ink",
+              )}
+            >
+              No default role
+            </p>
+            <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug dark:text-ink-muted">
+              Cells without their own role stay informational and do not inherit the legacy role.
+            </p>
+          </div>
+          {role === null && (
+            <ChevronRight className="h-3.5 w-3.5 text-gray-600 mt-1" />
+          )}
+        </button>
         {ROLE_ORDER.map((kind) => {
           const Icon = ROLE_ICONS[kind];
           const selected = role === kind;

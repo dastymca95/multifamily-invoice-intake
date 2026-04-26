@@ -1592,10 +1592,26 @@ export function effectiveColumnDefaultRole(
   // `default_rule_role` is intentionally nullable: an explicit `null`
   // is a meaningful answer ("no column-level suggestion"), distinct
   // from `undefined` ("legacy column, fall back to rule_role").
-  if (column.default_rule_role !== undefined) {
-    return column.default_rule_role;
+  if (hasOwnDefaultRuleRole(column)) {
+    return column.default_rule_role === undefined
+      ? null
+      : column.default_rule_role;
   }
   return column.rule_role ?? null;
+}
+
+/**
+ * True when the canonical Phase 2 `default_rule_role` field is present
+ * on the column payload, even when its value is explicitly `null`.
+ *
+ * Do not use `column.default_rule_role ?? column.rule_role` for this
+ * contract: `null` is a real authored state meaning "no default role",
+ * not "fall back to the legacy field".
+ */
+export function hasOwnDefaultRuleRole(
+  column: Pick<InvoiceTemplateColumn, "default_rule_role">,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(column, "default_rule_role");
 }
 
 /**
