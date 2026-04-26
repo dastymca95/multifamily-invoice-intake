@@ -33,6 +33,7 @@ import {
 } from "@/components/catalog-editor";
 import { Button } from "@/components/ui/Button";
 import { InlineAlert } from "@/components/ui/InlineAlert";
+import { glCatalogsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   MAX_CATEGORY_LENGTH,
@@ -321,7 +322,11 @@ export function GLCatalogEditor({
       )}
 
       {onDelete && !isDraft && (
-        <DeleteCatalogFooter saving={saving} onDelete={onDelete} />
+        <DeleteCatalogFooter
+          saving={saving}
+          onDelete={onDelete}
+          onCheckDependencies={() => glCatalogsApi.getUsedBy(catalogKey)}
+        />
       )}
     </div>
   );

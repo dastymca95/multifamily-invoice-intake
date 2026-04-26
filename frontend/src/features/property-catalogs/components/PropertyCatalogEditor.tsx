@@ -33,6 +33,7 @@ import {
 } from "@/components/catalog-editor";
 import { Button } from "@/components/ui/Button";
 import { InlineAlert } from "@/components/ui/InlineAlert";
+import { propertyCatalogsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   MAX_ABBR_LENGTH,
@@ -352,7 +353,11 @@ export function PropertyCatalogEditor({
       )}
 
       {onDelete && !isDraft && (
-        <DeleteCatalogFooter saving={saving} onDelete={onDelete} />
+        <DeleteCatalogFooter
+          saving={saving}
+          onDelete={onDelete}
+          onCheckDependencies={() => propertyCatalogsApi.getUsedBy(catalogKey)}
+        />
       )}
     </div>
   );

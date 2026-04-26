@@ -33,6 +33,7 @@ import {
 } from "@/components/catalog-editor";
 import { Button } from "@/components/ui/Button";
 import { InlineAlert } from "@/components/ui/InlineAlert";
+import { vendorCatalogsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   joinAliases,
@@ -356,7 +357,11 @@ export function VendorCatalogEditor({
       )}
 
       {onDelete && !isDraft && (
-        <DeleteCatalogFooter saving={saving} onDelete={onDelete} />
+        <DeleteCatalogFooter
+          saving={saving}
+          onDelete={onDelete}
+          onCheckDependencies={() => vendorCatalogsApi.getUsedBy(catalogKey)}
+        />
       )}
     </div>
   );

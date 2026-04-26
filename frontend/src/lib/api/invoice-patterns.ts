@@ -7,6 +7,7 @@ import type {
   InvoicePatternOut,
   InvoicePatternUpdate,
 } from "@/types/invoice-pattern";
+import type { UsedByReport } from "@/types/dependencies";
 
 import { apiClient } from "./client";
 
@@ -91,6 +92,11 @@ export const invoicePatternsApi = {
   ): Promise<InvoicePatternOut> =>
     apiClient
       .patch<InvoicePatternOut>(`/invoice-patterns/${id}`, body)
+      .then((r) => r.data),
+
+  getUsedBy: (id: string): Promise<UsedByReport> =>
+    apiClient
+      .get<UsedByReport>(`/invoice-patterns/${id}/used-by`)
       .then((r) => r.data),
 
   remove: (id: string): Promise<void> =>

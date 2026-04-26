@@ -6,6 +6,7 @@ import type {
   InvoiceTemplateOut,
   InvoiceTemplateUpdate,
 } from "@/types/invoice-template";
+import type { UsedByReport } from "@/types/dependencies";
 
 import { apiClient } from "./client";
 
@@ -42,6 +43,11 @@ export const invoiceTemplatesApi = {
   validate: (id: string): Promise<ImportTemplateValidationResult> =>
     apiClient
       .get<ImportTemplateValidationResult>(`/invoice-templates/${id}/validate`)
+      .then((r) => r.data),
+
+  getUsedBy: (id: string): Promise<UsedByReport> =>
+    apiClient
+      .get<UsedByReport>(`/invoice-templates/${id}/used-by`)
       .then((r) => r.data),
 
   create: (body: InvoiceTemplateCreate): Promise<InvoiceTemplateOut> =>

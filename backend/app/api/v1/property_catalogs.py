@@ -44,6 +44,7 @@ multi-file integration engine.
 import uuid
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.dependencies import DB, CurrentUser
@@ -64,6 +65,8 @@ from app.schemas.property_catalog import (
     PropertyCatalogUpdate,
     build_default_catalog,
 )
+from app.schemas.dependencies import UsedByReport
+from app.services.dependency_usage import get_property_catalog_usage
 
 router = APIRouter(prefix="/property-catalogs", tags=["property-catalogs"])
 
@@ -242,6 +245,22 @@ async def get_property_catalog(
     return PropertyCatalogOut.model_validate(row)
 
 
+@router.get("/{catalog_id}/used-by", response_model=UsedByReport)
+async def get_property_catalog_used_by(
+    catalog_id: uuid.UUID,
+    db: DB,
+    user: CurrentUser,
+) -> UsedByReport:
+    """Return saved workflow dependencies for this property catalog."""
+    repo = PropertyCatalogRepository(db)
+    row = await repo.get(catalog_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Property catalog not found"
+        )
+    return await get_property_catalog_usage(db, catalog_id)
+
+
 @router.patch("/{catalog_id}", response_model=PropertyCatalogOut)
 async def update_property_catalog(
     catalog_id: uuid.UUID,
@@ -289,6 +308,15 @@ async def delete_property_catalog(
     if row is None:
         raise HTTPException(
             status_code=404, detail="Property catalog not found"
+        )
+    used_by = await get_property_catalog_usage(db, catalog_id)
+    if used_by.blocking_count > 0:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": "Resource is still in use.",
+                "used_by": used_by.model_dump(mode="json"),
+            },
         )
     await repo.delete(row)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

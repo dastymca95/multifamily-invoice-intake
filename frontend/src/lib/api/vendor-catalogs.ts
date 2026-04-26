@@ -6,6 +6,7 @@ import type {
   VendorCatalogOut,
   VendorCatalogUpdate,
 } from "@/types/vendor-catalog";
+import type { UsedByReport } from "@/types/dependencies";
 
 import { apiClient } from "./client";
 
@@ -91,6 +92,11 @@ export const vendorCatalogsApi = {
   ): Promise<VendorCatalogOut> =>
     apiClient
       .patch<VendorCatalogOut>(`/vendor-catalogs/${id}`, body)
+      .then((r) => r.data),
+
+  getUsedBy: (id: string): Promise<UsedByReport> =>
+    apiClient
+      .get<UsedByReport>(`/vendor-catalogs/${id}/used-by`)
       .then((r) => r.data),
 
   remove: (id: string): Promise<void> =>

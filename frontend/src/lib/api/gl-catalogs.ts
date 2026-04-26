@@ -6,6 +6,7 @@ import type {
   GLCatalogUpdate,
   ParsedGLUpload,
 } from "@/types/gl-catalog";
+import type { UsedByReport } from "@/types/dependencies";
 
 import { apiClient } from "./client";
 
@@ -86,6 +87,11 @@ export const glCatalogsApi = {
   ): Promise<GLCatalogOut> =>
     apiClient
       .patch<GLCatalogOut>(`/gl-catalogs/${id}`, body)
+      .then((r) => r.data),
+
+  getUsedBy: (id: string): Promise<UsedByReport> =>
+    apiClient
+      .get<UsedByReport>(`/gl-catalogs/${id}/used-by`)
       .then((r) => r.data),
 
   remove: (id: string): Promise<void> =>

@@ -33,6 +33,7 @@ asks for the default, and they get an editable draft instantly.
 import uuid
 
 from fastapi import APIRouter, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 
 from app.dependencies import DB, CurrentUser
 from app.models.invoice_template import InvoiceTemplate
@@ -47,6 +48,8 @@ from app.schemas.invoice_template import (
     InvoiceTemplateUpdate,
     build_default_template,
 )
+from app.schemas.dependencies import UsedByReport
+from app.services.dependency_usage import get_invoice_template_usage
 from app.services.import_template_validation import validate_import_template
 
 router = APIRouter(prefix="/invoice-templates", tags=["invoice-templates"])
@@ -191,6 +194,22 @@ async def validate_invoice_template(
     return await validate_import_template(row, db)
 
 
+@router.get("/{template_id}/used-by", response_model=UsedByReport)
+async def get_invoice_template_used_by(
+    template_id: uuid.UUID,
+    db: DB,
+    user: CurrentUser,
+) -> UsedByReport:
+    """Return persisted dependencies for this Import Builder template."""
+    repo = InvoiceTemplateRepository(db)
+    row = await repo.get(template_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Invoice template not found"
+        )
+    return await get_invoice_template_usage(db, template_id)
+
+
 @router.patch("/{template_id}", response_model=InvoiceTemplateOut)
 async def update_invoice_template(
     template_id: uuid.UUID,
@@ -245,6 +264,15 @@ async def delete_invoice_template(
     if row is None:
         raise HTTPException(
             status_code=404, detail="Invoice template not found"
+        )
+    used_by = await get_invoice_template_usage(db, template_id)
+    if used_by.blocking_count > 0:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": "Resource is still in use.",
+                "used_by": used_by.model_dump(mode="json"),
+            },
         )
     await repo.delete(row)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

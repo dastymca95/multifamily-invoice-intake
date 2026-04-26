@@ -50,6 +50,7 @@ Distinct from the existing `vendor_patterns.py` API:
 import uuid
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.dependencies import DB, CurrentUser
@@ -70,6 +71,8 @@ from app.schemas.vendor_catalog import (
     VendorCatalogUpdate,
     build_default_catalog,
 )
+from app.schemas.dependencies import UsedByReport
+from app.services.dependency_usage import get_vendor_catalog_usage
 
 router = APIRouter(prefix="/vendor-catalogs", tags=["vendor-catalogs"])
 
@@ -246,6 +249,22 @@ async def get_vendor_catalog(
     return VendorCatalogOut.model_validate(row)
 
 
+@router.get("/{catalog_id}/used-by", response_model=UsedByReport)
+async def get_vendor_catalog_used_by(
+    catalog_id: uuid.UUID,
+    db: DB,
+    user: CurrentUser,
+) -> UsedByReport:
+    """Return saved workflow dependencies for this vendor catalog."""
+    repo = VendorCatalogRepository(db)
+    row = await repo.get(catalog_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Vendor catalog not found"
+        )
+    return await get_vendor_catalog_usage(db, catalog_id)
+
+
 @router.patch("/{catalog_id}", response_model=VendorCatalogOut)
 async def update_vendor_catalog(
     catalog_id: uuid.UUID,
@@ -293,6 +312,15 @@ async def delete_vendor_catalog(
     if row is None:
         raise HTTPException(
             status_code=404, detail="Vendor catalog not found"
+        )
+    used_by = await get_vendor_catalog_usage(db, catalog_id)
+    if used_by.blocking_count > 0:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": "Resource is still in use.",
+                "used_by": used_by.model_dump(mode="json"),
+            },
         )
     await repo.delete(row)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

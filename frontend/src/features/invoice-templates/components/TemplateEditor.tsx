@@ -39,11 +39,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { DependencyBlockerDialog } from "@/components/dependencies/DependencyBlockerDialog";
 import { Button } from "@/components/ui/Button";
 import { InlineAlert } from "@/components/ui/InlineAlert";
 import { Switch } from "@/components/ui/Switch";
 import { getApiErrorMessage, invoiceTemplatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { UsedByReport } from "@/types/dependencies";
 import {
   MAX_COLUMNS,
   MAX_COLUMN_NAME_LENGTH,
@@ -344,6 +346,12 @@ export function TemplateEditor({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationResult, setValidationResult] =
     useState<ImportTemplateValidationResult | null>(null);
+  const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
+  const [deleteDependencyReport, setDeleteDependencyReport] =
+    useState<UsedByReport | null>(null);
+  const [deleteDependencyError, setDeleteDependencyError] = useState<
+    string | null
+  >(null);
   // Which column the inspector is currently bound to. Null hides the
   // right-side panel; selecting a column shows it. Cleared on template
   // switch + when the selected column is removed.
@@ -382,6 +390,9 @@ export function TemplateEditor({
     setValidationLoading(false);
     setValidationError(null);
     setValidationResult(null);
+    setDeleteCheckLoading(false);
+    setDeleteDependencyReport(null);
+    setDeleteDependencyError(null);
     setDraggedIdx(null);
     setDropIdx(null);
     setSelectedColumnId(null);
@@ -452,6 +463,26 @@ export function TemplateEditor({
       );
     } finally {
       setValidationLoading(false);
+    }
+  }, [isDraft, templateKey]);
+
+  const handleRequestDelete = useCallback(async () => {
+    if (isDraft) return;
+    setDeleteCheckLoading(true);
+    setDeleteDependencyError(null);
+    try {
+      const report = await invoiceTemplatesApi.getUsedBy(templateKey);
+      if (report.safe_to_delete) {
+        setConfirmingDelete(true);
+      } else {
+        setDeleteDependencyReport(report);
+      }
+    } catch (err) {
+      setDeleteDependencyError(
+        getApiErrorMessage(err, "Could not check where this template is used."),
+      );
+    } finally {
+      setDeleteCheckLoading(false);
     }
   }, [isDraft, templateKey]);
 
@@ -861,7 +892,8 @@ export function TemplateEditor({
               variant="ghost"
               size="sm"
               disabled={saving}
-              onClick={() => setConfirmingDelete(true)}
+              loading={deleteCheckLoading}
+              onClick={() => void handleRequestDelete()}
               title="Delete this template"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -882,10 +914,18 @@ export function TemplateEditor({
           />
         </div>
 
-        {(mutationError || hasEmptyColumnName || name.trim().length === 0) && (
+        {(mutationError ||
+          hasEmptyColumnName ||
+          name.trim().length === 0 ||
+          deleteDependencyError) && (
           <div className="px-4 pb-2 space-y-1.5">
             {mutationError && (
               <InlineAlert tone="error">{mutationError}</InlineAlert>
+            )}
+            {deleteDependencyError && (
+              <InlineAlert tone="error" title="Delete check failed">
+                {deleteDependencyError}
+              </InlineAlert>
             )}
             {name.trim().length === 0 && (
               <InlineAlert tone="warning">
@@ -934,6 +974,12 @@ export function TemplateEditor({
           </div>
         )}
       </header>
+
+      <DependencyBlockerDialog
+        open={deleteDependencyReport != null}
+        report={deleteDependencyReport}
+        onClose={() => setDeleteDependencyReport(null)}
+      />
 
       {/* ------------------------ Workspace body ----------------------- */}
       {/* Two presentations over the same `columns` + `rules` state:

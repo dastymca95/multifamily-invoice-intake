@@ -32,9 +32,12 @@ import {
   useState,
 } from "react";
 
+import { DependencyBlockerDialog } from "@/components/dependencies/DependencyBlockerDialog";
 import { Button } from "@/components/ui/Button";
 import { InlineAlert } from "@/components/ui/InlineAlert";
+import { getApiErrorMessage, invoicePatternsApi } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
+import type { UsedByReport } from "@/types/dependencies";
 import {
   countRegionsByFieldKey,
   effectiveDeletedPages,
@@ -172,6 +175,12 @@ export function PatternEditor({
   // re-points this whenever the current key gets hidden / deleted.
   const [drawFieldKey, setDrawFieldKey] = useState<string>("vendor_name");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
+  const [deleteDependencyReport, setDeleteDependencyReport] =
+    useState<UsedByReport | null>(null);
+  const [deleteDependencyError, setDeleteDependencyError] = useState<
+    string | null
+  >(null);
   // Page-deletion confirm dialog — operator-confirmed because page
   // deletion is NOT undoable today (the region cascade IS undoable
   // via the region-history hook, but the source_file mutation is
@@ -231,6 +240,8 @@ export function PatternEditor({
     setActivePage(1);
     setSelectedRegionId(null);
     setConfirmDelete(false);
+    setDeleteDependencyReport(null);
+    setDeleteDependencyError(null);
     setPageToDelete(null);
     setDrawFieldKey("vendor_name");
     setUploadError(null);
@@ -666,6 +677,25 @@ export function PatternEditor({
     await onDelete();
   }, [onDelete]);
 
+  const handleRequestDelete = useCallback(async () => {
+    setDeleteCheckLoading(true);
+    setDeleteDependencyError(null);
+    try {
+      const report = await invoicePatternsApi.getUsedBy(initial.id);
+      if (report.safe_to_delete) {
+        setConfirmDelete(true);
+      } else {
+        setDeleteDependencyReport(report);
+      }
+    } catch (err) {
+      setDeleteDependencyError(
+        getApiErrorMessage(err, "Could not check where this pattern is used."),
+      );
+    } finally {
+      setDeleteCheckLoading(false);
+    }
+  }, [initial.id]);
+
   // ---- Render ----------------------------------------------------------
 
   return (
@@ -725,8 +755,9 @@ export function PatternEditor({
                 variant="ghost"
                 size="sm"
                 className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                onClick={() => setConfirmDelete(true)}
+                onClick={() => void handleRequestDelete()}
                 disabled={saving}
+                loading={deleteCheckLoading}
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete
@@ -986,7 +1017,7 @@ export function PatternEditor({
           </div>
         </div>
 
-        {(uploadError || mutationError) && (
+        {(uploadError || mutationError || deleteDependencyError) && (
           <div className="px-4 pt-2 space-y-1.5">
             {uploadError && (
               <InlineAlert tone="error" title="Upload failed">
@@ -996,6 +1027,11 @@ export function PatternEditor({
             {mutationError && (
               <InlineAlert tone="error" title="Save failed">
                 {mutationError}
+              </InlineAlert>
+            )}
+            {deleteDependencyError && (
+              <InlineAlert tone="error" title="Delete check failed">
+                {deleteDependencyError}
               </InlineAlert>
             )}
           </div>
@@ -1174,9 +1210,8 @@ export function PatternEditor({
             </h3>
             <p className="text-[12px] text-gray-600 dark:text-ink-muted mt-1">
               All training documents and regions in &ldquo;{form.name}&rdquo; will
-              be removed. Import Builder rule cells that referenced
-              this pattern will fall back to the broad-universe
-              extraction at runtime.
+              be removed. This delete is only allowed when no Import
+              Builder rule cells reference the pattern.
             </p>
             <div className="flex justify-end gap-2 mt-4">
               <Button
@@ -1199,6 +1234,12 @@ export function PatternEditor({
           </div>
         </div>
       )}
+
+      <DependencyBlockerDialog
+        open={deleteDependencyReport != null}
+        report={deleteDependencyReport}
+        onClose={() => setDeleteDependencyReport(null)}
+      />
 
       {/* ---- Page-deletion confirm dialog ---------------------- */}
       {/* Mandatory because page deletion is NOT undoable today: the

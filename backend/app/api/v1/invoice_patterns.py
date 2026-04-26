@@ -42,6 +42,7 @@ Design note on PATCH cross-field consistency:
 import uuid
 
 from fastapi import APIRouter, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 
 from app.dependencies import DB, CurrentUser
 from app.models.invoice_pattern import InvoicePattern
@@ -62,7 +63,9 @@ from app.schemas.invoice_pattern import (
     build_canonical_field_descriptors,
     build_pattern_field_options,
 )
+from app.schemas.dependencies import UsedByReport
 from app.schemas.invoice_pattern_coverage import InvoicePatternImportCoverage
+from app.services.dependency_usage import get_invoice_pattern_usage
 from app.services.invoice_pattern_coverage import (
     compute_pattern_import_coverage,
 )
@@ -187,6 +190,22 @@ async def get_invoice_pattern(
             status_code=404, detail="Invoice pattern not found"
         )
     return InvoicePatternOut.model_validate(row)
+
+
+@router.get("/{pattern_id}/used-by", response_model=UsedByReport)
+async def get_invoice_pattern_used_by(
+    pattern_id: uuid.UUID,
+    db: DB,
+    user: CurrentUser,
+) -> UsedByReport:
+    """Return saved Import Builder dependencies for this pattern."""
+    repo = InvoicePatternRepository(db)
+    row = await repo.get(pattern_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Invoice pattern not found"
+        )
+    return await get_invoice_pattern_usage(db, pattern_id)
 
 
 @router.get(
@@ -388,19 +407,27 @@ async def delete_invoice_pattern(
 ) -> Response:
     """Delete a saved pattern. 404 if it doesn't exist.
 
-    NOTE: this does NOT scrub references in Import Builder rule cells
-    (`extraction.pattern_id`). Those references become inert at runtime
-    (the resolver treats an unresolvable pattern_id as "no narrowing")
-    and the rule editor surfaces a "(deleted)" affordance — same
-    permissive contract as the rest of the soft-FK system. A future
-    cleanup pass could nullify dangling refs in batch; for Phase 1 the
-    inert behavior is correct.
+    Current hardening blocks deletion while Import Builder rule-cell
+    extraction bindings still reference the pattern.
+
+    It does not scrub references in Import Builder rule cells
+    (`extraction.pattern_id` or `extraction_bindings`). If those references exist,
+    the delete returns 409 with a used-by report.
     """
     repo = InvoicePatternRepository(db)
     row = await repo.get(pattern_id)
     if row is None:
         raise HTTPException(
             status_code=404, detail="Invoice pattern not found"
+        )
+    used_by = await get_invoice_pattern_usage(db, pattern_id)
+    if used_by.blocking_count > 0:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": "Resource is still in use.",
+                "used_by": used_by.model_dump(mode="json"),
+            },
         )
     await repo.delete(row)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
