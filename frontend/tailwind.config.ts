@@ -11,20 +11,62 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Brand stays hardcoded — Rivera blue does NOT change between
-        // light and dark mode (the brand square + accent buttons read
-        // the same in both palettes).
+        // ---- Rivera brand palette ----------------------------------
+        //
+        // Authoritative brand hexes, exposed in two ways:
+        //
+        //   1. The `brand` scale (50–900) is the primary action color
+        //      family — Rivera Real Estate Blue #165DFF — bound to
+        //      the existing `bg-brand-600`, `text-brand-700`,
+        //      `bg-brand-900` classes already used across the app.
+        //      Updating values here automatically restyles every
+        //      consumer.
+        //
+        //      `brand-500` is bound to **Sky Cyan #16C7F2** so every
+        //      `focus:ring-brand-500` / `focus-visible:ring-brand-500`
+        //      class in the codebase (~70 occurrences across inputs,
+        //      buttons, switches, links) automatically renders the
+        //      brand cyan focus ring without per-component edits. This
+        //      is the single biggest "free" lift for cyan visibility.
+        //
+        //   2. The `rivera-*` aliases let new code reach for the named
+        //      brand colors directly:
+        //        * `bg-rivera-blue`        — Real Estate Blue (#165DFF)
+        //        * `bg-rivera-navy`        — Deep Navy (#061B33)
+        //        * `bg-rivera-cyan`        — Sky Cyan (#16C7F2)
+        //        * `bg-rivera-lime`        — Electric Lime (#B7F20A)
+        //        * `bg-rivera-soft-lime`   — Soft Lime Background (#ECFFD2)
+        //        * `bg-rivera-ice`         — Ice Blue Background (#F3F8FF)
+        //
+        // Brand colors do NOT swap between light and dark — Rivera
+        // Blue stays Rivera Blue across both palettes; tinting it
+        // would compromise the brand mark.
         brand: {
-          50: "#eff6ff",
-          500: "#3b82f6",
-          600: "#2563eb",
-          700: "#1d4ed8",
-          900: "#1e3a8a",
+          50: "#EFF6FF", // Tailwind blue-50 — soft chip backgrounds
+          100: "#DBEAFE", // light hover surfaces
+          400: "#3B82F6", // legacy mid blue (kept for divider hover)
+          500: "#16C7F2", // Sky Cyan — focus rings, cyan accents
+          600: "#165DFF", // Real Estate Blue — primary action
+          700: "#1D4ED8", // Real Estate Blue hover
+          900: "#061B33", // Deep Navy — sidebar foundation in light mode
         },
-        // Surface tokens map to CSS variables defined in globals.css.
-        // The whole point of this layer is theme-awareness without
-        // touching every consumer — `bg-surface` swaps automatically
-        // when the `dark` class flips.
+        rivera: {
+          blue: "#165DFF",       // Real Estate Blue — primary action
+          navy: "#061B33",       // Foundation / dark backdrops
+          cyan: "#16C7F2",       // Support / info / focus / hover accents
+          lime: "#B7F20A",       // Validation / ready / selected accent
+          "soft-lime": "#ECFFD2",// Soft callout chips / hover wash (light)
+          ice: "#F3F8FF",        // Ice Blue Background (light page bg)
+        },
+
+        // ---- Surface tokens (CSS-var backed, theme-aware) ----------
+        //
+        // These map to the variables in `globals.css`. The whole point
+        // of this layer is theme-awareness without touching every
+        // consumer — `bg-surface` swaps automatically when the `dark`
+        // class flips. All surface/ink/line VALUES are aligned with
+        // the Rivera palette; the token NAMES stay stable so consumer
+        // code never had to change.
         //
         // The `<alpha-value>` placeholder is Tailwind's convention for
         // letting `bg-surface/80` style still work; the CSS variables

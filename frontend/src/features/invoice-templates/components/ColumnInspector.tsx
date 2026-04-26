@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
@@ -75,7 +75,15 @@ import {
 } from "../hooks/useCatalogIndex";
 
 /**
- * Right-side inspector panel for the currently-selected column.
+ * Floating, draggable inspector panel for the currently-selected column.
+ *
+ * Originally lived as a fixed right-side `<aside>`, but on wide
+ * templates the field the operator wanted to inspect was often
+ * scrolled off-screen by the time the inspector docked open — they
+ * couldn't see both at once. The inspector is now a movable utility
+ * surface: it opens as a floating window (top-right by default) and
+ * the operator parks it wherever it doesn't obstruct the cell they're
+ * inspecting. The header acts as the drag handle.
  *
  * The Import Builder keeps the spreadsheet-shaped table as its main
  * operating surface; the inspector is for the column-level *contract*
@@ -250,37 +258,191 @@ export function ColumnInspector({
     [column.manual_values, column.source_ref, column.source_type, onChange],
   );
 
+  // ---- Floating-window drag state -----------------------------------------
+  //
+  // The inspector renders as a `position: fixed` floating panel with a
+  // dimmed backdrop, mirroring the visual treatment of the New invoice
+  // template Modal so the surface reads as a real "dialog moment"
+  // rather than a stray side panel. It opens centered, but the header
+  // is a drag handle — the operator can move it aside if a part of
+  // the table needs to stay visible while editing.
+  //
+  // We track its top-left in pixel coordinates and update it
+  // imperatively from a document-level mousemove listener so the drag
+  // stays smooth even if the parent re-renders. The SSR guard returns a
+  // deterministic fallback so the first server render has stable markup;
+  // the client immediately recomputes against the real `window.innerWidth`
+  // / `innerHeight` to land centered.
+  const FLOATING_WIDTH = 320; // matches `w-[20rem]` below
+  const FLOATING_MARGIN = 16;
+  // Used to estimate vertical centering before the window has measured
+  // itself. A typical inspector renders ~560–620px tall depending on
+  // the active source kind; 600 lands the open dialog roughly centered
+  // for common viewport heights without forcing a re-measure pass.
+  const ESTIMATED_HEIGHT = 600;
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+    if (typeof window === "undefined") return { x: 0, y: FLOATING_MARGIN * 2 };
+    return {
+      x: Math.max(
+        FLOATING_MARGIN,
+        Math.round((window.innerWidth - FLOATING_WIDTH) / 2),
+      ),
+      y: Math.max(
+        FLOATING_MARGIN * 2,
+        Math.round((window.innerHeight - ESTIMATED_HEIGHT) / 2),
+      ),
+    };
+  });
+
+  // Live drag offsets kept on a ref so the document-level mousemove
+  // handler reads the *latest* origin without stale-closure surprises.
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+
+  // Re-clamp the position whenever the viewport shrinks so the user
+  // can't lose the inspector by resizing the window with the panel
+  // dragged near an edge.
+  useEffect(() => {
+    const onResize = () => {
+      setPos((p) => ({
+        x: Math.min(Math.max(p.x, -260), Math.max(0, window.innerWidth - 60)),
+        y: Math.min(Math.max(p.y, 0), Math.max(0, window.innerHeight - 40)),
+      }));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Esc closes — matches the `Modal` component's behavior so the
+  // dimmed-backdrop affordance feels coherent across both surfaces.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Drag handle — fires on the header surface only. Buttons / inputs
+  // inside the header keep their own click semantics: when the
+  // mousedown originated on (or inside) an interactive element we bail
+  // so the close button still closes and any future header inputs
+  // remain typeable.
+  const handleHeaderMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("button, input, textarea, select, a")) return;
+      e.preventDefault();
+
+      dragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: pos.x,
+        origY: pos.y,
+      };
+
+      const handleMove = (ev: MouseEvent) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        const dx = ev.clientX - drag.startX;
+        const dy = ev.clientY - drag.startY;
+        // Clamp: keep at least 60px of header on-screen at all times so
+        // the user can always grab the window back, even if they
+        // overshoot a viewport edge.
+        const minX = -260;
+        const maxX = Math.max(0, window.innerWidth - 60);
+        const minY = 0;
+        const maxY = Math.max(0, window.innerHeight - 40);
+        setPos({
+          x: Math.min(Math.max(drag.origX + dx, minX), maxX),
+          y: Math.min(Math.max(drag.origY + dy, minY), maxY),
+        });
+      };
+      const handleUp = () => {
+        dragRef.current = null;
+        document.removeEventListener("mousemove", handleMove);
+        document.removeEventListener("mouseup", handleUp);
+      };
+      document.addEventListener("mousemove", handleMove);
+      document.addEventListener("mouseup", handleUp);
+    },
+    [pos.x, pos.y],
+  );
+
   return (
-    <aside
-      className="w-[20rem] shrink-0 border-l border-gray-200 bg-white flex flex-col h-full min-h-0 dark:border-line dark:bg-surface-subtle"
-      aria-label="Column inspector"
-    >
-      {/* ---- Header ---------------------------------------------------- */}
-      <div className="px-4 py-3 border-b border-gray-200 flex items-start gap-2 dark:border-line">
-        <div className="flex-1 min-w-0">
-          <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold dark:text-ink-subtle">
-            Column inspector
-          </p>
-          <p
-            className="text-sm font-semibold text-gray-800 truncate mt-0.5 dark:text-ink"
-            title={column.name}
-          >
-            {column.name || "Untitled column"}
-          </p>
-          <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug dark:text-ink-muted">
-            Three layers: what the column <em>is</em>, what it does by
-            default, and how rule rows are allowed to interact with it.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close column inspector"
-          className="shrink-0 p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-ink-subtle dark:hover:bg-surface-muted dark:hover:text-ink"
+    <>
+      {/* ---- Dimmed backdrop ------------------------------------------- */}
+      {/* Same scrim treatment as the `Modal` component (40% black light /
+          60% dark) so the inspector reads as a real "dialog moment"
+          rather than an inert side surface. Click anywhere on the scrim
+          to dismiss — mirrors the New template modal behavior the user
+          referenced. The inspector itself sits one layer above. */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 dark:bg-black/60"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      <aside
+        role="dialog"
+        aria-label="Column inspector"
+        aria-modal="true"
+        className={cn(
+          // Modal-style floating window: fixed-position so the editor
+          // table flows full-width underneath. `z-50` matches the
+          // `Modal` component's layer; real Modals (which portal to
+          // <body>) still win via DOM order if both happen to be open.
+          "fixed z-50 flex flex-col w-[20rem]",
+          // `rounded-xl` + `shadow-xl` mirror the New template Modal
+          // so the two dialog moments feel like the same surface.
+          "bg-white border border-gray-200 rounded-xl shadow-xl",
+          "dark:bg-surface-subtle dark:border-line",
+        )}
+        // Inline style drives both the live position AND a dynamic
+        // max-height so the window always fits between its top edge and
+        // the viewport bottom — wherever the user has dragged it.
+        style={{
+          left: pos.x,
+          top: pos.y,
+          maxHeight: `calc(100vh - ${pos.y}px - ${FLOATING_MARGIN}px)`,
+        }}
+      >
+        {/* ---- Header (drag handle) -------------------------------------- */}
+        {/* `cursor-move` + `select-none` advertise the draggable affordance.
+            The mousedown handler bails for nested interactive elements so
+            the close button below keeps its click semantics. */}
+        <div
+          onMouseDown={handleHeaderMouseDown}
+          className="px-4 py-3 border-b border-gray-200 flex items-start gap-2 dark:border-line cursor-move select-none rounded-t-xl"
         >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold dark:text-ink-subtle">
+              Column inspector
+            </p>
+            <p
+              className="text-sm font-semibold text-gray-800 truncate mt-0.5 dark:text-ink"
+              title={column.name}
+            >
+              {column.name || "Untitled column"}
+            </p>
+            <p className="text-[10.5px] text-gray-500 mt-0.5 leading-snug dark:text-ink-muted">
+              Three layers: what the column <em>is</em>, what it does by
+              default, and how rule rows are allowed to interact with it.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close column inspector"
+            className="shrink-0 p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-ink-subtle dark:hover:bg-surface-muted dark:hover:text-ink"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
       {/* ---- Body ------------------------------------------------------ */}
       {/* Three explicit groups (Basic, Global behavior, Rule
@@ -401,7 +563,8 @@ export function ColumnInspector({
           />
         </SectionGroup>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

@@ -125,14 +125,16 @@ function ConfigListRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60"
+            ? // Solid Electric Lime — same Rivera selected affordance
+              // shared across every module list.
+              "border-l-rivera-lime bg-rivera-lime"
             : "border-l-transparent hover:bg-gray-50",
         )}
       >
         <p
           className={cn(
             "text-[12.5px] font-semibold truncate",
-            selected ? "text-brand-800" : "text-gray-800",
+            selected ? "text-rivera-navy" : "text-gray-800",
           )}
           title={item.name}
         >
@@ -140,15 +142,28 @@ function ConfigListRow({
         </p>
         {item.description && (
           <p
-            className="text-[10.5px] text-gray-500 truncate mt-0.5"
+            className={cn(
+              "text-[10.5px] truncate mt-0.5",
+              selected ? "text-rivera-navy/75" : "text-gray-500",
+            )}
             title={item.description}
           >
             {item.description}
           </p>
         )}
-        <p className="text-[10px] text-gray-400 mt-0.5 inline-flex items-center gap-1.5">
+        <p
+          className={cn(
+            "text-[10px] mt-0.5 inline-flex items-center gap-1.5",
+            selected ? "text-rivera-navy/65" : "text-gray-400",
+          )}
+        >
           {item.override_count > 0 ? (
-            <span className="inline-flex items-center gap-0.5 text-brand-700">
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5",
+                selected ? "text-rivera-navy" : "text-brand-700",
+              )}
+            >
               <Sparkles className="h-2.5 w-2.5" />
               {item.override_count} pin
               {item.override_count === 1 ? "" : "s"}
@@ -156,7 +171,9 @@ function ConfigListRow({
           ) : (
             <span>No overrides</span>
           )}
-          <span className="text-gray-300">·</span>
+          <span className={selected ? "text-rivera-navy/40" : "text-gray-300"}>
+            ·
+          </span>
           <span>{formatDate(item.updated_at)}</span>
         </p>
       </button>

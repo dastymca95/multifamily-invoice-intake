@@ -130,7 +130,11 @@ function PatternRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            ? // Solid Electric Lime in BOTH themes — same Rivera
+              // selected affordance shared across every module list.
+              // Border matches the bg so the 2px reservation doesn't
+              // show as a stripe against the lime fill.
+              "border-l-rivera-lime bg-rivera-lime"
             : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
@@ -138,7 +142,8 @@ function PatternRow({
           className={cn(
             "text-[12.5px] font-semibold truncate",
             selected
-              ? "text-brand-800 dark:text-brand-50"
+              ? // Deep Navy on lime reads crisply in both themes.
+                "text-rivera-navy"
               : "text-gray-800 dark:text-ink",
           )}
           title={item.name}
@@ -147,7 +152,12 @@ function PatternRow({
         </p>
         {item.vendor_hint && (
           <p
-            className="text-[10.5px] text-brand-700/80 dark:text-brand-50/80 truncate mt-0.5"
+            className={cn(
+              "text-[10.5px] truncate mt-0.5",
+              selected
+                ? "text-rivera-navy/75"
+                : "text-brand-700/80 dark:text-brand-50/80",
+            )}
             title={`Vendor hint: ${item.vendor_hint}`}
           >
             {item.vendor_hint}
@@ -155,30 +165,60 @@ function PatternRow({
         )}
         {item.description && (
           <p
-            className="text-[10.5px] text-gray-500 dark:text-ink-muted truncate mt-0.5"
+            className={cn(
+              "text-[10.5px] truncate mt-0.5",
+              selected
+                ? "text-rivera-navy/75"
+                : "text-gray-500 dark:text-ink-muted",
+            )}
             title={item.description}
           >
             {item.description}
           </p>
         )}
-        <p className="text-[10px] text-gray-400 dark:text-ink-subtle mt-0.5 inline-flex flex-wrap items-center gap-x-1.5">
+        <p
+          className={cn(
+            "text-[10px] mt-0.5 inline-flex flex-wrap items-center gap-x-1.5",
+            selected
+              ? "text-rivera-navy/65"
+              : "text-gray-400 dark:text-ink-subtle",
+          )}
+        >
           <span>
             {item.source_file_count} file
             {item.source_file_count === 1 ? "" : "s"}
           </span>
-          <span className="text-gray-300 dark:text-line-strong">·</span>
+          <span
+            className={
+              selected
+                ? "text-rivera-navy/40"
+                : "text-gray-300 dark:text-line-strong"
+            }
+          >
+            ·
+          </span>
           <span
             className={cn(
               "font-medium",
-              item.region_count > 0
-                ? "text-brand-700 dark:text-brand-50"
-                : "text-gray-400 dark:text-ink-subtle",
+              selected
+                ? "text-rivera-navy"
+                : item.region_count > 0
+                  ? "text-brand-700 dark:text-brand-50"
+                  : "text-gray-400 dark:text-ink-subtle",
             )}
           >
             {item.region_count} region
             {item.region_count === 1 ? "" : "s"}
           </span>
-          <span className="text-gray-300 dark:text-line-strong">·</span>
+          <span
+            className={
+              selected
+                ? "text-rivera-navy/40"
+                : "text-gray-300 dark:text-line-strong"
+            }
+          >
+            ·
+          </span>
           <span>{formatDate(item.updated_at)}</span>
         </p>
       </button>

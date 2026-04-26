@@ -48,9 +48,11 @@ from app.schemas.invoice_template import (
     InvoiceTemplateUpdate,
     build_default_template,
 )
+from app.schemas.import_resolver import ResolverInput, ResolverResult
 from app.schemas.dependencies import UsedByReport
 from app.services.dependency_usage import get_invoice_template_usage
 from app.services.import_template_validation import validate_import_template
+from app.services.import_template_resolver import dry_run_resolve_import_template
 
 router = APIRouter(prefix="/invoice-templates", tags=["invoice-templates"])
 
@@ -192,6 +194,30 @@ async def validate_invoice_template(
             status_code=404, detail="Invoice template not found"
         )
     return await validate_import_template(row, db)
+
+
+@router.post("/{template_id}/resolve-dry-run", response_model=ResolverResult)
+async def resolve_invoice_template_dry_run(
+    template_id: uuid.UUID,
+    db: DB,
+    user: CurrentUser,
+    body: ResolverInput | None = None,
+) -> ResolverResult:
+    """Return a non-mutating resolver dry-run placeholder result.
+
+    This endpoint proves the future resolver wire contract. It loads
+    the saved template, runs readiness diagnostics, and returns one
+    placeholder row with per-cell provenance/issue scaffolding. It does
+    not export, enqueue review work, call OCR/AI, or write back to the
+    template.
+    """
+    repo = InvoiceTemplateRepository(db)
+    row = await repo.get(template_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Invoice template not found"
+        )
+    return await dry_run_resolve_import_template(row, body, db)
 
 
 @router.get("/{template_id}/used-by", response_model=UsedByReport)

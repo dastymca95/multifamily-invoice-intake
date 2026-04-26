@@ -7,6 +7,20 @@
  *
  * Use the `action` slot for retry buttons or compact CTAs that should sit on
  * the right edge of the alert.
+ *
+ * Rivera-aligned tones:
+ *
+ *   * `error`   — Coral red. Stays on Tailwind red palette so the
+ *                  destructive-action signal reads consistently with
+ *                  delete buttons and `Modal` danger variants.
+ *   * `warning` — Amber. Same Tailwind yellow palette as before.
+ *   * `info`    — **Sky Cyan #16C7F2** (Rivera support color). Replaces
+ *                  the previous Tailwind blue tone so info messages
+ *                  visibly use the brand cyan instead of competing with
+ *                  Rivera Blue (which is reserved for primary actions).
+ *   * `success` — **Electric Lime #B7F20A** (Rivera validation accent).
+ *                  Replaces the previous Tailwind green tone so success
+ *                  / validated / ready messages surface the brand lime.
  */
 
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, type LucideIcon } from "lucide-react";
@@ -19,9 +33,9 @@ export type AlertTone = "error" | "warning" | "info" | "success";
 // Dark-mode tones nudge each tinted background from the bright /-50
 // shade down to a translucent variant of the same hue (`/15` on a
 // slate surface) — keeps the emotional read (red = error, yellow =
-// warning) without burning eyes against a dark page. Border + text
-// colors lift toward the lighter end of the same palette so the
-// alert stays legible.
+// warning, cyan = info, lime = success) without burning eyes against
+// a dark page. Border + text colors lift toward the lighter end of
+// the same palette so the alert stays legible.
 const STYLES: Record<AlertTone, { box: string; iconColor: string; Icon: LucideIcon }> = {
   error: {
     box:
@@ -37,18 +51,28 @@ const STYLES: Record<AlertTone, { box: string; iconColor: string; Icon: LucideIc
     iconColor: "text-yellow-600 dark:text-yellow-400",
     Icon: AlertTriangle,
   },
+  // Sky Cyan info tone. Light mode pairs a soft cyan tint with a
+  // deeper teal foreground (#0E7490) for readable contrast on
+  // off-white. Dark mode lifts the foreground to the brand cyan
+  // hex (#16C7F2) so the info accent feels Rivera-branded rather
+  // than generic Tailwind blue.
   info: {
     box:
-      "border-blue-200 bg-blue-50 text-blue-800 " +
-      "dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
-    iconColor: "text-blue-500 dark:text-blue-400",
+      "border-[rgba(22,199,242,0.30)] bg-[rgba(22,199,242,0.10)] text-[#0E7490] " +
+      "dark:border-[rgba(22,199,242,0.40)] dark:bg-[rgba(22,199,242,0.12)] dark:text-rivera-cyan",
+    iconColor: "text-rivera-cyan dark:text-rivera-cyan",
     Icon: Info,
   },
+  // Electric Lime success tone. Light mode keeps the foreground in
+  // the brand navy (#061B33) so the lime tint reads as accent
+  // rather than text. Dark mode flips to the brand lime hex on a
+  // softer navy-tinted background so the validation accent pops
+  // against deep navy panels.
   success: {
     box:
-      "border-green-200 bg-green-50 text-green-700 " +
-      "dark:border-green-900 dark:bg-green-950/40 dark:text-green-200",
-    iconColor: "text-green-500 dark:text-green-400",
+      "border-[rgba(183,242,10,0.50)] bg-[rgba(183,242,10,0.18)] text-rivera-navy " +
+      "dark:border-[rgba(183,242,10,0.55)] dark:bg-[rgba(183,242,10,0.14)] dark:text-rivera-lime",
+    iconColor: "text-rivera-navy dark:text-rivera-lime",
     Icon: CheckCircle2,
   },
 };

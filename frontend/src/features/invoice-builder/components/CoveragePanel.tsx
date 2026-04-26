@@ -329,7 +329,11 @@ function StatRow({
           "tabular-nums font-semibold",
           emphasis === "warn"
             ? "text-amber-700 dark:text-yellow-200"
-            : "text-emerald-700 dark:text-emerald-300",
+            // Brand-aligned validation accent — Rivera navy on light
+            // mode + Electric Lime on dark so the "this many of N
+            // are good" stat reads as a positive Rivera signal,
+            // not a generic emerald success.
+            : "text-rivera-navy dark:text-rivera-lime",
         )}
       >
         {numerator}
@@ -411,7 +415,10 @@ function TemplateRow({
                 "text-[10px] tabular-nums px-1.5 py-[1px] rounded-full",
                 missing > 0
                   ? "bg-amber-50 text-amber-700 dark:bg-yellow-950/40 dark:text-yellow-200"
-                  : "bg-emerald-50 text-emerald-700 dark:bg-green-950/40 dark:text-green-200",
+                  // "All required columns satisfied" pill — Rivera
+                  // Electric Lime accent so the brand validation color
+                  // appears in the per-template Coverage rollup.
+                  : "bg-[rgba(183,242,10,0.18)] text-rivera-navy ring-1 ring-[rgba(183,242,10,0.45)] dark:bg-[rgba(183,242,10,0.14)] dark:text-rivera-lime dark:ring-[rgba(183,242,10,0.55)]",
               )}
               title={
                 missing > 0
@@ -584,8 +591,11 @@ function StatusDot({ status }: { status: RequiredColumnStatus }) {
   switch (status) {
     case "satisfied_by_extraction":
       return (
+        // Required column satisfied via THIS pattern's extraction —
+        // strongest validation signal in the panel, so it gets the
+        // brand Electric Lime accent.
         <CheckCircle2
-          className="h-3 w-3 text-emerald-600 shrink-0"
+          className="h-3 w-3 text-rivera-navy dark:text-rivera-lime shrink-0"
           aria-label="Satisfied via extraction"
         />
       );

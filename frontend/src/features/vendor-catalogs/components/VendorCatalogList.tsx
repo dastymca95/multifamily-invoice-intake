@@ -171,7 +171,9 @@ function CatalogRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            ? // Solid Electric Lime in BOTH themes — same Rivera
+              // selected affordance shared across every module list.
+              "border-l-rivera-lime bg-rivera-lime"
             : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
@@ -179,7 +181,8 @@ function CatalogRow({
           className={cn(
             "text-[12.5px] font-semibold truncate",
             selected
-              ? "text-brand-800 dark:text-brand-50"
+              ? // Deep Navy on lime reads crisply in both themes.
+                "text-rivera-navy"
               : "text-gray-800 dark:text-ink",
           )}
           title={item.name}
@@ -188,20 +191,48 @@ function CatalogRow({
         </p>
         {item.description && (
           <p
-            className="text-[10.5px] text-gray-500 truncate mt-0.5 dark:text-ink-muted"
+            className={cn(
+              "text-[10.5px] truncate mt-0.5",
+              selected
+                ? "text-rivera-navy/75"
+                : "text-gray-500 dark:text-ink-muted",
+            )}
             title={item.description}
           >
             {item.description}
           </p>
         )}
-        <p className="text-[10px] text-gray-400 mt-0.5 inline-flex items-center gap-1.5 dark:text-ink-subtle">
+        <p
+          className={cn(
+            "text-[10px] mt-0.5 inline-flex items-center gap-1.5",
+            selected
+              ? "text-rivera-navy/65"
+              : "text-gray-400 dark:text-ink-subtle",
+          )}
+        >
           <span>
             {item.entry_count}{" "}
             {item.entry_count === 1 ? "vendor" : "vendors"}
           </span>
-          <span className="text-gray-300 dark:text-line-strong">·</span>
+          <span
+            className={
+              selected
+                ? "text-rivera-navy/40"
+                : "text-gray-300 dark:text-line-strong"
+            }
+          >
+            ·
+          </span>
           <span>{SOURCE_LABEL[item.source]}</span>
-          <span className="text-gray-300 dark:text-line-strong">·</span>
+          <span
+            className={
+              selected
+                ? "text-rivera-navy/40"
+                : "text-gray-300 dark:text-line-strong"
+            }
+          >
+            ·
+          </span>
           <span>{formatDate(item.updated_at)}</span>
         </p>
       </button>
@@ -230,7 +261,9 @@ function DraftRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            ? // Same solid Electric Lime as the regular CatalogRow above —
+              // keeps the selected affordance consistent across the list.
+              "border-l-rivera-lime bg-rivera-lime"
             : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
@@ -239,23 +272,39 @@ function DraftRow({
             className={cn(
               "h-3 w-3 shrink-0",
               selected
-                ? "text-brand-700 dark:text-brand-50"
+                ? "text-rivera-navy"
                 : "text-gray-400 dark:text-ink-subtle",
             )}
           />
           <p
             className={cn(
               "text-[12.5px] font-semibold truncate",
-              selected ? "text-brand-800" : "text-gray-800",
+              selected
+                ? "text-rivera-navy"
+                : "text-gray-800 dark:text-ink",
             )}
           >
             Default catalog
           </p>
-          <span className="ml-auto text-[9.5px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
+          <span
+            className={cn(
+              "ml-auto text-[9.5px] font-semibold uppercase tracking-wide",
+              selected
+                ? "text-rivera-navy/75"
+                : "text-orange-600 dark:text-orange-400",
+            )}
+          >
             draft
           </span>
         </div>
-        <p className="text-[10.5px] text-gray-500 truncate mt-0.5 dark:text-ink-muted">
+        <p
+          className={cn(
+            "text-[10.5px] truncate mt-0.5",
+            selected
+              ? "text-rivera-navy/75"
+              : "text-gray-500 dark:text-ink-muted",
+          )}
+        >
           {soloHint
             ? "Edit and save to start your library."
             : "Editable starter — save to add it to your list."}

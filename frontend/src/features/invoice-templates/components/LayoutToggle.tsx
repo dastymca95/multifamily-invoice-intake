@@ -94,14 +94,25 @@ function SegmentButton({
       aria-label={ariaLabel}
       title={title}
       className={cn(
-        "inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors",
+        // `relative` so the active lime dot can sit on the top-right.
+        "relative inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
         active
           ? "bg-white text-brand-700 shadow-sm dark:bg-surface-subtle dark:text-brand-50"
-          : "text-gray-600 hover:text-gray-800 dark:text-ink-muted dark:hover:text-ink",
+          : // Idle hover gets a Sky Cyan tint so the toggle reads
+            // alive even before it's pressed.
+            "text-gray-600 hover:text-gray-800 hover:bg-rivera-cyan/10 dark:text-ink-muted dark:hover:text-ink dark:hover:bg-rivera-cyan/15",
       )}
     >
       {children}
+      {/* Active layout gets a tiny Electric Lime dot — Rivera
+          selected accent shared across every segmented control. */}
+      {active && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-0.5 right-0.5 h-1 w-1 rounded-full bg-rivera-lime"
+        />
+      )}
     </button>
   );
 }

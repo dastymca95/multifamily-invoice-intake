@@ -170,7 +170,12 @@ function TemplateRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            ? // Selected = solid Electric Lime in BOTH themes so the
+              // active item reads as a contiguous Rivera accent block.
+              // Border matches the bg so the 2px reservation doesn't
+              // show as a stripe; idle keeps a transparent left border
+              // for the same width to prevent layout shift.
+              "border-l-rivera-lime bg-rivera-lime"
             : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
@@ -178,7 +183,10 @@ function TemplateRow({
           className={cn(
             "text-[12.5px] font-semibold truncate",
             selected
-              ? "text-brand-800 dark:text-brand-50"
+              ? // All text inside the lime row swaps to Deep Navy in
+                // both themes — lime is bright enough that navy reads
+                // crisply regardless of light/dark mode.
+                "text-rivera-navy"
               : "text-gray-800 dark:text-ink",
           )}
           title={item.name}
@@ -187,30 +195,71 @@ function TemplateRow({
         </p>
         {item.description && (
           <p
-            className="text-[10.5px] text-gray-500 dark:text-ink-muted truncate mt-0.5"
+            className={cn(
+              "text-[10.5px] truncate mt-0.5",
+              selected
+                ? "text-rivera-navy/75"
+                : "text-gray-500 dark:text-ink-muted",
+            )}
             title={item.description}
           >
             {item.description}
           </p>
         )}
-        <p className="text-[10px] text-gray-400 dark:text-ink-subtle mt-0.5 inline-flex flex-wrap items-center gap-x-1.5">
+        <p
+          className={cn(
+            "text-[10px] mt-0.5 inline-flex flex-wrap items-center gap-x-1.5",
+            selected
+              ? "text-rivera-navy/65"
+              : "text-gray-400 dark:text-ink-subtle",
+          )}
+        >
           <span>
             {item.column_count} column{item.column_count === 1 ? "" : "s"}
           </span>
           {item.rule_count > 0 && (
             <>
-              <span className="text-gray-300 dark:text-line-strong">·</span>
               <span
-                className="font-medium text-brand-700 dark:text-brand-50"
+                className={
+                  selected
+                    ? "text-rivera-navy/40"
+                    : "text-gray-300 dark:text-line-strong"
+                }
+              >
+                ·
+              </span>
+              <span
+                className={cn(
+                  "font-medium",
+                  selected
+                    ? "text-rivera-navy"
+                    : "text-brand-700 dark:text-brand-50",
+                )}
                 title="Rule rows defined on this template"
               >
                 {item.rule_count} rule{item.rule_count === 1 ? "" : "s"}
               </span>
             </>
           )}
-          <span className="text-gray-300 dark:text-line-strong">·</span>
+          <span
+            className={
+              selected
+                ? "text-rivera-navy/40"
+                : "text-gray-300 dark:text-line-strong"
+            }
+          >
+            ·
+          </span>
           <span>{SOURCE_LABEL[item.source]}</span>
-          <span className="text-gray-300 dark:text-line-strong">·</span>
+          <span
+            className={
+              selected
+                ? "text-rivera-navy/40"
+                : "text-gray-300 dark:text-line-strong"
+            }
+          >
+            ·
+          </span>
           <span>{formatDate(item.updated_at)}</span>
         </p>
       </button>
@@ -239,7 +288,10 @@ function DraftRow({
         className={cn(
           "w-full text-left px-3 py-2 border-l-2 transition-colors",
           selected
-            ? "border-l-brand-600 bg-brand-50/60 dark:bg-brand-900/30"
+            ? // Same solid Electric Lime treatment as the regular
+              // CatalogRow above — keeps the selected affordance
+              // consistent across the entire saved-templates list.
+              "border-l-rivera-lime bg-rivera-lime"
             : "border-l-transparent hover:bg-gray-50 dark:hover:bg-surface-muted",
         )}
       >
@@ -248,7 +300,7 @@ function DraftRow({
             className={cn(
               "h-3 w-3 shrink-0",
               selected
-                ? "text-brand-700 dark:text-brand-50"
+                ? "text-rivera-navy"
                 : "text-gray-400 dark:text-ink-subtle",
             )}
           />
@@ -256,17 +308,31 @@ function DraftRow({
             className={cn(
               "text-[12.5px] font-semibold truncate",
               selected
-                ? "text-brand-800 dark:text-brand-50"
+                ? "text-rivera-navy"
                 : "text-gray-800 dark:text-ink",
             )}
           >
             Default template
           </p>
-          <span className="ml-auto text-[9.5px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
+          <span
+            className={cn(
+              "ml-auto text-[9.5px] font-semibold uppercase tracking-wide",
+              selected
+                ? "text-rivera-navy/75"
+                : "text-orange-600 dark:text-orange-400",
+            )}
+          >
             draft
           </span>
         </div>
-        <p className="text-[10.5px] text-gray-500 truncate mt-0.5 dark:text-ink-muted">
+        <p
+          className={cn(
+            "text-[10.5px] truncate mt-0.5",
+            selected
+              ? "text-rivera-navy/75"
+              : "text-gray-500 dark:text-ink-muted",
+          )}
+        >
           {soloHint
             ? "Edit and save to start your library."
             : "Editable starter — save to add it to your list."}

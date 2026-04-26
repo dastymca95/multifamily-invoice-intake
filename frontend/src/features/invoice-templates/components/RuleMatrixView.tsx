@@ -155,8 +155,19 @@ interface RuleMatrixViewProps {
   columns: InvoiceTemplateColumn[];
   rules: InvoiceTemplateRule[];
   catalogIndex: CatalogIndex;
-  /** Highlighted column (id) — the currently-inspected field. */
+  /**
+   * Highlighted column (id) — the currently-scanned field. Drives the
+   * Soft Lime row band. Set by clicking the field label; never opens
+   * the floating inspector dialog on its own.
+   */
   selectedColumnId: string | null;
+  /**
+   * Column whose floating inspector dialog is currently open (or null).
+   * Drives the gear icon's lime "active" chip + its aria/title labels.
+   * Set by clicking the gear icon next to the field label — never set
+   * by a plain field-label click.
+   */
+  inspectorColumnId: string | null;
   // ---- Drag-and-drop reorder (shared with table mode) ---------------------
   // Both views share one `draggedIdx` / `dropIdx` pair on the parent so
   // the underlying column ordering has a single source of truth. Matrix
@@ -265,6 +276,7 @@ export function RuleMatrixView({
   rules,
   catalogIndex,
   selectedColumnId,
+  inspectorColumnId,
   draggedIdx,
   dropIdx,
   dragRowHeight,
@@ -412,6 +424,7 @@ export function RuleMatrixView({
               rules={rules}
               catalogIndex={catalogIndex}
               isSelected={selectedColumnId === column.id}
+              isInspectorOpen={inspectorColumnId === column.id}
               isDragged={draggedIdx === idx}
               // Sortable shift in px (Part 3 of UX polish). Resolved
               // here so the row can apply the same translateY to every
@@ -608,13 +621,15 @@ function TrailingPlaceholder({
       className={cn(
         "border-b border-gray-200 transition-[colors,opacity,transform] duration-150 dark:border-line/60",
         // Match the row tint so the trailing column reads as part of
-        // the same row band rather than a separate empty column. The
-        // selected tint uses the same body-cell shade (`bg-brand-50`)
-        // so the row paints as one continuous filled band — see the
-        // FieldLabelCell + RuleCellWrap selected state for the rest of
-        // the band.
+        // the same row band rather than a separate empty column. Solid
+        // Soft Lime in light mode (a 60% mix only resolved to ~#F4FFE4
+        // — barely distinguishable from white); translucent Electric
+        // Lime in dark mode where the navy backdrop already supplies
+        // contrast. Lime + soft-lime echo the saved-template solid
+        // Electric Lime so a "selected" moment reads as the same color
+        // family across the rail and the editor.
         isSelected
-          ? "bg-brand-50 dark:bg-brand-900/30"
+          ? "bg-rivera-soft-lime dark:bg-rivera-lime/15"
           : "bg-white dark:bg-surface",
         isDragged && "opacity-40",
       )}
@@ -762,6 +777,7 @@ function FieldRow({
   rules,
   catalogIndex,
   isSelected,
+  isInspectorOpen,
   isDragged,
   rowShift,
   isDropBefore,
@@ -789,7 +805,14 @@ function FieldRow({
   total: number;
   rules: InvoiceTemplateRule[];
   catalogIndex: CatalogIndex;
+  /** Field row has the Soft Lime highlight (set by label-click). */
   isSelected: boolean;
+  /**
+   * Floating ColumnInspector dialog is currently bound to this field
+   * (set by gear-click). Drives the gear chip's "active" lime state +
+   * its aria/title labels.
+   */
+  isInspectorOpen: boolean;
   isDragged: boolean;
   /**
    * Sortable shift in px (Part 3 of UX polish). Threaded down to
@@ -834,6 +857,7 @@ function FieldRow({
         index={index}
         total={total}
         isSelected={isSelected}
+        isInspectorOpen={isInspectorOpen}
         isDragged={isDragged}
         transformStyle={transformStyle}
         isDropBefore={isDropBefore}
@@ -1176,6 +1200,7 @@ function FieldLabelCell({
   index,
   total,
   isSelected,
+  isInspectorOpen,
   isDragged,
   transformStyle,
   isDropBefore,
@@ -1200,7 +1225,13 @@ function FieldLabelCell({
   column: InvoiceTemplateColumn;
   index: number;
   total: number;
+  /** Soft Lime highlight on the row (driven by label-click). */
   isSelected: boolean;
+  /**
+   * Floating ColumnInspector dialog open for THIS field — drives the
+   * gear's lime "active" chip + its aria/title labels.
+   */
+  isInspectorOpen: boolean;
   isDragged: boolean;
   /**
    * Sortable shift inline style (Part 3 of UX polish). Threaded down
@@ -1347,17 +1378,20 @@ function FieldLabelCell({
         // axes — left role-band lives on its own border-l-2.
         "border-r border-l-2 border-gray-200 dark:border-line",
         role ? ROLE_BAND[role] : ROLE_BAND_NONE,
-        // Selected row gets a stronger brand fill on the LABEL cell
-        // (`bg-brand-100`) and a paler `bg-brand-50` continues across
-        // the body cells in `RuleCellWrap`, so the inspected field
-        // reads as a row-highlight band rather than a hard outline.
-        // The role-band left border (above) remains the only "border-
-        // like" visual on the row — no ring, no heavy outline, so the
-        // selected state coexists cleanly with required / locked /
-        // hover / role tint without piling visuals on top of each
-        // other (Part 2 of UX polish).
+        // Selected row gets a stronger Soft Lime fill on the LABEL
+        // cell (`bg-rivera-soft-lime`) and a paler
+        // `bg-rivera-soft-lime/60` continues across the body cells in
+        // `RuleCellWrap`, so the inspected field reads as a row-
+        // highlight band rather than a hard outline. The role-band
+        // left border (above) remains the only "border-like" visual on
+        // the row — no ring, no heavy outline, so the selected state
+        // coexists cleanly with required / locked / hover / role tint
+        // without piling visuals on top of each other (Part 2 of UX
+        // polish). Soft Lime mirrors the table-mode header treatment
+        // and the saved-list solid Electric Lime so the "selected"
+        // signal reads as the same color family everywhere.
         isSelected
-          ? "bg-brand-100 dark:bg-brand-900/40"
+          ? "bg-rivera-soft-lime dark:bg-rivera-lime/15"
           : "bg-gray-50 dark:bg-surface-muted",
         "px-3 py-2",
         // Vertical drop indicators: top edge before THIS row, bottom
@@ -1475,8 +1509,11 @@ function FieldLabelCell({
         ) : (
           <button
             type="button"
-            // Single click → SELECT the column (open the inspector).
-            // Never closes — gear toggles for a quick close affordance.
+            // Single click → highlight this field row with the Soft
+            // Lime band. Never closes the highlight; never opens the
+            // floating inspector dialog (the gear icon to the right
+            // is the only entry point). Mirrors the table HeaderCell's
+            // name-click semantics so the two modes feel identical.
             onClick={onSelect}
             // Double click → enter rename mode. Same affordance as the
             // table HeaderCell so flipping modes mid-edit feels
@@ -1493,8 +1530,8 @@ function FieldLabelCell({
                 setRenaming(true);
               }
             }}
-            title={`${column.name || "Untitled column"} — click to inspect, double-click to rename`}
-            aria-label={`Field ${index + 1}: ${column.name || "Untitled column"}. Click to open inspector, double-click to rename.`}
+            title={`${column.name || "Untitled column"} — click to highlight, gear to open inspector, double-click to rename`}
+            aria-label={`Field ${index + 1}: ${column.name || "Untitled column"}. Click to highlight; click the gear to open inspector; double-click to rename.`}
             aria-pressed={isSelected}
             className={cn(
               "flex-1 min-w-0 px-1.5 py-0.5 text-left text-[12px] font-semibold rounded truncate",
@@ -1503,7 +1540,10 @@ function FieldLabelCell({
               empty
                 ? "text-red-400 italic ring-1 ring-red-300 dark:text-red-400 dark:ring-red-900"
                 : isSelected
-                  ? "text-brand-900 dark:text-brand-50"
+                  ? // Deep Navy on Soft Lime in light mode; Electric
+                    // Lime on the translucent dark tint keeps the
+                    // selected label legible against navy.
+                    "text-rivera-navy dark:text-rivera-lime"
                   : "text-gray-800 dark:text-ink",
             )}
           >
@@ -1520,19 +1560,30 @@ function FieldLabelCell({
           type="button"
           onClick={onOpenInspector}
           onMouseDown={(e) => e.stopPropagation()}
-          aria-pressed={isSelected}
+          // aria-pressed / aria-label / title now key off
+          // `isInspectorOpen` (the gear's own toggle state), not
+          // `isSelected` (the row highlight). The two were conflated
+          // when selecting a field auto-opened the inspector;
+          // splitting them means the gear truthfully reflects whether
+          // THIS gear's dialog is open.
+          aria-pressed={isInspectorOpen}
           aria-label={
-            isSelected
+            isInspectorOpen
               ? `Close inspector for ${column.name || "column"}`
               : `Open inspector for ${column.name || "column"}`
           }
           title={
-            isSelected ? "Close column inspector" : "Open column inspector"
+            isInspectorOpen
+              ? "Close column inspector"
+              : "Open column inspector"
           }
           className={cn(
             "shrink-0 p-1 rounded transition-colors",
-            isSelected
-              ? "text-brand-700 bg-brand-100 hover:bg-brand-200 dark:bg-brand-900/40 dark:text-brand-50 dark:hover:bg-brand-900/60"
+            // Lime "active" chip ONLY paints when this gear's
+            // inspector dialog is currently open — that's the
+            // semantically correct moment for the on-state.
+            isInspectorOpen
+              ? "text-rivera-navy bg-rivera-soft-lime hover:bg-rivera-soft-lime/80 dark:bg-rivera-lime/15 dark:text-rivera-lime dark:hover:bg-rivera-lime/25"
               : "text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-ink-subtle dark:hover:text-ink dark:hover:bg-surface-muted",
           )}
         >
@@ -1633,14 +1684,17 @@ function RuleCellWrap({
         // the entire row.
         "transition-[colors,opacity,transform] duration-150",
         // Row-highlight body fill when this cell's column is the
-        // inspected one — paints alongside the louder `bg-brand-100`
-        // on the FieldLabelCell so the entire row reads as one
-        // continuous brand-tinted band (Part 2 of UX polish). No
-        // border/ring here so the body cells stay scannable; the
-        // role-band left border on the FieldLabelCell already provides
-        // enough edge to anchor the row visually.
+        // inspected one — paints alongside the FieldLabelCell so the
+        // entire row reads as one continuous Soft Lime band (Part 2 of
+        // UX polish). Solid `bg-rivera-soft-lime` in light mode (a 60%
+        // mix only produced ~#F4FFE4, indistinguishable from white);
+        // translucent Electric Lime in dark mode keeps the band visible
+        // without burning the navy backdrop. No border/ring here so the
+        // body cells stay scannable; the role-band left border on the
+        // FieldLabelCell already provides enough edge to anchor the row
+        // visually.
         isSelected
-          ? "bg-brand-50 dark:bg-brand-900/30"
+          ? "bg-rivera-soft-lime dark:bg-rivera-lime/15"
           : "bg-white dark:bg-surface",
         isDragged && "opacity-40",
       )}

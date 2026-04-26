@@ -355,10 +355,30 @@ export function TemplateEditor({
   const [deleteDependencyError, setDeleteDependencyError] = useState<
     string | null
   >(null);
-  // Which column the inspector is currently bound to. Null hides the
-  // right-side panel; selecting a column shows it. Cleared on template
-  // switch + when the selected column is removed.
+  // Two independent column-attention states:
+  //
+  //   * `selectedColumnId` — the column the operator is currently
+  //     focused on / scanning. Drives the Soft Lime column highlight
+  //     across header + body cells. Set by clicking the column NAME
+  //     (table mode) or the field LABEL (matrix mode); never opens
+  //     the inspector on its own.
+  //
+  //   * `inspectorColumnId` — the column whose inspector dialog is
+  //     currently open. Drives the floating ColumnInspector + the
+  //     gear icon's "active" lime chip. Set by clicking the GEAR
+  //     icon next to the column name. Toggling the same gear closes;
+  //     clicking the gear of a different column swaps the inspector
+  //     to that column (and sweeps the highlight along).
+  //
+  // Splitting the two means an operator can scan / highlight columns
+  // without the modal-style inspector backdrop popping up. The
+  // inspector becomes an explicit "open settings" gesture instead
+  // of an implicit byproduct of selection.
+  //
+  // Both are cleared on template switch + when the underlying column
+  // is removed.
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null);
+  const [inspectorColumnId, setInspectorColumnId] = useState<string | null>(null);
 
   // Layout mode — horizontal (spreadsheet, default) vs vertical
   // (transposed rule matrix: fields down as rows, rules across as
@@ -399,6 +419,7 @@ export function TemplateEditor({
     setDraggedIdx(null);
     setDropIdx(null);
     setSelectedColumnId(null);
+    setInspectorColumnId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateKey]);
 
@@ -536,8 +557,10 @@ export function TemplateEditor({
       }),
     );
     // If we just removed the column the inspector was bound to, hide
-    // the inspector — there's nothing to display anymore.
+    // the inspector — there's nothing to display anymore. Also clear
+    // the highlight so the empty visual band doesn't linger.
     setSelectedColumnId((curr) => (curr === id ? null : curr));
+    setInspectorColumnId((curr) => (curr === id ? null : curr));
   }, []);
 
   // ---- Rule ops -----------------------------------------------------------
@@ -631,17 +654,40 @@ export function TemplateEditor({
     setPendingFocusId(newCol.id);
   }, []);
 
-  /** Toggle the inspector for `id`. Same id closes; different id swaps. */
+  /**
+   * Toggle the floating inspector dialog for `id`.
+   *   * Same id → closes (the gear becomes a quick-close affordance).
+   *   * Different id → swaps the inspector to the new column AND
+   *     sweeps the highlight along, so the lime band always points
+   *     at whatever the inspector is currently bound to.
+   *   * Fresh click on a column with no inspector open → opens the
+   *     inspector and highlights the column.
+   *
+   * Wired to the gear icon ONLY. Clicking the column name no longer
+   * opens the dialog — see `selectColumn` for the highlight-only
+   * alternative wired to name clicks.
+   */
   const toggleInspector = useCallback((id: string) => {
-    setSelectedColumnId((curr) => (curr === id ? null : id));
+    setInspectorColumnId((curr) => {
+      const next = curr === id ? null : id;
+      // When OPENING (or swapping), keep the highlight aligned with
+      // the inspected column. When CLOSING (next === null) we leave
+      // the highlight alone — operators often close the inspector and
+      // continue scanning the same column visually.
+      if (next != null) setSelectedColumnId(next);
+      return next;
+    });
   }, []);
 
   /**
-   * Select a column for inspection — never deselects. Used by the
-   * single-click on the header label, where "click" should always
-   * mean "make this the active column" (and never "close the panel").
+   * Select a column for highlight — never deselects, never opens the
+   * inspector. Used by the single-click on the header label / matrix
+   * field label, where "click" should always mean "make this the
+   * actively-scanned column" without forcing the inspector dialog
+   * (with its dimmed backdrop) to pop.
+   *
    * Distinct from `toggleInspector`, which is wired to the gear icon
-   * and intentionally toggles for a quick close affordance.
+   * and is the ONLY way to open the floating inspector dialog.
    */
   const selectColumn = useCallback((id: string) => {
     setSelectedColumnId(id);
@@ -776,11 +822,18 @@ export function TemplateEditor({
   const sourceBadge = SOURCE_BADGE[initial.source];
   const atMaxColumns = columns.length >= MAX_COLUMNS;
   const canDelete = !isDraft && Boolean(onDelete);
-  // Resolve the currently-inspected column (or null). The inspector is
-  // a controlled view of one entry in `columns`, so we always pull it
-  // fresh from local state — selection is just an id pointer.
+  // Resolve the currently-highlighted column (or null). Drives the
+  // Soft Lime band across header + body cells. We always pull fresh
+  // from local state so the highlight follows in-flight column edits.
   const selectedColumn = selectedColumnId
     ? columns.find((c) => c.id === selectedColumnId) ?? null
+    : null;
+  // Resolve the column whose floating inspector dialog is currently
+  // open (or null). Independent from `selectedColumn` so the operator
+  // can scan a column with the lime band without forcing the modal
+  // backdrop to pop.
+  const inspectorColumn = inspectorColumnId
+    ? columns.find((c) => c.id === inspectorColumnId) ?? null
     : null;
 
   // Hide drop indicators when the resolved insertion would put the
@@ -799,9 +852,11 @@ export function TemplateEditor({
   return (
     <div className="flex-1 min-h-0 flex">
       {/* The editor body (toolbar + spreadsheet) keeps the full height
-          and grows; the inspector slides in to the right when a column
-          is selected. The outer wrap is a horizontal flex so the table
-          stays the dominant surface even when the inspector is open. */}
+          and takes 100% of the available width. The column inspector
+          renders as a `position: fixed` floating draggable window (see
+          ColumnInspector) rather than a docked side rail, so the table
+          stays the dominant surface and the inspector floats over it
+          without claiming any flex track of its own. */}
       <div className="flex-1 min-w-0 flex flex-col">
       {/* ------------------ Compact toolbar (name + actions) ------------------ */}
       <header className="border-b border-gray-200 bg-white shrink-0 dark:border-line dark:bg-surface-subtle">
@@ -998,6 +1053,7 @@ export function TemplateEditor({
           rules={rules}
           catalogIndex={catalogIndex}
           selectedColumnId={selectedColumnId}
+          inspectorColumnId={inspectorColumnId}
           // Same drag state as table mode — both views share one
           // `draggedIdx` / `dropIdx` so the parent reducer stays the
           // single source of truth for column ordering.
@@ -1112,6 +1168,7 @@ export function TemplateEditor({
                       atMaxColumns={atMaxColumns}
                       isDragged={draggedIdx === i}
                       isSelected={selectedColumnId === col.id}
+                      isInspectorOpen={inspectorColumnId === col.id}
                       // Sortable-transform shift in px (Part 3 of UX
                       // polish). 0 when this column isn't between the
                       // drag source and the drop target — see
@@ -1244,8 +1301,13 @@ export function TemplateEditor({
                                     // through the placeholder rows so the
                                     // band runs uninterrupted from header
                                     // to footer even on a fresh template.
+                                    // Solid Soft Lime — same intensity as
+                                    // the header + body rule cells so the
+                                    // selected band reads as one
+                                    // continuous color stripe regardless
+                                    // of which row type fills the column.
                                     selectedColumnId === col.id &&
-                                      "bg-brand-50/40 dark:bg-brand-900/20",
+                                      "bg-rivera-soft-lime dark:bg-rivera-lime/15",
                                   )}
                                 >
                                   —
@@ -1351,13 +1413,18 @@ export function TemplateEditor({
       )}
       </div>
 
-      {/* ------------------ Right-side column inspector ----------------------- */}
-      {selectedColumn && (
+      {/* ------------------ Floating column inspector ------------------------- */}
+      {/* Renders as a centered, draggable, modal-style dialog — does NOT
+          participate in the surrounding flex track. Bound to the gear
+          icon's `inspectorColumnId` (NOT the column-highlight
+          `selectedColumnId`) so plain selection no longer forces the
+          backdrop to pop. See ColumnInspector for the dialog UX. */}
+      {inspectorColumn && (
         <ColumnInspector
-          column={selectedColumn}
+          column={inspectorColumn}
           catalogIndex={catalogIndex}
-          onChange={(patch) => updateColumn(selectedColumn.id, patch)}
-          onClose={() => setSelectedColumnId(null)}
+          onChange={(patch) => updateColumn(inspectorColumn.id, patch)}
+          onClose={() => setInspectorColumnId(null)}
         />
       )}
       <ImportTemplateValidationPanel
@@ -1382,7 +1449,16 @@ interface HeaderCellProps {
   total: number;
   atMaxColumns: boolean;
   isDragged: boolean;
+  /** Column has the Soft Lime highlight (set by name-click). */
   isSelected: boolean;
+  /**
+   * Floating ColumnInspector dialog is currently bound to this column
+   * (set by gear-click). Independent from `isSelected`: the gear icon
+   * paints its lime "active" chip + flips its aria/title labels
+   * around this prop, while the column body fill stays driven by
+   * `isSelected`.
+   */
+  isInspectorOpen: boolean;
   isDropBefore: boolean;
   isDropAfterLast: boolean;
   /**
@@ -1430,6 +1506,7 @@ function HeaderCell({
   atMaxColumns,
   isDragged,
   isSelected,
+  isInspectorOpen,
   isDropBefore,
   isDropAfterLast,
   reorderShift,
@@ -1594,18 +1671,24 @@ function HeaderCell({
         //   * `duration-150` matches the rest of the editor's micro-
         //     animations (Switch toggle, hover bg).
         "transition-[colors,opacity,transform] duration-150",
-        // Selected column gets a STRONGER brand fill on the header
-        // cell (`bg-brand-100`) plus a paler `bg-brand-50` on every
-        // body cell in the same column — so the inspected column
-        // reads as a continuous filled vertical band from header
-        // through the bottom of the rules list, even when the
-        // inspector itself is scrolled offscreen. No ring/outline
-        // here (Part 2 of UX polish): the border-based drop indicator
-        // and the role-tint body cells remain unobstructed, and the
-        // selected state coexists cleanly with required / locked /
-        // hover without piling visuals on top of each other.
+        // Selected column gets a STRONGER Soft Lime fill on the header
+        // cell (`bg-rivera-soft-lime`) plus a paler `bg-rivera-soft-lime/60`
+        // on every body cell in the same column — so the inspected
+        // column reads as a continuous filled vertical band from header
+        // through the bottom of the rules list, even when the inspector
+        // itself is scrolled offscreen. Soft Lime (#ECFFD2) was chosen
+        // over the previous Real Estate Blue tint so the selected band
+        // sits in the same color family as the saved-list selected row
+        // (Electric Lime) — both surfaces feel like the same "selected"
+        // moment in two different intensities. In dark mode we drop to
+        // a translucent Electric Lime so the navy backdrop reads through.
+        // No ring/outline here (Part 2 of UX polish): the border-based
+        // drop indicator and the role-tint body cells remain
+        // unobstructed, and the selected state coexists cleanly with
+        // required / locked / hover without piling visuals on top of
+        // each other.
         isSelected
-          ? "bg-brand-100 dark:bg-brand-900/40"
+          ? "bg-rivera-soft-lime dark:bg-rivera-lime/15"
           : "bg-gray-50 dark:bg-surface-muted",
         // Stable 2px transparent borders so the drop indicator doesn't
         // shift cell widths when it appears.
@@ -1676,8 +1759,12 @@ function HeaderCell({
         ) : (
           <button
             type="button"
-            // Single click → SELECT the column (open inspector). Never
-            // closes — keeps "select" as a stable, unambiguous action.
+            // Single click → highlight the column with the Soft Lime
+            // band. Never closes the highlight; never opens the
+            // floating inspector dialog (the gear icon to the right
+            // is the only entry point for that). Keeps "select" as a
+            // stable, unambiguous action that doesn't surprise the
+            // operator with a modal backdrop.
             onClick={onSelect}
             // Double click → enter rename mode. Makes text editing
             // intentional rather than triggered by a stray click.
@@ -1695,8 +1782,8 @@ function HeaderCell({
                 setRenaming(true);
               }
             }}
-            title={`${col.name || "Untitled column"} — click to inspect, double-click to rename`}
-            aria-label={`Column ${index + 1}: ${col.name || "Untitled column"}. Click to open inspector, double-click to rename.`}
+            title={`${col.name || "Untitled column"} — click to highlight, gear to open inspector, double-click to rename`}
+            aria-label={`Column ${index + 1}: ${col.name || "Untitled column"}. Click to highlight; click the gear to open inspector; double-click to rename.`}
             aria-pressed={isSelected}
             className={cn(
               "flex-1 min-w-0 px-1.5 py-1 text-left text-[12.5px] font-semibold rounded truncate",
@@ -1705,7 +1792,11 @@ function HeaderCell({
               empty
                 ? "text-red-400 italic ring-1 ring-red-300 dark:text-red-400 dark:ring-red-900"
                 : isSelected
-                  ? "text-brand-900 dark:text-brand-50"
+                  ? // Deep Navy on Soft Lime in light mode reads
+                    // crisply; Electric Lime on the translucent dark
+                    // tint keeps the selected label legible against
+                    // the navy backdrop.
+                    "text-rivera-navy dark:text-rivera-lime"
                   : "text-gray-800 dark:text-ink",
             )}
           >
@@ -1776,18 +1867,36 @@ function HeaderCell({
           type="button"
           onClick={onOpenSettings}
           onMouseDown={(e) => e.stopPropagation()}
-          aria-pressed={isSelected}
+          // aria-pressed / aria-label / title now key off
+          // `isInspectorOpen` (the gear's own toggle state), not
+          // `isSelected` (the column highlight). They were conflated
+          // when selecting auto-opened the inspector; splitting them
+          // means the gear truthfully reflects whether THIS gear's
+          // dialog is open.
+          aria-pressed={isInspectorOpen}
           aria-label={
-            isSelected
+            isInspectorOpen
               ? `Close inspector for column ${index + 1}`
               : `Open inspector for column ${index + 1}`
           }
-          title={isSelected ? "Close column inspector" : "Open column inspector"}
+          title={
+            isInspectorOpen ? "Close column inspector" : "Open column inspector"
+          }
           className={cn(
             "shrink-0 p-0.5 rounded transition-opacity cursor-pointer",
-            isSelected
-              ? "opacity-100 text-brand-700 bg-brand-100 hover:bg-brand-200 dark:bg-brand-900/40 dark:text-brand-50 dark:hover:bg-brand-900/60"
-              : "opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-ink-subtle dark:hover:text-ink dark:hover:bg-surface-muted",
+            // Gear opacity stays driven by `isSelected || hover` so
+            // the affordance remains discoverable: hovering the
+            // header shows the gear, and once the column is the
+            // active scan target it stays visible.
+            isSelected || isInspectorOpen
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 focus:opacity-100",
+            // Lime "active" chip ONLY paints when this gear's
+            // inspector dialog is currently open — that's the
+            // semantically correct moment for the on-state.
+            isInspectorOpen
+              ? "text-rivera-navy bg-rivera-soft-lime hover:bg-rivera-soft-lime/80 dark:bg-rivera-lime/15 dark:text-rivera-lime dark:hover:bg-rivera-lime/25"
+              : "text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-ink-subtle dark:hover:text-ink dark:hover:bg-surface-muted",
           )}
         >
           <Settings2 className="h-3.5 w-3.5" />
@@ -2427,16 +2536,28 @@ function RuleRow({
                   ? BODY_RULE_ROLE_CELL_TONE[ruleRole]
                   : BODY_NO_RULE_ROLE_CELL_TONE,
                 draggedIdx === ci && "opacity-40",
-                // Column-wide selected highlight — paints a brand fill
-                // (`bg-brand-50`) on top of the role band so the
-                // inspected column reads as a continuous filled
-                // vertical strip from the louder `bg-brand-100`
-                // header (above) through every rule row (Part 2 of UX
-                // polish). No border/ring — the role band's faint
-                // tone underneath stays scannable, and the selection
-                // coexists with required / locked / hover without
-                // visual conflict.
-                isSelectedColumn && "bg-brand-50 dark:bg-brand-900/30",
+                // Column-wide selected highlight — paints a SOLID Soft
+                // Lime fill on top of the role band so the inspected
+                // column reads as a continuous filled vertical strip
+                // from header through every rule row (Part 2 of UX
+                // polish).
+                //
+                // Two notes on this exact recipe:
+                //   * Solid (no `/N` opacity modifier) in light mode —
+                //     a 60% Soft Lime over a white role band only
+                //     produces ~#F4FFE4, indistinguishable from white;
+                //     full opacity #ECFFD2 is the smallest tint that
+                //     actually reads as "this column is selected".
+                //   * `!` prefix is mandatory: Tailwind generates
+                //     `bg-*` utilities alphabetically, so role-band
+                //     tones whose color follows `rivera` (e.g.
+                //     `bg-violet-50/40` for restriction rows) would
+                //     otherwise win the background-color cascade and
+                //     silently swallow the highlight. `!important`
+                //     guarantees the selected tint paints regardless
+                //     of which role band sits underneath.
+                isSelectedColumn &&
+                  "!bg-rivera-soft-lime dark:!bg-rivera-lime/15",
               )}
             >
               <RuleCellEditor

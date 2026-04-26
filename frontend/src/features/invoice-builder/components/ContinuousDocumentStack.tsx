@@ -688,8 +688,15 @@ export function ContinuousDocumentStack({
                         <span
                           className={cn(
                             "px-1 py-[1px] text-[8.5px] font-bold uppercase tracking-wide",
-                            "rounded-tr text-white",
-                            isRequired ? "bg-amber-500" : "bg-emerald-600",
+                            "rounded-tr",
+                            // REQ stays amber on white (required
+                            // attention). Plain "Linked" uses Electric
+                            // Lime on the brand navy — surfaces the
+                            // Rivera validation accent on every
+                            // region wired to a template.
+                            isRequired
+                              ? "bg-amber-500 text-white"
+                              : "bg-rivera-lime text-rivera-navy",
                           )}
                           title={
                             isRequired

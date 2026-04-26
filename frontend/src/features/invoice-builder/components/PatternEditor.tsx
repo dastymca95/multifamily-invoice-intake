@@ -1359,11 +1359,13 @@ function ToolPicker({
             onClick={() => onChange(t.id)}
             title={tip}
             className={cn(
-              "px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
+              // `relative` for the active lime indicator dot below.
+              "relative px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
               "border-r border-gray-200 last:border-r-0 dark:border-line",
               active
                 ? "bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-50"
-                : "text-gray-700 hover:bg-gray-50 dark:text-ink-muted dark:hover:bg-surface-muted",
+                : // Hover gets a Sky Cyan tint instead of plain gray.
+                  "text-gray-700 hover:bg-rivera-cyan/10 dark:text-ink-muted dark:hover:bg-rivera-cyan/15",
               t.comingSoon &&
                 active &&
                 "bg-amber-50 text-amber-800 dark:bg-yellow-950/40 dark:text-yellow-200",
@@ -1371,6 +1373,15 @@ function ToolPicker({
             )}
           >
             <Icon className="h-3.5 w-3.5" />
+            {/* Active tool gets a tiny Electric Lime dot top-right —
+                Rivera selected accent. Hidden on the comingSoon
+                amber state so the warning tone reads cleanly. */}
+            {active && !t.comingSoon && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-0.5 right-0.5 h-1 w-1 rounded-full bg-rivera-lime"
+              />
+            )}
           </button>
         );
       })}
@@ -1540,14 +1551,25 @@ function ViewModeToggle({
             onClick={() => onChange(it.id)}
             title={it.title}
             className={cn(
-              "px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
+              // `relative` for the active lime indicator dot.
+              "relative px-2 py-1 text-[11.5px] flex items-center gap-1 transition-colors",
               "border-r border-gray-200 last:border-r-0 dark:border-line",
               active
                 ? "bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-50"
-                : "text-gray-700 hover:bg-gray-50 dark:text-ink-muted dark:hover:bg-surface-muted",
+                : // Sky Cyan hover wash so the segmented control
+                  // shares the cyan interaction language.
+                  "text-gray-700 hover:bg-rivera-cyan/10 dark:text-ink-muted dark:hover:bg-rivera-cyan/15",
             )}
           >
             <Icon className="h-3.5 w-3.5" />
+            {/* Active mode gets a tiny Electric Lime dot — same
+                Rivera selected accent as the ToolPicker above. */}
+            {active && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-0.5 right-0.5 h-1 w-1 rounded-full bg-rivera-lime"
+              />
+            )}
           </button>
         );
       })}
@@ -1705,14 +1727,30 @@ function TabButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors",
+        // `relative` + the lime indicator below: active tab gets a
+        // small Electric Lime underline accent on top of the brand
+        // bottom border so the active state reads as a Rivera
+        // selection, not a generic Tailwind tab.
+        "relative px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors",
         active
-          ? "border-brand-500 text-brand-800 bg-white dark:bg-surface-subtle dark:text-brand-50"
-          : "border-transparent text-gray-600 hover:text-gray-800 dark:text-ink-muted dark:hover:text-ink",
+          ? "border-rivera-blue text-brand-800 bg-white dark:bg-surface-subtle dark:text-brand-50"
+          : // Idle hover gets a Sky Cyan tint — cyan in the chrome
+            // around the tabs so the segmented control feels alive.
+            "border-transparent text-gray-600 hover:text-gray-800 hover:bg-rivera-cyan/10 dark:text-ink-muted dark:hover:text-ink dark:hover:bg-rivera-cyan/15",
       )}
     >
       {label}
       {badge}
+      {/* Electric Lime micro-bar under the active tab — sits on top
+          of the existing brand bottom border for a 2-tone selected
+          indicator. Kept thin (1.5px) so it reads as accent, not
+          decoration. */}
+      {active && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-2 right-2 -bottom-px h-[2px] rounded-full bg-rivera-lime"
+        />
+      )}
     </button>
   );
 }

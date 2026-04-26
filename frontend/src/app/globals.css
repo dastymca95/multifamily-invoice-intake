@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
- * Theme tokens — light + dark.
+ * Theme tokens — Rivera-aligned light + dark palettes.
  *
  * The whole app's surface palette resolves through these CSS
  * variables, exposed via Tailwind's `surface`, `ink`, and `line`
@@ -18,53 +18,83 @@
  * the `:root` block AND the `.dark` block, then expose it under the
  * appropriate group in `tailwind.config.ts`.
  *
- * Brand color (`#2563eb` brand-600) is INTENTIONALLY excluded from
- * the dark-mode palette — Rivera blue stays Rivera blue across both
- * modes; tinting it would compromise the brand mark in the sidebar.
+ * VALUE choices are sourced from the official Rivera brand palette:
+ *
+ *   Light surfaces:
+ *     #FFFFFF (white)              — cards, inputs
+ *     #F3F8FF (Ice Blue)           — page background
+ *     #EAF3FF (Soft Ice Panel)     — muted wells, hover, selected rows
+ *     #DCE7F5 (Border Light)       — hairlines
+ *
+ *   Light text:
+ *     #111827 (Ink)                — primary text
+ *     #64748B (Muted)              — secondary text
+ *     #94A3B8 (slate-400)          — placeholders, tertiary hints
+ *
+ *   Light foundation:
+ *     #061B33 (Deep Navy)          — sidebar / inverted surfaces
+ *
+ *   Dark surfaces:
+ *     #061B33 (Deep Navy)          — page bg
+ *     #101C30 (Dark Panel)         — secondary panels / muted wells
+ *     #13233C (Dark Surface)       — cards / popovers
+ *     #1A2B47 (Dark Elevated)      — hover, lifted cards
+ *     #020817 (Near Black Navy)    — sidebar / inverted
+ *     #223A5C (Dark Border)        — hairlines
+ *
+ *   Dark text:
+ *     #F8FAFC                      — primary
+ *     #B8C7DA                      — secondary
+ *     #7F91AA                      — muted / placeholders
+ *
+ * Brand color — Rivera Blue #2563FF — is INTENTIONALLY excluded from
+ * the dark-mode palette. It stays the same hex across both themes;
+ * tinting it would compromise the brand mark in the sidebar and the
+ * primary CTA buttons.
  */
 @layer base {
   :root {
-    /* Light surfaces — slate-tinted whites for the page background,
-       white for cards on top of it, and a softer slate for "muted"
-       subsection wells. */
-    --surface: 248 250 252;          /* slate-50 — page bg */
-    --surface-muted: 241 245 249;    /* slate-100 — subsection wells */
-    --surface-subtle: 255 255 255;   /* white — cards / panels */
-    --surface-inverted: 30 58 138;   /* brand-900 — sidebar */
+    /* Light surfaces — Ice Blue page bg, white for cards on top, soft
+       ice for muted wells and hover/selected states. */
+    --surface: 243 248 255;          /* #F3F8FF — page bg (Ice Blue) */
+    --surface-muted: 234 243 255;    /* #EAF3FF — muted wells / selected */
+    --surface-subtle: 255 255 255;   /* #FFFFFF — cards / panels */
+    --surface-inverted: 6 27 51;     /* #061B33 — sidebar (Deep Navy) */
 
-    /* Light ink (text) tones */
-    --ink: 17 24 39;                 /* gray-900 — primary text */
-    --ink-muted: 75 85 99;           /* gray-600 — secondary text */
-    --ink-subtle: 156 163 175;       /* gray-400 — tertiary / hints */
-    --ink-inverted: 255 255 255;     /* white — text on dark sidebar */
+    /* Light ink (text) tones — neutral grays kept; Rivera spec calls
+       for #111827 primary + #64748B secondary. */
+    --ink: 17 24 39;                 /* #111827 — primary text */
+    --ink-muted: 100 116 139;        /* #64748B — secondary text */
+    --ink-subtle: 148 163 184;       /* #94A3B8 — tertiary / placeholders */
+    --ink-inverted: 255 255 255;     /* #FFFFFF — text on Deep Navy sidebar */
 
-    /* Light borders / hairlines */
-    --line: 229 231 235;             /* gray-200 — most borders */
-    --line-strong: 209 213 219;      /* gray-300 — emphasised borders */
+    /* Light borders — Border Light from the Rivera palette. */
+    --line: 220 231 245;             /* #DCE7F5 — Border Light */
+    --line-strong: 203 213 225;      /* slate-300 — emphasised borders */
 
     color-scheme: light;
   }
 
   .dark {
-    /* Dark surfaces — deep slate page bg, mid slate panels for
-       cards (so card edges read against the bg), darker slate for
-       muted wells. The sidebar darkens further to keep the
-       inverted-from-content contrast that brand-900 delivers in
-       light mode. */
-    --surface: 15 23 42;             /* slate-900 — page bg */
-    --surface-muted: 30 41 59;       /* slate-800 — subsection wells */
-    --surface-subtle: 30 41 59;      /* slate-800 — cards / panels */
-    --surface-inverted: 2 6 23;      /* slate-950 — sidebar */
+    /* Dark surfaces — Deep Navy page, mid-navy panels for cards
+       (so card edges read against the bg), darker mid-navy for muted
+       wells. The sidebar darkens further to Near Black Navy
+       (#020817) to keep the inverted-from-content contrast. */
+    --surface: 6 27 51;              /* #061B33 — Deep Navy page bg */
+    --surface-muted: 16 28 48;       /* #101C30 — Dark Panel / wells */
+    --surface-subtle: 19 35 60;      /* #13233C — Dark Surface / cards */
+    --surface-inverted: 2 8 23;      /* #020817 — Near Black Navy sidebar */
 
-    /* Dark ink — keep readable but not pure white (eye strain). */
-    --ink: 241 245 249;              /* slate-100 — primary text */
-    --ink-muted: 203 213 225;        /* slate-300 — secondary text */
-    --ink-subtle: 148 163 184;       /* slate-400 — tertiary / hints */
-    --ink-inverted: 248 250 252;     /* slate-50 — text on sidebar */
+    /* Dark ink — readable but not pure white (eye strain). Aligned
+       with the Rivera dark-mode text spec. */
+    --ink: 248 250 252;              /* #F8FAFC — primary text */
+    --ink-muted: 184 199 218;        /* #B8C7DA — secondary text */
+    --ink-subtle: 127 145 170;       /* #7F91AA — muted / placeholders */
+    --ink-inverted: 248 250 252;     /* #F8FAFC — text on Near Black sidebar */
 
-    /* Dark borders — slightly lifted from the bg so card edges read. */
-    --line: 51 65 85;                /* slate-700 */
-    --line-strong: 71 85 105;        /* slate-600 */
+    /* Dark borders — Dark Border from the Rivera palette. */
+    --line: 34 58 92;                /* #223A5C — Dark Border */
+    --line-strong: 71 85 105;        /* slate-600 — emphasised borders */
 
     color-scheme: dark;
   }
