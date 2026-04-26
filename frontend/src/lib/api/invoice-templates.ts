@@ -7,6 +7,7 @@ import type {
   InvoiceTemplateUpdate,
 } from "@/types/invoice-template";
 import type { UsedByReport } from "@/types/dependencies";
+import type { ResolverInput, ResolverResult } from "@/types/import-resolver";
 
 import { apiClient } from "./client";
 
@@ -43,6 +44,27 @@ export const invoiceTemplatesApi = {
   validate: (id: string): Promise<ImportTemplateValidationResult> =>
     apiClient
       .get<ImportTemplateValidationResult>(`/invoice-templates/${id}/validate`)
+      .then((r) => r.data),
+
+  /**
+   * Diagnostic dry-run of the resolver for the saved template at `id`.
+   *
+   * The backend treats `payload` as optional — `{}` is a perfectly
+   * valid request and the resolver will run against zero facts/hints.
+   * Pass a populated `ResolverInput` (extracted facts, catalog hints,
+   * document metadata) to simulate a richer runtime context. The
+   * request NEVER mutates the template; this is purely a read-style
+   * audit endpoint.
+   */
+  resolveDryRun: (
+    id: string,
+    payload?: Partial<ResolverInput>,
+  ): Promise<ResolverResult> =>
+    apiClient
+      .post<ResolverResult>(
+        `/invoice-templates/${id}/resolve-dry-run`,
+        payload ?? {},
+      )
       .then((r) => r.data),
 
   getUsedBy: (id: string): Promise<UsedByReport> =>

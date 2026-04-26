@@ -20,6 +20,7 @@ ExtractedFactSourceType = Literal[
     "invoice_pattern", "ocr", "heuristic", "ai", "manual", "unknown"
 ]
 ResolverSeverity = Literal["error", "warning", "info"]
+ResolverIssueScope = Literal["readiness", "runtime", "row", "cell"]
 ResolverStatus = Literal["ready", "needs_review", "blocked", "conflict"]
 ResolvedCellStatus = Literal[
     "resolved", "missing", "conflict", "fallback", "manual_review", "ignored"
@@ -71,6 +72,14 @@ class PatternMatch(BaseModel):
     reason: str | None = None
 
 
+class CatalogHint(BaseModel):
+    """A deterministic hint for resolving one catalog-backed baseline field."""
+
+    entry_id: str | None = None
+    text: str | None = None
+    field_values: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResolverInput(BaseModel):
     """Runtime context supplied to a resolver dry run.
 
@@ -85,6 +94,7 @@ class ResolverInput(BaseModel):
     batch_id: str | None = None
     extracted_facts: list[ExtractedFact] = Field(default_factory=list)
     pattern_matches: list[PatternMatch] = Field(default_factory=list)
+    catalog_hints: dict[str, CatalogHint] = Field(default_factory=dict)
     catalog_context: dict[str, Any] | None = None
     document_metadata: dict[str, Any] = Field(default_factory=dict)
     runtime_options: dict[str, Any] = Field(default_factory=dict)
@@ -111,6 +121,7 @@ class ResolverIssue(BaseModel):
     severity: ResolverSeverity
     code: str
     message: str
+    scope: ResolverIssueScope | None = None
     recommendation: str | None = None
     column_id: str | None = None
     column_label: str | None = None
@@ -119,6 +130,61 @@ class ResolverIssue(BaseModel):
     field_key: str | None = None
     pattern_id: str | None = None
     path: str | None = None
+
+
+class RuleConditionEvaluation(BaseModel):
+    """One IF/condition cell evaluation for a dry-run row."""
+
+    column_id: str
+    column_label: str
+    rule_id: str
+    role: str
+    expected_values: list[Any] = Field(default_factory=list)
+    actual_values: list[Any] = Field(default_factory=list)
+    matched: bool
+    match_reason: str | None = None
+    source_type: str | None = None
+    issue_codes: list[str] = Field(default_factory=list)
+
+
+class RuleRestrictionEvaluation(BaseModel):
+    """One LIMIT/restriction cell evaluation for a matched dry-run rule."""
+
+    column_id: str
+    column_label: str | None = None
+    rule_id: str
+    role: str
+    expected_values: list[Any] = Field(default_factory=list)
+    actual_values: list[Any] = Field(default_factory=list)
+    passed: bool
+    restricted_out: bool = False
+    match_reason: str | None = None
+    source_type: str | None = None
+    issue_codes: list[str] = Field(default_factory=list)
+
+
+class MatchedRuleResult(BaseModel):
+    """Applicability diagnostics for one rule against one dry-run row."""
+
+    rule_id: str
+    rule_label: str | None = None
+    matched: bool
+    skipped: bool = False
+    skip_reason: str | None = None
+    condition_count: int = 0
+    conditions_passed: int = 0
+    conditions_failed: int = 0
+    restriction_count: int = 0
+    restrictions_passed: int = 0
+    restrictions_failed: int = 0
+    restricted_out: bool = False
+    eligible_for_actions: bool = False
+    actions_applied: int = 0
+    actions_ignored: int = 0
+    issues: list[ResolverIssue] = Field(default_factory=list)
+    matched_conditions: list[RuleConditionEvaluation] = Field(default_factory=list)
+    restrictions: list[RuleRestrictionEvaluation] = Field(default_factory=list)
+    action_issues: list[ResolverIssue] = Field(default_factory=list)
 
 
 class CellProvenance(BaseModel):
@@ -135,6 +201,7 @@ class CellProvenance(BaseModel):
     entry_id: str | None = None
     source_label: str | None = None
     source_detail: str | None = None
+    source_type: str | None = None
 
 
 class ResolvedImportCell(BaseModel):
@@ -160,6 +227,7 @@ class ResolvedImportRow(BaseModel):
     status: ResolverStatus
     cells: list[ResolvedImportCell] = Field(default_factory=list)
     issues: list[ResolverIssue] = Field(default_factory=list)
+    matched_rules: list[MatchedRuleResult] = Field(default_factory=list)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 

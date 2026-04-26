@@ -15,6 +15,7 @@ import {
   LockKeyhole,
   Pencil,
   Pin,
+  Play,
   Plus,
   Save,
   Scale,
@@ -75,6 +76,7 @@ import {
 import type { CatalogIndex } from "../hooks/useCatalogIndex";
 
 import { ColumnInspector } from "./ColumnInspector";
+import { ImportTemplateResolverPreviewPanel } from "./ImportTemplateResolverPreviewPanel";
 import { ImportTemplateValidationPanel } from "./ImportTemplateValidationPanel";
 import {
   type BuilderLayoutMode,
@@ -349,6 +351,11 @@ export function TemplateEditor({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationResult, setValidationResult] =
     useState<ImportTemplateValidationResult | null>(null);
+  // Resolver dry-run preview — purely diagnostic, never mutates the
+  // template. Open/close is independent from validation; only one
+  // boolean is needed because the panel owns its own loading/result
+  // state internally (it can be re-run from inside the modal).
+  const [resolverPreviewOpen, setResolverPreviewOpen] = useState(false);
   const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
   const [deleteDependencyReport, setDeleteDependencyReport] =
     useState<UsedByReport | null>(null);
@@ -903,6 +910,23 @@ export function TemplateEditor({
             type="button"
             variant="secondary"
             size="sm"
+            disabled={isDraft}
+            onClick={() => setResolverPreviewOpen(true)}
+            title={
+              isDraft
+                ? "Save this template before running a dry-run."
+                : dirty
+                  ? "Dry-run uses the last saved version."
+                  : "Diagnostic dry-run of the resolver"
+            }
+          >
+            <Play className="h-3.5 w-3.5" />
+            Dry run
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             disabled={validationLoading}
             loading={validationLoading}
             onClick={handleValidate}
@@ -1434,6 +1458,18 @@ export function TemplateEditor({
         result={validationResult}
         hasUnsavedChanges={dirty && !isDraft}
         onClose={() => setValidationOpen(false)}
+      />
+      {/* Resolver dry-run preview — diagnostic only. Mounted alongside
+          the validation panel so both surfaces share the same modal
+          conventions. The panel reads `templateKey` (the persisted id)
+          and disables itself for unsaved drafts. */}
+      <ImportTemplateResolverPreviewPanel
+        templateId={isDraft ? null : templateKey}
+        templateName={initial.name || name}
+        isOpen={resolverPreviewOpen}
+        onClose={() => setResolverPreviewOpen(false)}
+        hasUnsavedChanges={dirty && !isDraft}
+        isDraft={isDraft}
       />
     </div>
   );
