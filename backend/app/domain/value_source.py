@@ -499,6 +499,20 @@ class _CatalogSourceBase:
             "CATALOG_NOT_CONFIGURED",
             "SOURCE_CATALOG_FIELD_MISSING",
             "CATALOG_FIELD_NOT_FOUND",
+            # Phase 1B parity-test discovery — added once the
+            # parity suite caught these two resolver codes that
+            # weren't declared in Phase 1A. Both come from defensive
+            # branches in ``_resolve_catalog_baseline``:
+            #   * CATALOG_MATCHER_NOT_IMPLEMENTED — db=None at
+            #     resolve time (no SQLAlchemy session available).
+            #   * CATALOG_NOT_FOUND — catalog_id references a
+            #     catalog that no longer exists in the database
+            #     (deleted post-binding).
+            # Both are kind-specific contract surface, not generic
+            # resolver-level codes, so they belong here on the
+            # catalog source classes.
+            "CATALOG_MATCHER_NOT_IMPLEMENTED",
+            "CATALOG_NOT_FOUND",
         }
     )
     #: Concrete subclasses set this to "vendor" / "property" / "gl".
