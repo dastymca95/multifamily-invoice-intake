@@ -71,6 +71,7 @@ import {
   emptyRuleCell,
   newColumnId,
   newRule,
+  normalizeTemplateRulesForSave,
 } from "@/types/invoice-template";
 
 import type { CatalogIndex } from "../hooks/useCatalogIndex";
@@ -464,7 +465,15 @@ export function TemplateEditor({
       name: name.trim(),
       description: description.trim() ? description.trim() : null,
       columns: columns.map((c, i) => ({ ...c, name: trimmedColumnNames[i] })),
-      rules,
+      // Save-time canonical-extraction cleanup. Strips the legacy
+      // `cell.extraction` field whenever the cell already carries at
+      // least one complete `extraction_bindings` entry — eliminates
+      // the LEGACY_EXTRACTION_DIVERGENCE warning the validator emits
+      // for templates that were authored before the Phase-2 multi-
+      // binding shape landed. Backend stays read-compatible with the
+      // legacy field for older / un-resaved templates; once the user
+      // re-saves, the cell is clean.
+      rules: normalizeTemplateRulesForSave(rules),
     });
   };
 
@@ -1446,9 +1455,16 @@ export function TemplateEditor({
       {inspectorColumn && (
         <ColumnInspector
           column={inspectorColumn}
+          columns={columns}
+          rules={rules}
           catalogIndex={catalogIndex}
           onChange={(patch) => updateColumn(inspectorColumn.id, patch)}
           onClose={() => setInspectorColumnId(null)}
+          onSave={handleSave}
+          canSave={canSave}
+          saving={saving}
+          dirty={dirty}
+          isDraft={isDraft}
         />
       )}
       <ImportTemplateValidationPanel
@@ -1470,6 +1486,9 @@ export function TemplateEditor({
         onClose={() => setResolverPreviewOpen(false)}
         hasUnsavedChanges={dirty && !isDraft}
         isDraft={isDraft}
+        onSave={handleSave}
+        canSave={canSave}
+        saving={saving}
       />
     </div>
   );

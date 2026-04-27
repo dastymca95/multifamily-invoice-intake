@@ -5,8 +5,11 @@ import {
   Asterisk,
   Building2,
   CalendarDays,
+  CheckCircle2,
   CheckSquare,
+  ChevronDown,
   ChevronRight,
+  CircleAlert,
   Coins,
   CornerDownRight,
   Database,
@@ -53,6 +56,8 @@ import {
   DECIMAL_PLACES_OPTIONS,
   GLOBAL_MODE_LABEL,
   type InvoiceTemplateColumn,
+  type InvoiceTemplateRule,
+  type InvoiceTemplateRuleCell,
   REF_BINDING_SOURCES,
   RULE_ROLE_DESCRIPTION,
   RULE_ROLE_LABEL,
@@ -61,6 +66,7 @@ import {
   coerceColumnForDataType,
   columnAllowsRuleOverride,
   columnDataType,
+  effectiveCellRole,
   effectiveColumnDefaultRole,
   columnGlobalMode,
   columnLockEditing,
@@ -132,6 +138,20 @@ interface ColumnInspectorProps {
   /** The selected column. Caller hides the panel entirely when null. */
   column: InvoiceTemplateColumn;
   /**
+   * Sibling columns. Used by the readiness checks to resolve the
+   * effective rule cell role for OTHER columns inside a rule (the
+   * "is this rule conditional?" detection). Not used for editing —
+   * the inspector still mutates only `column`.
+   */
+  columns: InvoiceTemplateColumn[];
+  /**
+   * The template's current rule rows. The wizard reads them to
+   * detect whether any FILL/Action rule writes a value into THIS
+   * column — that's the difference between an honest "Looks good"
+   * and a misleading green tick that the resolver still rejects.
+   */
+  rules: InvoiceTemplateRule[];
+  /**
    * Saved-catalog summaries used to disambiguate catalog-backed
    * source bindings. The inspector reads the slice that matches the
    * column's current `source_type`. Passed in (not internally hooked)
@@ -142,6 +162,27 @@ interface ColumnInspectorProps {
   onChange: (patch: Partial<InvoiceTemplateColumn>) => void;
   /** Close the inspector without losing the underlying column edits. */
   onClose: () => void;
+  /**
+   * Optional persist-to-server hook. When provided AND `canSave` is
+   * true, the wizard footer renders a "Save & close" button so the
+   * operator can commit changes from inside the inspector instead of
+   * having to dismiss + click the editor's main Save button. Mirrors
+   * `handleSave` in `TemplateEditor.tsx`.
+   */
+  onSave?: () => void;
+  /** Whether the editor's Save button would currently be enabled. */
+  canSave?: boolean;
+  /** Whether a save is in flight (drives the Save & close spinner). */
+  saving?: boolean;
+  /** True iff the editor has local edits not yet persisted. */
+  dirty?: boolean;
+  /**
+   * True iff the editor is showing the in-memory canonical-default
+   * draft (no persisted id yet). When set, "Save & close" still
+   * works (editor will create a new template) but the wizard surfaces
+   * a clear hint that nothing is persisted yet.
+   */
+  isDraft?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,9 +237,16 @@ const SOURCE_TYPE_HINT: Record<ColumnSourceType, string> = {
 
 export function ColumnInspector({
   column,
+  columns,
+  rules,
   catalogIndex,
   onChange,
   onClose,
+  onSave,
+  canSave = false,
+  saving = false,
+  dirty = false,
+  isDraft = false,
 }: ColumnInspectorProps) {
   const sourceType: ColumnSourceType = columnGlobalMode(column);
   const required = column.required ?? false;
@@ -253,9 +301,45 @@ export function ColumnInspector({
           };
         }
       }
+      // Dropdown ↔ manual_values sync at source-type FLIP time.
+      //
+      // The wider `handleColumnChange` wrapper below mirrors
+      // format.list_options → manual_values on every write, BUT
+      // GlobalBehaviorSection wires straight to this callback (not
+      // the wrapper). Without the inline sync, switching a dropdown
+      // column to "Pick from a fixed list at render" left
+      // manual_values at the seeded `[""]` while format.list_options
+      // already had Bill / Credit — so the DefaultSelectedOption
+      // picker rendered an empty universe and the operator had no way
+      // to nominate a default. Mirror here too to give the picker
+      // values to show immediately.
+      const dt = columnDataType(column);
+      if (
+        (dt === "dropdown" || dt === "multi_select") &&
+        next === "manual_list"
+      ) {
+        const listOpts = (column.format?.list_options ?? []).filter(
+          (v) => v.trim().length > 0,
+        );
+        if (listOpts.length > 0) {
+          patch.manual_values = listOpts;
+        } else {
+          // Empty allowed-values list — clear the seeded blank so the
+          // picker correctly reports "no values yet" instead of
+          // pretending one exists.
+          patch.manual_values = null;
+        }
+      }
       onChange(patch);
     },
-    [column.manual_values, column.source_ref, column.source_type, onChange],
+    [
+      column.format,
+      column.manual_values,
+      column.source_ref,
+      column.source_type,
+      column.data_type,
+      onChange,
+    ],
   );
 
   // ---- Floating-window drag state -----------------------------------------
@@ -273,13 +357,23 @@ export function ColumnInspector({
   // deterministic fallback so the first server render has stable markup;
   // the client immediately recomputes against the real `window.innerWidth`
   // / `innerHeight` to land centered.
-  const FLOATING_WIDTH = 320; // matches `w-[20rem]` below
+  // Wizard-era width: 860px desktop max, clamped to the viewport so
+  // narrow screens still get a usable surface (24px gutter on each
+  // side). The inline style below mirrors `w-[min(860px,calc(100vw-48px))]`
+  // so the JS centering math stays in sync with whatever Tailwind
+  // actually renders. Bumped from the legacy 320px right rail because
+  // the new step-by-step layout (cards + inline alerts + readiness
+  // checklist) needs breathing room.
   const FLOATING_MARGIN = 16;
+  const FLOATING_WIDTH = (() => {
+    if (typeof window === "undefined") return 760;
+    return Math.min(860, Math.max(320, window.innerWidth - 48));
+  })();
   // Used to estimate vertical centering before the window has measured
-  // itself. A typical inspector renders ~560–620px tall depending on
-  // the active source kind; 600 lands the open dialog roughly centered
-  // for common viewport heights without forcing a re-measure pass.
-  const ESTIMATED_HEIGHT = 600;
+  // itself. The wizard is taller than the legacy flat panel — guess a
+  // bit higher so the open dialog lands centered for common viewport
+  // heights without forcing a re-measure pass.
+  const ESTIMATED_HEIGHT = 720;
   const [pos, setPos] = useState<{ x: number; y: number }>(() => {
     if (typeof window === "undefined") return { x: 0, y: FLOATING_MARGIN * 2 };
     return {
@@ -373,6 +467,153 @@ export function ColumnInspector({
     [pos.x, pos.y],
   );
 
+  // ---- Wizard scaffolding ------------------------------------------------
+  //
+  // The inspector renders as a true page-by-page journey: only the
+  // active step's content is mounted at any time. The header + stepper
+  // + footer stay sticky around the page area so the operator always
+  // knows where they are and what to do next, even on tall content
+  // pages.
+  //
+  // `activeStep` is a discriminated union so the Advanced page (the
+  // power-user controls — locks / validation / allow_rule_override)
+  // can live alongside the numbered steps without polluting the type.
+  const [activeStep, setActiveStep] = useState<WizardStepKey>(1);
+
+  // Reset to Step 1 whenever the inspector switches to a DIFFERENT
+  // column. We key off `column.id` rather than the full `column` so
+  // in-flight edits to the same column don't kick the operator back
+  // to the start of the wizard.
+  const columnIdRef = useRef(column.id);
+  useEffect(() => {
+    if (columnIdRef.current !== column.id) {
+      columnIdRef.current = column.id;
+      setActiveStep(1);
+    }
+  }, [column.id]);
+
+  // The readiness checklist's "Fix in step N" links route through
+  // setActiveStep — the legacy scrollIntoView approach doesn't apply
+  // anymore because non-active pages aren't mounted.
+  const onJumpToStep = useCallback((step: 1 | 2 | 3 | 4) => {
+    setActiveStep(step);
+  }, []);
+
+  // Wrap the parent's onChange to enforce the dropdown ↔ manual_list
+  // synchronisation. THE PROBLEM this solves:
+  //
+  //   The validator reports `DROPDOWN_OPTIONS_EMPTY` against either
+  //   `format.list_options` (output-shape constraint) OR
+  //   `manual_values` (manual_list source default candidates) —
+  //   they're orthogonal fields with overlapping validation. A
+  //   beginner editing a Dropdown column with the "Pick from list"
+  //   global source ends up having to type Bill / Credit twice (once
+  //   in Step 2's Allowed values, once in the legacy ManualListEditor)
+  //   or the validator complains about the path they didn't fill.
+  //
+  // The fix:
+  //
+  //   For dropdown / multi-select columns whose global source is
+  //   `manual_list`, mirror `format.list_options` into `manual_values`
+  //   on every write. The wizard hides the legacy ManualListEditor
+  //   in this case (Step 3's source subform branches on this) so the
+  //   user only ever sees one list. The mirror is one-way
+  //   (list_options → manual_values) so dropdown editing in Step 2
+  //   stays the single source of truth.
+  const handleColumnChange = useCallback(
+    (patch: Partial<InvoiceTemplateColumn>) => {
+      const next: InvoiceTemplateColumn = { ...column, ...patch };
+      const dt = columnDataType(next);
+      const mode = columnGlobalMode(next);
+      if (
+        (dt === "dropdown" || dt === "multi_select") &&
+        mode === "manual_list"
+      ) {
+        const list = (next.format?.list_options ?? []).filter((v) =>
+          v.trim().length > 0,
+        );
+        // Always overwrite manual_values, including clearing it to
+        // null when the canonical list goes empty. Without the null
+        // branch, removing every option would leave stale values
+        // behind in manual_values — the validator would pass on the
+        // manual_values path while failing on list_options, which is
+        // exactly the inconsistency this sync exists to prevent.
+        patch = { ...patch, manual_values: list.length > 0 ? list : null };
+      }
+      onChange(patch);
+    },
+    [column, onChange],
+  );
+
+  // Recommendation lookup against the canonical column name. Beginners
+  // get a one-click recipe for the columns they're most likely to
+  // configure (Bill or Credit, Invoice Number, Vendor, GL Account…).
+  const recommendation = getColumnRecommendation(column.name);
+  const handleApplyRecommendation = useCallback(() => {
+    if (!recommendation) return;
+    handleColumnChange(recommendation.patch);
+  }, [handleColumnChange, recommendation]);
+
+  // Local readiness checklist (Step 5 contents + per-step status chip
+  // colours). Pure derivation from the live column shape.
+  const readiness = computeReadiness(column, rules, columns);
+  const valuePicture = computeValueSourcePicture(column, rules, columns);
+  const dropdownLike = dataType === "dropdown" || dataType === "multi_select";
+  const dropdownOptions = (column.format?.list_options ?? []).filter(
+    (v) => v.trim().length > 0,
+  );
+  const dropdownNeedsOptions = dropdownLike && dropdownOptions.length === 0;
+
+  // Step 3's manual-list editor is hidden for dropdown/multi-select
+  // because the wizard mirrors format.list_options into manual_values
+  // (see `handleColumnChange` above). For non-dropdown manual_list
+  // columns we still fall through to the existing ManualListEditor.
+  const hideManualListEditor = dropdownLike && sourceType === "manual_list";
+
+  // Per-step status badges drive the stepper chips + footer status
+  // text. Steps 1–4 each filter the readiness items by `fixStep`;
+  // Step 5 summarises ALL items; Advanced has no inherent status so
+  // it's always neutral.
+  const stepStatuses: Record<WizardStepKey, ReadinessStatus | null> = {
+    1: statusForStep(readiness, 1),
+    2: statusForStep(readiness, 2),
+    3: statusForStep(readiness, 3),
+    4: statusForStep(readiness, 4),
+    5: summariseReadiness(readiness),
+    advanced: null,
+  };
+
+  // The only HARD gate on Next is missing fundamental identity data:
+  // a column with no name or no data type isn't safe to evaluate
+  // through later steps. All other warnings are surfaced via the
+  // stepper badges + readiness page but never block progression
+  // (per spec: "Do not trap user aggressively").
+  const identityComplete =
+    column.name.trim().length > 0 && Boolean(dataType);
+  const canAdvanceFromStep1 = identityComplete;
+
+  const STEP_ORDER: WizardStepKey[] = [1, 2, 3, 4, 5, "advanced"];
+  const currentIdx = STEP_ORDER.indexOf(activeStep);
+  const isFirst = currentIdx === 0;
+  const isLast = currentIdx === STEP_ORDER.length - 1;
+  const goBack = useCallback(() => {
+    setActiveStep((curr) => {
+      const idx = STEP_ORDER.indexOf(curr);
+      return idx > 0 ? STEP_ORDER[idx - 1] : curr;
+    });
+    // STEP_ORDER is a stable literal array — exhaustive deps would
+    // require it as a dep but it never changes between renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const goNext = useCallback(() => {
+    setActiveStep((curr) => {
+      const idx = STEP_ORDER.indexOf(curr);
+      return idx < STEP_ORDER.length - 1 ? STEP_ORDER[idx + 1] : curr;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const nextDisabled = activeStep === 1 && !canAdvanceFromStep1;
+
   return (
     <>
       {/* ---- Dimmed backdrop ------------------------------------------- */}
@@ -396,7 +637,13 @@ export function ColumnInspector({
           // table flows full-width underneath. `z-50` matches the
           // `Modal` component's layer; real Modals (which portal to
           // <body>) still win via DOM order if both happen to be open.
-          "fixed z-50 flex flex-col w-[20rem]",
+          //
+          // Width: responsive 860px desktop max, clamped against the
+          // viewport on narrow screens (24px gutter each side). The
+          // wizard's step cards + inline warnings + readiness checklist
+          // need significantly more horizontal room than the legacy
+          // 320px right-rail panel.
+          "fixed z-50 flex flex-col w-[min(860px,calc(100vw-48px))]",
           // `rounded-xl` + `shadow-xl` mirror the New template Modal
           // so the two dialog moments feel like the same surface.
           "bg-white border border-gray-200 rounded-xl shadow-xl",
@@ -444,125 +691,406 @@ export function ColumnInspector({
           </button>
         </div>
 
-      {/* ---- Body ------------------------------------------------------ */}
-      {/* Three explicit groups (Basic, Global behavior, Rule
-          interaction) + a tail Validation group. The grouping is the
-          key UX investment — the user must always be able to tell
-          which knob is the global default and which is the per-rule
-          layer. See module doc-comment for the full rationale. */}
-      <div className="flex-1 min-h-0 overflow-auto px-4 py-3 space-y-5">
-        {/* ============ A. Basic ====================================== */}
-        <SectionGroup
-          label="A. Basic"
-          hint="What this column is — its identity, type, and shape on output."
-        >
-          <RequiredSection
-            required={required}
-            onToggle={() => onChange({ required: !required })}
-          />
+      {/* ---- Sticky stepper navigation -------------------------------- */}
+      {/* The stepper is the operator's compass: at a glance they see
+          where they are in the journey, which steps still need
+          attention (status chip per step), and they can jump to any
+          step by clicking it. Sits BELOW the draggable header (so the
+          drag-handle area doesn't shrink) and ABOVE the page area. */}
+      <Stepper
+        active={activeStep}
+        statuses={stepStatuses}
+        onSelect={setActiveStep}
+      />
 
-          <DataTypeSection
-            dataType={dataType}
-            onChange={(next) =>
-              // `coerceColumnForDataType` returns a patch that may CLEAR
-              // global-mode fields (source_type / source_ref / manual_values
-              // / default_value) when the previous source kind is no longer
-              // recommended for the new type. The picker below re-renders
-              // immediately into a clean state instead of leaving stale
-              // bindings (e.g. a `manual_values` list of color names left
-              // over from when this was a Dropdown column).
-              onChange(coerceColumnForDataType(column, next))
-            }
+      {/* ---- Page area — only the active step is mounted ------------ */}
+      {/* The whole point of the journey UX: the operator sees ONE
+          page at a time. No long vertical scroll across all steps.
+          The page itself can scroll internally if its content is
+          tall (rare in practice). The recommendation banner sits
+          above the active page so it's visible from any step. */}
+      <div className="flex-1 min-h-0 overflow-auto px-5 py-5 space-y-4 bg-gray-50/50 dark:bg-surface/40">
+        {recommendation && activeStep === 1 && (
+          <RecommendationBanner
+            recommendation={recommendation}
+            onApply={handleApplyRecommendation}
           />
+        )}
 
-          <FormatSection
-            dataType={dataType}
-            format={column.format ?? null}
-            onChange={(nextFormat) => onChange({ format: nextFormat })}
-          />
-        </SectionGroup>
+        {/* ============ Page 1 — Identity ============================ */}
+        {activeStep === 1 && (
+          <WizardPage
+            title="What is this column?"
+            hint="The column's identity. Defines the shape of the final exported column."
+            status={stepStatuses[1]}
+          >
+            <ColumnNameField
+              value={column.name}
+              onChange={(next) => handleColumnChange({ name: next })}
+            />
 
-        {/* ============ B. Global / default behavior ================== */}
-        {/* This is the column's default value strategy — what the
-            column resolves to when nothing else is in play. Distinct
-            from rule rows: rule rows are scoped per-row; this is
-            global to the column. */}
-        <SectionGroup
-          label="B. Global behavior"
-          hint="What this column resolves to by default, independent of any rule row. Allow rule override decides whether row rules may replace it."
-        >
-          <GlobalBehaviorSection
-            dataType={dataType}
-            sourceType={sourceType}
-            onChange={handleSourceTypeChange}
-          />
+            <RequiredSection
+              required={required}
+              onToggle={() =>
+                handleColumnChange({ required: !required })
+              }
+            />
 
-          <SourceSubform
-            column={column}
-            sourceType={sourceType}
-            catalogIndex={catalogIndex}
-            onChange={onChange}
-          />
+            <DataTypeSection
+              dataType={dataType}
+              onChange={(next) =>
+                // `coerceColumnForDataType` returns a patch that may
+                // CLEAR global-mode fields (source_type / source_ref /
+                // manual_values / default_value) when the previous
+                // source kind is no longer recommended for the new
+                // type. The picker re-renders immediately into a clean
+                // state instead of leaving stale bindings.
+                handleColumnChange(coerceColumnForDataType(column, next))
+              }
+            />
 
-          <AllowRuleOverrideSection
-            allow={allowRuleOverride}
-            globalMode={sourceType}
-            onToggle={() =>
-              onChange({ allow_rule_override: !allowRuleOverride })
-            }
-          />
-        </SectionGroup>
+            {!identityComplete && (
+              <StepWarning tone="warning" title="Finish the basics first">
+                A column needs a name and a data type before later steps
+                make sense. Next stays disabled until both are set.
+              </StepWarning>
+            )}
+          </WizardPage>
+        )}
 
-        {/* ============ C. Rule interaction =========================== */}
-        <SectionGroup
-          label="C. Rule interaction"
-          hint="How this column behaves when it appears inside a rule row underneath."
-        >
-          <RuleRoleSection
-            role={effectiveColumnDefaultRole(column)}
-            onChange={(next) =>
-              onChange(setColumnDefaultRolePatch(column, next))
-            }
-          />
+        {/* ============ Page 2 — Allowed values / format ============= */}
+        {/* FormatSection adapts to data type: dropdown / multi-select
+            render the canonical Allowed values editor that writes to
+            `format.list_options`; date gets a date-format picker;
+            number/currency get decimal places + currency code; text/
+            boolean show nothing here. */}
+        {activeStep === 2 && (
+          <WizardPage
+            title="What values are allowed?"
+            hint="Define how this column is rendered on export — the allowed-value list for dropdowns, the format mask for dates / currency."
+            status={stepStatuses[2]}
+          >
+            {dropdownLike && (
+              <StepWarning tone="info" title="How allowed values work">
+                These are the only values that can appear in this column
+                on export. Step 3's "Pick from fixed list" default
+                source reuses the same list — you never type the values
+                twice.
+              </StepWarning>
+            )}
 
-          <RuleInteractionBanner
-            allow={allowRuleOverride}
-            globalMode={sourceType}
-          />
-        </SectionGroup>
+            <FormatSection
+              dataType={dataType}
+              format={column.format ?? null}
+              onChange={(nextFormat) =>
+                handleColumnChange({ format: nextFormat })
+              }
+            />
 
-        {/* ============ D. Validation (existing) ====================== */}
-        <SectionGroup
-          label="D. Validation"
-          hint="Column-level enforcement hints. Recorded today; the renderer will start enforcing them as the export pipeline lands."
-        >
-          <ValidationSection column={column} onChange={onChange} />
-        </SectionGroup>
+            {dropdownNeedsOptions && (
+              <StepWarning tone="error" title="Add at least one allowed value">
+                {dataType === "multi_select" ? "Multi-select" : "Dropdown"}{" "}
+                columns can't be saved with an empty options list. Use
+                the "+ Add option" button above.
+              </StepWarning>
+            )}
 
-        {/* ============ E. Locks (Part 7) ============================= */}
-        {/* Three independent locks — keeping them in their own section
-            (rather than scattering checkboxes under Basic / Rule
-            interaction) makes the "permission model" of this column
-            scannable: position, schema, and rule override are
-            orthogonal axes the operator can tighten case-by-case. */}
-        <SectionGroup
-          label="E. Locks"
-          hint="Restrict what other operators can do with this column. Locks are advisory in the editor today; the resolver and export pipeline will enforce them as those layers land."
-        >
-          <LockPositionSection
-            value={lockPosition}
-            onToggle={() =>
-              onChange({ lock_position: !lockPosition })
-            }
-          />
-          <LockEditingSection
-            value={lockEditing}
-            onToggle={() =>
-              onChange({ lock_editing: !lockEditing })
-            }
-          />
-        </SectionGroup>
+            {!dropdownLike &&
+              dataType !== "date" &&
+              dataType !== "number" &&
+              dataType !== "currency" && (
+                <p className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-3 text-[12px] text-gray-500 dark:border-line dark:bg-surface-subtle dark:text-ink-muted">
+                  No extra allowed-value setup needed for{" "}
+                  <span className="font-medium text-gray-700 dark:text-ink">
+                    {dataType}
+                  </span>{" "}
+                  columns. Continue to the next step.
+                </p>
+              )}
+          </WizardPage>
+        )}
+
+        {/* ============ Page 3 — Default source (global behavior) === */}
+        {activeStep === 3 && (
+          <WizardPage
+            title="Where should Rivera get this value by default?"
+            hint="The column's default value strategy when no rule row applies. Rule cells layer on top of this in Step 4."
+            status={stepStatuses[3]}
+          >
+            <GlobalBehaviorSection
+              dataType={dataType}
+              sourceType={sourceType}
+              onChange={handleSourceTypeChange}
+            />
+
+            {/* Manual-list editor is HIDDEN when the column is a
+                dropdown/multi-select with manual_list source — the
+                wizard mirrors format.list_options into manual_values
+                automatically (see handleColumnChange). What we DO
+                still need to show is the `DefaultSelectedOption`
+                picker — that's the control the operator uses to
+                nominate which allowed value the resolver should
+                emit as the column's baseline. Hiding the entire
+                SourceSubform (legacy bug) made this picker invisible
+                and produced the "Looks good but Dry Run says missing"
+                trap; the fix is to render the DefaultSelectedOption
+                explicitly here, alongside an info banner that
+                explains where the values come from + a jump button
+                back to Step 2 when the universe is still empty. */}
+            {hideManualListEditor ? (
+              <>
+                {dropdownOptions.length > 0 ? (
+                  <StepWarning tone="info">
+                    Using your{" "}
+                    <strong>
+                      {dropdownOptions.length} allowed value
+                      {dropdownOptions.length === 1 ? "" : "s"}
+                    </strong>{" "}
+                    from Step 2. Choose which one Rivera should output
+                    as the column's default below.
+                  </StepWarning>
+                ) : (
+                  <StepWarning tone="warning" title="No allowed values yet">
+                    Add allowed values in Step 2 before choosing a
+                    default for this column.
+                    <button
+                      type="button"
+                      onClick={() => setActiveStep(2)}
+                      className="ml-2 inline-flex items-center text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-50"
+                    >
+                      Go to Step 2 →
+                    </button>
+                  </StepWarning>
+                )}
+                {/* The default-value picker. Reads from
+                    `column.manual_values` (kept in sync with
+                    `format.list_options` by handleColumnChange) and
+                    writes `column.default_value`. Persisted on the
+                    template so the resolver picks it up as the
+                    column's baseline. */}
+                <DefaultSelectedOption
+                  column={column}
+                  onChange={handleColumnChange}
+                />
+                {required &&
+                  dropdownOptions.length > 0 &&
+                  !column.default_value && (
+                    <StepWarning
+                      tone="error"
+                      title="Pick a default value to make this column ready"
+                    >
+                      This required column has allowed values, but
+                      Rivera still needs to know which value to output.
+                      Choose a default value above, or add a rule
+                      Action/FILL in Step 4 that writes one of the
+                      allowed values.
+                    </StepWarning>
+                  )}
+                {!required &&
+                  dropdownOptions.length > 0 &&
+                  !column.default_value && (
+                    <StepWarning tone="info">
+                      No default selected — operators will pick a value
+                      at runtime. Set a default above if you want
+                      Rivera to fill the column automatically.
+                    </StepWarning>
+                  )}
+              </>
+            ) : (
+              <SourceSubform
+                column={column}
+                sourceType={sourceType}
+                catalogIndex={catalogIndex}
+                onChange={handleColumnChange}
+              />
+            )}
+
+            {/* ---- Source-specific contextual warnings ---- */}
+            {sourceType === "invoice_field" &&
+              !column.source_ref?.field && (
+                <StepWarning>
+                  Choose which invoice field should populate this column.
+                </StepWarning>
+              )}
+            {(sourceType === "vendor_field" ||
+              sourceType === "property_field" ||
+              sourceType === "gl_field") &&
+              !column.source_ref?.catalog_id && (
+                <StepWarning>
+                  Choose a catalog before Rivera can resolve this value.
+                </StepWarning>
+              )}
+            {required && sourceType === "empty" && (
+              <StepWarning title="No default source for a required column">
+                This is okay only if a rule FILL action will provide the
+                value. Otherwise pick a default source above.
+              </StepWarning>
+            )}
+          </WizardPage>
+        )}
+
+        {/* ============ Page 4 — Rule behavior ======================= */}
+        {activeStep === 4 && (
+          <WizardPage
+            title="How should rules interact with this column?"
+            hint="Rule rows underneath this column behave according to the role you pick here. Rule cells can still override on a per-row basis under Advanced."
+            status={stepStatuses[4]}
+          >
+            {/* "Rule role is optional here" affordance — when Step 3's
+                default already resolves the column unconditionally,
+                the role picker is just an override knob. Tell the
+                operator so they don't think they're missing
+                something by leaving it as "No default role". */}
+            {valuePicture.globalVerdict.status === "ok" &&
+              !valuePicture.globalVerdict.conditional && (
+                <StepWarning tone="info" title="Rule role is optional here">
+                  Step 3 already resolves this column with{" "}
+                  <strong>{valuePicture.globalVerdict.label}</strong>.
+                  Pick a role only if you want rules to override the
+                  default on specific rows.
+                </StepWarning>
+              )}
+
+            <RuleRoleSection
+              role={effectiveColumnDefaultRole(column)}
+              onChange={(next) =>
+                handleColumnChange(setColumnDefaultRolePatch(column, next))
+              }
+            />
+
+            <RuleInteractionBanner
+              allow={allowRuleOverride}
+              globalMode={sourceType}
+            />
+
+            {/* ---- Role-vs-data warnings ----
+                Skipped when an unconditional global baseline exists
+                (e.g. Bill or Credit with default Bill): the column is
+                already resolvable, so the role pinned here can't
+                "fail to write" anything. */}
+            {required &&
+              effectiveColumnDefaultRole(column) === "restriction" &&
+              sourceType === "empty" &&
+              !(valuePicture.globalVerdict.status === "ok" &&
+                !valuePicture.globalVerdict.conditional) && (
+                <StepWarning title="LIMIT does not write a value">
+                  LIMIT (Restriction) only narrows where a rule applies
+                  — it never fills the column. Switch to FILL (Action)
+                  or add a default source in Step 3 if this column must
+                  end up filled.
+                </StepWarning>
+              )}
+            {required &&
+              effectiveColumnDefaultRole(column) === "condition" &&
+              sourceType === "empty" &&
+              !(valuePicture.globalVerdict.status === "ok" &&
+                !valuePicture.globalVerdict.conditional) && (
+                <StepWarning title="IF only decides whether the rule runs">
+                  IF (Condition) doesn't fill this column. Switch to
+                  FILL (Action) or add a default source in Step 3 if
+                  this column must end up filled.
+                </StepWarning>
+              )}
+          </WizardPage>
+        )}
+
+        {/* ============ Page 5 — Readiness checklist ================= */}
+        {activeStep === 5 && (
+          <WizardPage
+            title="Column readiness"
+            hint="What the resolver actually sees. Mirrors the same value-source logic the backend uses for Validate + Dry Run, so green checks here mean Dry Run will agree."
+            status={stepStatuses[5]}
+          >
+            {/* Resolver expectation card — the headline verdict from
+                computeValueSourcePicture. Drives operator trust by
+                being honest about what Dry Run will actually report. */}
+            <ResolverExpectationCard picture={valuePicture} />
+
+            {/* Saved-changes hint — even when readiness is green,
+                Dry Run uses the LAST SAVED template. Make sure the
+                operator knows that before they hit Done & wonder
+                why nothing changed. */}
+            {dirty && !isDraft && (
+              <StepWarning tone="warning" title="Unsaved changes">
+                Validate and Dry Run read the last SAVED version. Use
+                Save & close in the footer (or the editor's Save
+                button) before running diagnostics.
+              </StepWarning>
+            )}
+
+            <ReadinessChecklist
+              items={readiness}
+              onJumpToStep={onJumpToStep}
+            />
+          </WizardPage>
+        )}
+
+        {/* ============ Advanced page ================================ */}
+        {/* Power-user controls live on their own page so beginners
+            don't trip over them, but the spec explicitly requires
+            they remain reachable. The Advanced tab in the stepper
+            (rendered with a distinct neutral chip) is always
+            accessible. */}
+        {activeStep === "advanced" && (
+          <WizardPage
+            title="Advanced"
+            hint="Rule override · validation · locks. Power-user controls — most operators never need to touch these."
+            status={null}
+          >
+            <AllowRuleOverrideSection
+              allow={allowRuleOverride}
+              globalMode={sourceType}
+              onToggle={() =>
+                handleColumnChange({
+                  allow_rule_override: !allowRuleOverride,
+                })
+              }
+            />
+            <ValidationSection
+              column={column}
+              onChange={handleColumnChange}
+            />
+            <LockPositionSection
+              value={lockPosition}
+              onToggle={() =>
+                handleColumnChange({ lock_position: !lockPosition })
+              }
+            />
+            <LockEditingSection
+              value={lockEditing}
+              onToggle={() =>
+                handleColumnChange({ lock_editing: !lockEditing })
+              }
+            />
+          </WizardPage>
+        )}
       </div>
+
+      {/* ---- Sticky footer — Back / Next / Done ---------------------- */}
+      <WizardFooter
+        active={activeStep}
+        currentIdx={currentIdx}
+        total={STEP_ORDER.length}
+        isFirst={isFirst}
+        isLast={isLast}
+        nextDisabled={nextDisabled}
+        statusLabel={statusLabelForStep(activeStep, stepStatuses[activeStep])}
+        onBack={goBack}
+        onNext={goNext}
+        onDone={onClose}
+        onSaveAndClose={
+          onSave
+            ? () => {
+                onSave();
+                onClose();
+              }
+            : undefined
+        }
+        canSave={canSave}
+        saving={saving}
+        dirty={dirty}
+        isDraft={isDraft}
+      />
       </aside>
     </>
   );
@@ -2333,5 +2861,1560 @@ function LockEditingSection({
         </div>
       </div>
     </Section>
+  );
+}
+
+// ===========================================================================
+// Wizard helpers — recommendations + readiness
+// ===========================================================================
+
+/**
+ * Suggested-setup recipes keyed by canonicalised column name. The
+ * wizard surfaces these as a one-click "Apply suggested setup" banner
+ * at the top of Step 1 so beginners don't have to think through every
+ * knob from scratch.
+ *
+ * Each recipe is a partial column patch — the wizard merges it into
+ * the existing column rather than replacing wholesale, so values the
+ * user already typed (description, lock state, etc.) survive.
+ */
+interface ColumnRecommendation {
+  /** Friendly explanation rendered above the apply button. */
+  explanation: string;
+  /** Patch handed to `onChange` when the operator clicks Apply. */
+  patch: Partial<InvoiceTemplateColumn>;
+}
+
+const COLUMN_RECOMMENDATIONS: Record<string, ColumnRecommendation> = {
+  "bill or credit": {
+    explanation:
+      "Most invoices are Bills. Lock the dropdown to Bill / Credit, set Bill as the default, and let rules flip to Credit on credit memos.",
+    patch: {
+      data_type: "dropdown",
+      format: { list_options: ["Bill", "Credit"] },
+      source_type: "fixed_value",
+      default_value: "Bill",
+      default_rule_role: "action",
+      rule_role: "action",
+    },
+  },
+  "invoice number": {
+    explanation:
+      "Pulled from the extracted invoice payload. Required text column with the invoice's number as its FILL action source.",
+    patch: {
+      data_type: "text",
+      required: true,
+      source_type: "invoice_field",
+      source_ref: { field: "invoice_number" },
+      default_rule_role: "action",
+      rule_role: "action",
+    },
+  },
+  "invoice date": {
+    explanation:
+      "Date pulled from the extracted invoice. The Date format under Step 2 controls how it's rendered on export.",
+    patch: {
+      data_type: "date",
+      required: true,
+      source_type: "invoice_field",
+      source_ref: { field: "invoice_date" },
+      default_rule_role: "action",
+      rule_role: "action",
+    },
+  },
+  vendor: {
+    explanation:
+      "Match against your Vendors catalog. Use as a Condition (IF) to scope rules per vendor, or as an Action (FILL) to write the vendor on export.",
+    patch: {
+      source_type: "vendor_field",
+      source_ref: { field: "vendor_name" },
+      default_rule_role: "condition",
+      rule_role: "condition",
+    },
+  },
+  "vendor name": {
+    explanation:
+      "Match against your Vendors catalog. Use as a Condition (IF) to scope rules per vendor.",
+    patch: {
+      source_type: "vendor_field",
+      source_ref: { field: "vendor_name" },
+      default_rule_role: "condition",
+      rule_role: "condition",
+    },
+  },
+  property: {
+    explanation:
+      "Match against your Properties catalog. Often used as a LIMIT to narrow which properties a rule applies to.",
+    patch: {
+      source_type: "property_field",
+      source_ref: { field: "property_name" },
+      default_rule_role: "restriction",
+      rule_role: "restriction",
+    },
+  },
+  "gl account": {
+    explanation:
+      "Looked up from your GL Codes catalog. Almost always written by a FILL action so the right GL ends up on the export row.",
+    patch: {
+      source_type: "gl_field",
+      source_ref: { field: "gl_code" },
+      default_rule_role: "action",
+      rule_role: "action",
+    },
+  },
+  "gl code": {
+    explanation:
+      "Looked up from your GL Codes catalog. Almost always written by a FILL action.",
+    patch: {
+      source_type: "gl_field",
+      source_ref: { field: "gl_code" },
+      default_rule_role: "action",
+      rule_role: "action",
+    },
+  },
+  amount: {
+    explanation:
+      "Currency value pulled from the invoice. Set decimal places + currency code under Step 2 to control export rendering.",
+    patch: {
+      data_type: "currency",
+      required: true,
+      source_type: "invoice_field",
+      source_ref: { field: "amount" },
+      default_rule_role: "action",
+      rule_role: "action",
+    },
+  },
+  total: {
+    explanation:
+      "Currency total pulled from the invoice. Set decimal places + currency code under Step 2.",
+    patch: {
+      data_type: "currency",
+      required: true,
+      source_type: "invoice_field",
+      source_ref: { field: "amount" },
+      default_rule_role: "action",
+      rule_role: "action",
+    },
+  },
+};
+
+function getColumnRecommendation(
+  name: string,
+): ColumnRecommendation | null {
+  const key = name.trim().toLowerCase();
+  if (!key) return null;
+  return COLUMN_RECOMMENDATIONS[key] ?? null;
+}
+
+/**
+ * One row in the Step 5 readiness checklist.
+ *
+ * `status`:
+ *   * `ok`      — green check, no action needed.
+ *   * `warning` — yellow, the operator should consider fixing.
+ *   * `error`   — red, the column will be rejected by the validator
+ *                 or fall through with a missing value at runtime.
+ *
+ * `category` groups items in the Step 5 UI under one of three headers
+ * that mirror the backend's mental model:
+ *   * `structure`    — does the column have a coherent declared shape?
+ *   * `value_source` — is there a real path to a value at resolve time?
+ *   * `rule_runtime` — when does that path actually fire?
+ *
+ * `fixStep` lets the row render a "Fix in step N" link that jumps
+ * the wizard to the relevant step.
+ */
+type ReadinessStatus = "ok" | "warning" | "error";
+
+type ReadinessCategory = "structure" | "value_source" | "rule_runtime";
+
+interface ReadinessItem {
+  status: ReadinessStatus;
+  category: ReadinessCategory;
+  label: string;
+  detail?: string;
+  fixStep?: 1 | 2 | 3 | 4;
+}
+
+// ---------------------------------------------------------------------------
+// Cell + value-source helpers (mirror backend resolver semantics)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors the backend's `_has_value()` check on a rule cell. A cell
+ * is non-empty when it carries at least one of:
+ *   * a literal value (`values[i].trim().length > 0`)
+ *   * a structured catalog selection (`selections[i]` with usable
+ *     `field_value` or `entry_id`)
+ *   * a Phase-2 extraction binding (`extraction_bindings[i]` — the
+ *     resolver evaluates these at runtime against extracted facts)
+ *
+ * The legacy `extraction` single-binding is folded in as a one-item
+ * binding by the resolver; we count it here too so legacy templates
+ * don't false-negative.
+ */
+function isCellNonEmpty(cell: InvoiceTemplateRuleCell): boolean {
+  if (cell.values?.some((v) => typeof v === "string" && v.trim().length > 0)) {
+    return true;
+  }
+  if (
+    cell.selections?.some(
+      (s) =>
+        (typeof s.field_value === "string" && s.field_value.trim().length > 0) ||
+        (typeof s.entry_id === "string" && s.entry_id.trim().length > 0),
+    )
+  ) {
+    return true;
+  }
+  if (cell.extraction_bindings && cell.extraction_bindings.length > 0) {
+    return true;
+  }
+  if (
+    cell.extraction &&
+    (cell.extraction.pattern_id || cell.extraction.field_key)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Honest verdict on whether the column's GLOBAL source has a path
+ * the resolver can actually use to produce a value (without rules).
+ *
+ * IMPORTANT: this mirrors what the backend resolver actually does,
+ * not what the UI used to imply. In particular:
+ *   * A `manual_list` source with `default_value` set is treated as
+ *     a SOFT default (resolver may still wait for a runtime pick) —
+ *     status "warning" rather than "ok", because the operator can be
+ *     surprised by the resolver still reporting the column missing.
+ *   * `derived` is not yet evaluated by the resolver — surface as a
+ *     warning.
+ *
+ * `conditional` flags sources whose resolution depends on runtime
+ * inputs (extracted facts, catalog hints) — they're "ok" for
+ * structural readiness but the operator needs to know dry-run will
+ * still need facts/hints to actually produce a value.
+ */
+interface ValueSourceVerdict {
+  status: ReadinessStatus;
+  label: string;
+  detail?: string;
+  /** True when the source needs a runtime input to produce a value. */
+  conditional?: boolean;
+}
+
+function evaluateGlobalSource(
+  column: InvoiceTemplateColumn,
+): ValueSourceVerdict {
+  const sourceType = columnGlobalMode(column);
+  const defaultValue =
+    typeof column.default_value === "string"
+      ? column.default_value.trim()
+      : "";
+  switch (sourceType) {
+    case "empty":
+      return {
+        status: "warning",
+        label: "No global source",
+        detail: "Column has no default source. A rule must FILL this column.",
+      };
+    case "fixed_value":
+      if (defaultValue.length > 0) {
+        return {
+          status: "ok",
+          label: `Always emits "${defaultValue}"`,
+          detail: "Resolver baseline — same value on every export row.",
+        };
+      }
+      return {
+        status: "error",
+        label: "Fixed-value source has no value",
+        detail: "Pick a constant in Step 3 or change the source kind.",
+      };
+    case "manual_list": {
+      // Phase A — mirror backend resolver semantics. The wizard can
+      // only promise "Should resolve" when the column has either:
+      //   * a single manual_value (resolver auto-selects it), OR
+      //   * a default_value that exactly matches one of manual_values
+      //     (resolver honors operator-selected default).
+      //
+      // Comparison is whitespace-trimmed + case-sensitive — same as
+      // the backend's `_resolve_column_baseline` manual_list branch
+      // and the validator's MANUAL_LIST_DEFAULT_NOT_IN_LIST check.
+      const manualUniverse = (column.manual_values ?? []).filter(
+        (v): v is string =>
+          typeof v === "string" && v.trim().length > 0,
+      );
+      const trimmedDefault = defaultValue;
+      const defaultMatches =
+        trimmedDefault.length > 0 &&
+        manualUniverse.some((v) => v.trim() === trimmedDefault);
+
+      if (defaultMatches) {
+        return {
+          status: "ok",
+          label: `Default selected: "${trimmedDefault}"`,
+          detail:
+            "The resolver picks this default whenever no rule overrides the column.",
+        };
+      }
+      if (
+        trimmedDefault.length > 0 &&
+        manualUniverse.length > 0 &&
+        !defaultMatches
+      ) {
+        // Default selected but NOT in the manual values — backend
+        // validator will emit MANUAL_LIST_DEFAULT_NOT_IN_LIST and the
+        // resolver will fall through to manual_review. Be honest in
+        // the wizard so the operator fixes it before Save.
+        return {
+          status: "warning",
+          label: `Default "${trimmedDefault}" is not in the allowed list`,
+          detail:
+            "Pick one of the allowed values as the default, or clear the default selection.",
+        };
+      }
+      if (manualUniverse.length === 1) {
+        return {
+          status: "ok",
+          label: `Only allowed value: "${manualUniverse[0]}"`,
+          detail:
+            "Single-option lists auto-resolve to that value at runtime.",
+        };
+      }
+      return {
+        status: "warning",
+        label: "Pick-from-list with no default",
+        detail:
+          "Operators must pick at runtime — required columns will report missing in Dry Run unless a default is selected or a rule fills the value.",
+      };
+    }
+    case "invoice_field":
+      if (column.source_ref?.field) {
+        return {
+          status: "ok",
+          label: `Pulls extracted field "${column.source_ref.field}"`,
+          detail:
+            "Depends on extracted facts at runtime — Dry Run needs a matching fact (or a rule fallback).",
+          conditional: true,
+        };
+      }
+      return {
+        status: "error",
+        label: "No invoice field selected",
+        detail: "Choose the extracted field in Step 3.",
+      };
+    case "vendor_field":
+    case "property_field":
+    case "gl_field": {
+      const hasCatalog = Boolean(column.source_ref?.catalog_id);
+      const hasField = Boolean(column.source_ref?.field);
+      if (hasCatalog && hasField) {
+        return {
+          status: "ok",
+          label: `Reads "${column.source_ref?.field}" from selected catalog`,
+          detail:
+            "Depends on the runtime catalog hint — Dry Run needs a matching hint (or a rule fallback).",
+          conditional: true,
+        };
+      }
+      if (hasCatalog) {
+        return {
+          status: "warning",
+          label: "Catalog selected but no field",
+          detail: "Pick which catalog field to read in Step 3.",
+        };
+      }
+      return {
+        status: "error",
+        label: "Catalog source incomplete",
+        detail: "Choose a catalog before Rivera can resolve this value.",
+      };
+    }
+    case "derived":
+      return {
+        status: "warning",
+        label: "Derived sources not evaluated yet",
+        detail: "Placeholder — the resolver doesn't compute derived columns.",
+      };
+  }
+  return { status: "warning", label: "Unknown source kind" };
+}
+
+/**
+ * Walk every rule and find FILL/Action cells that would write THIS
+ * column. Mirrors backend rule-eligibility logic:
+ *   * `rule.is_active` must be true
+ *   * The cell at this column must have an effective role of `"action"`
+ *   * The cell must be non-empty (literal value, catalog selection, or
+ *     extraction binding)
+ *   * The column must allow rule overrides (otherwise the resolver
+ *     ignores rule-level FILLs entirely)
+ *
+ * Each match is bucketed by whether the surrounding rule is GATED:
+ * a rule is gated when one of its OTHER cells has a non-empty
+ * `condition` or `restriction` role — those have to match runtime
+ * inputs before the FILL fires. We fall back to a heuristic when a
+ * sibling cell's role is null (column-default-role): if the cell is
+ * non-empty and the cell's column has a non-action default, we assume
+ * it's a gating cell.
+ */
+interface RuleFillMatch {
+  ruleId: string;
+  ruleIndex: number;
+  conditional: boolean;
+  /** Human-readable hint about what gates the rule (for UI display). */
+  gatingHint?: string;
+}
+
+function findRuleFillPaths(
+  column: InvoiceTemplateColumn,
+  rules: InvoiceTemplateRule[],
+  columns: InvoiceTemplateColumn[],
+): RuleFillMatch[] {
+  if (!columnAllowsRuleOverride(column)) {
+    return [];
+  }
+  const columnsById = new Map(columns.map((c) => [c.id, c]));
+  const matches: RuleFillMatch[] = [];
+
+  rules.forEach((rule, ruleIndex) => {
+    if (!rule.is_active) return;
+    const cell = rule.cells[column.id];
+    if (!cell) return;
+    const role = effectiveCellRole(cell, column);
+    if (role !== "action") return;
+    if (!isCellNonEmpty(cell)) return;
+
+    // Look for sibling cells in the same rule that would gate the
+    // rule's eligibility (condition / restriction with content).
+    const gatingLabels: string[] = [];
+    for (const [siblingId, siblingCell] of Object.entries(rule.cells)) {
+      if (siblingId === column.id) continue;
+      if (!isCellNonEmpty(siblingCell)) continue;
+      const siblingCol = columnsById.get(siblingId);
+      const siblingRole = effectiveCellRole(siblingCell, siblingCol);
+      if (siblingRole === "condition" || siblingRole === "restriction") {
+        const colName = siblingCol?.name?.trim() || "(unnamed)";
+        const roleWord =
+          siblingRole === "condition" ? "IF" : "LIMIT";
+        gatingLabels.push(`${roleWord} ${colName}`);
+      }
+    }
+    matches.push({
+      ruleId: rule.id,
+      ruleIndex,
+      conditional: gatingLabels.length > 0,
+      gatingHint:
+        gatingLabels.length > 0
+          ? gatingLabels.slice(0, 3).join(" · ") +
+            (gatingLabels.length > 3 ? ` · +${gatingLabels.length - 3} more` : "")
+          : undefined,
+    });
+  });
+
+  return matches;
+}
+
+/**
+ * Combine global-source + rule-fill verdicts into a single per-column
+ * value-source picture. Used for Step 5 readiness items + the Step 5
+ * "Resolver expectation" card at the top of the page.
+ */
+interface ValueSourcePicture {
+  globalVerdict: ValueSourceVerdict;
+  ruleFills: RuleFillMatch[];
+  /** True when at least one rule writes the column unconditionally. */
+  hasUnconditionalFill: boolean;
+  /** True when at least one rule writes the column under conditions. */
+  hasConditionalFill: boolean;
+  /** Resolver expectation for Dry Run. */
+  expectation: "should_resolve" | "may_be_missing" | "will_be_missing";
+  expectationLabel: string;
+  expectationDetail: string;
+}
+
+function computeValueSourcePicture(
+  column: InvoiceTemplateColumn,
+  rules: InvoiceTemplateRule[],
+  columns: InvoiceTemplateColumn[],
+): ValueSourcePicture {
+  const globalVerdict = evaluateGlobalSource(column);
+  const ruleFills = findRuleFillPaths(column, rules, columns);
+  const hasUnconditionalFill = ruleFills.some((m) => !m.conditional);
+  const hasConditionalFill = ruleFills.some((m) => m.conditional);
+  const required = column.required ?? false;
+
+  // Verdict ladder — strongest first:
+  //   1. unconditional global baseline (fixed_value with default,
+  //      manual_list with default selected) → should resolve.
+  //   2. unconditional rule FILL → should resolve.
+  //   3. conditional global source (invoice/catalog) without rule
+  //      backup → may be missing if runtime input doesn't match.
+  //   4. conditional rule FILL only → may be missing unless rule
+  //      conditions match.
+  //   5. nothing usable → will be missing for required columns.
+  let expectation: "should_resolve" | "may_be_missing" | "will_be_missing";
+  let expectationLabel: string;
+  let expectationDetail: string;
+
+  if (globalVerdict.status === "ok" && !globalVerdict.conditional) {
+    expectation = "should_resolve";
+    expectationLabel = "Should resolve";
+    expectationDetail = `Global source provides "${globalVerdict.label}" before any rule runs.`;
+  } else if (hasUnconditionalFill) {
+    expectation = "should_resolve";
+    expectationLabel = "Should resolve";
+    expectationDetail = "An unconditional rule FILL writes this column on every row.";
+  } else if (globalVerdict.status === "ok" && globalVerdict.conditional) {
+    expectation = "may_be_missing";
+    expectationLabel = "May be missing without a runtime input";
+    expectationDetail =
+      "Global source needs the right runtime input (extracted fact or catalog hint). Provide one in Dry Run, or add a rule fallback.";
+  } else if (hasConditionalFill) {
+    const sample = ruleFills.find((m) => m.conditional);
+    const ruleLabel = sample
+      ? `Rule ${sample.ruleIndex + 1}`
+      : "a rule";
+    expectation = "may_be_missing";
+    expectationLabel = `May be missing unless ${ruleLabel} matches`;
+    expectationDetail = sample?.gatingHint
+      ? `${ruleLabel} only fires when its conditions match (${sample.gatingHint}). Provide matching Dry Run inputs or add a default source.`
+      : "FILL rules in this column are gated by IF/LIMIT cells. Provide matching Dry Run inputs or add a default source.";
+  } else {
+    expectation = required ? "will_be_missing" : "may_be_missing";
+    expectationLabel = required
+      ? "Will be missing in Dry Run"
+      : "Has no value source";
+    expectationDetail = required
+      ? "Required column with no resolvable global source and no FILL rule. Add a default in Step 3 or a FILL rule that writes this column."
+      : "No source configured. Optional columns are fine without one.";
+  }
+
+  return {
+    globalVerdict,
+    ruleFills,
+    hasUnconditionalFill,
+    hasConditionalFill,
+    expectation,
+    expectationLabel,
+    expectationDetail,
+  };
+}
+
+/**
+ * Compute the Step 5 readiness checklist from the live column shape +
+ * the surrounding template's rules. Pure function (no side effects)
+ * so the wizard can call it on every render and the rendered list
+ * always reflects the live state.
+ *
+ * IMPORTANT: this is a LOCAL HEURISTIC mirror of what the backend
+ * validator + resolver check. The backend remains the source of
+ * truth — but the wizard MUST NOT show "Looks good" on a column the
+ * resolver would reject. Items are bucketed into Structure /
+ * Value source / Rule runtime so the operator's mental model maps to
+ * how the backend reasons.
+ */
+function computeReadiness(
+  column: InvoiceTemplateColumn,
+  rules: InvoiceTemplateRule[],
+  columns: InvoiceTemplateColumn[],
+): ReadinessItem[] {
+  const items: ReadinessItem[] = [];
+  const dataType = columnDataType(column);
+  const sourceType = columnGlobalMode(column);
+  const required = column.required ?? false;
+  const role = effectiveColumnDefaultRole(column);
+  const picture = computeValueSourcePicture(column, rules, columns);
+
+  // ============ A. Structure ==========================================
+  items.push({
+    category: "structure",
+    status: column.name?.trim() ? "ok" : "error",
+    label: column.name?.trim() ? "Column has a name" : "Add a column name",
+    fixStep: 1,
+  });
+  items.push({
+    category: "structure",
+    status: dataType ? "ok" : "warning",
+    label: `Data type: ${dataType}`,
+    fixStep: 1,
+  });
+  items.push({
+    category: "structure",
+    status: "ok",
+    label: required ? "Marked required" : "Optional column",
+    detail: required
+      ? "The validator refuses exports that omit this column's value."
+      : "Missing values won't block export.",
+    fixStep: 1,
+  });
+
+  // Allowed values (dropdown / multi-select)
+  if (dataType === "dropdown" || dataType === "multi_select") {
+    const opts = column.format?.list_options ?? [];
+    const blanks = opts.filter((v) => !v.trim()).length;
+    if (opts.length === 0) {
+      items.push({
+        category: "structure",
+        status: "error",
+        label: `${dataType === "multi_select" ? "Multi-select" : "Dropdown"} options missing`,
+        detail:
+          "Add at least one allowed value or change the data type — exports will fail validation otherwise.",
+        fixStep: 2,
+      });
+    } else if (blanks > 0) {
+      items.push({
+        category: "structure",
+        status: "warning",
+        label: `${blanks} blank option${blanks === 1 ? "" : "s"} in the allowed list`,
+        detail:
+          "Blank entries are stripped on save — fill them in or remove the row.",
+        fixStep: 2,
+      });
+    } else {
+      items.push({
+        category: "structure",
+        status: "ok",
+        label: `${opts.length} allowed value${opts.length === 1 ? "" : "s"} configured`,
+        detail:
+          "These are the values that can appear in this column on export. They do NOT by themselves provide a default — see Value source below.",
+        fixStep: 2,
+      });
+    }
+  }
+
+  // ============ B. Value source =======================================
+  // Global source verdict — honest about whether the resolver can
+  // produce a value WITHOUT runtime input.
+  items.push({
+    category: "value_source",
+    status: picture.globalVerdict.status,
+    label: picture.globalVerdict.label,
+    detail: picture.globalVerdict.detail,
+    fixStep: 3,
+  });
+
+  // For required columns, surface the resolver's hard rule: a value
+  // path must exist (global default OR an eligible FILL rule). If
+  // neither exists, this is a HARD readiness error — the resolver
+  // will emit `REQUIRED_RUNTIME_VALUE_MISSING`.
+  if (required) {
+    if (picture.expectation === "will_be_missing") {
+      items.push({
+        category: "value_source",
+        status: "error",
+        label: "Required column has no resolvable value path",
+        detail:
+          "The resolver will emit REQUIRED_RUNTIME_VALUE_MISSING. Add a default source in Step 3, OR add a rule with a FILL/Action cell for this column.",
+        fixStep: 3,
+      });
+    } else if (
+      picture.expectation === "may_be_missing" &&
+      picture.globalVerdict.status !== "ok"
+    ) {
+      items.push({
+        category: "value_source",
+        status: "warning",
+        label: "Required column relies on rule FILL",
+        detail:
+          "No global default exists. The column is filled only when a rule's conditions match — Dry Run may report it missing without matching inputs.",
+        fixStep: 3,
+      });
+    }
+  }
+
+  // Dropdown/multi-select with options but no selected default and
+  // no FILL rule — the most common Bill-or-Credit confusion.
+  if (
+    (dataType === "dropdown" || dataType === "multi_select") &&
+    (column.format?.list_options ?? []).length > 0 &&
+    !column.default_value &&
+    !picture.hasUnconditionalFill &&
+    !picture.hasConditionalFill
+  ) {
+    items.push({
+      category: "value_source",
+      status: required ? "error" : "warning",
+      label: `${column.name?.trim() || "This column"} has allowed values, but no selected value source`,
+      detail:
+        "Choose a default in Step 3 (Pick from fixed list → Default selected), or configure a rule Action/FILL with one of the allowed values.",
+      fixStep: 3,
+    });
+  }
+
+  // ============ C. Rule runtime =======================================
+  //
+  // KEY INSIGHT for required-column readiness: rules are an OPTIONAL
+  // OVERRIDE LAYER, not a mandatory completion step. If the global
+  // source already resolves the column unconditionally (e.g. Bill or
+  // Credit's "Default selected: Bill"), the column is fully ready
+  // without any rule role at all — Step 4 should not nag about it.
+  //
+  // We compute the "do we already have a baseline that resolves?"
+  // signal once and use it to:
+  //   * Downgrade the conditional-fill warning to an informational
+  //     note (rules become a useful override, not a missing piece).
+  //   * Skip the IF/LIMIT-without-FILL warning entirely (only fires
+  //     when no source AND no unconditional fill exist).
+  //   * Skip the FILL-with-no-cell-value warning entirely (the
+  //     baseline carries the column on its own).
+  //   * Emit a celebratory "Rule role optional" item so Step 4 reads
+  //     as completed rather than empty.
+  const hasResolvableBaseline =
+    picture.globalVerdict.status === "ok" &&
+    !picture.globalVerdict.conditional;
+
+  if (picture.ruleFills.length === 0) {
+    if (rules.length > 0) {
+      items.push({
+        category: "rule_runtime",
+        status: "ok",
+        label: "No rule FILLs this column",
+        detail: hasResolvableBaseline
+          ? "Optional. Step 3's default already resolves the column — add a FILL only if you want per-row overrides."
+          : "If you want a rule to write this column, add a FILL/Action cell in Step 4 of the matrix view.",
+        fixStep: 4,
+      });
+    }
+  } else {
+    if (picture.hasUnconditionalFill) {
+      const count = picture.ruleFills.filter((m) => !m.conditional).length;
+      items.push({
+        category: "rule_runtime",
+        status: "ok",
+        label: `${count} rule${count === 1 ? "" : "s"} write${count === 1 ? "s" : ""} this column unconditionally`,
+        detail: "Always fills regardless of which conditions match.",
+        fixStep: 4,
+      });
+    }
+    if (picture.hasConditionalFill) {
+      const conditional = picture.ruleFills.filter((m) => m.conditional);
+      const sample = conditional[0];
+      const condCount = conditional.length;
+      // Conditional fills are a WARNING when nothing else resolves
+      // the column, but only an INFO when the global default already
+      // does the job — they're a fine-grained override, not a hole.
+      items.push({
+        category: "rule_runtime",
+        status: hasResolvableBaseline ? "ok" : "warning",
+        label: hasResolvableBaseline
+          ? `${condCount} rule${condCount === 1 ? "" : "s"} can override the default under conditions`
+          : `${condCount} rule${condCount === 1 ? "" : "s"} fill${condCount === 1 ? "s" : ""} this column under conditions`,
+        detail: hasResolvableBaseline
+          ? sample?.gatingHint
+            ? `Sample: Rule ${sample.ruleIndex + 1} fires when ${sample.gatingHint} — Step 3's default fills the rest.`
+            : "Step 3's default fills the column when these rules don't match."
+          : sample?.gatingHint
+            ? `Sample: Rule ${sample.ruleIndex + 1} only fires when ${sample.gatingHint}.`
+            : "These FILLs only fire when their IF/LIMIT cells match.",
+        fixStep: 4,
+      });
+    }
+  }
+
+  // "Rule role optional" — explicit celebratory item so Step 4 reads
+  // as a positive "you're done" rather than a silent "nothing to see
+  // here" when the operator has correctly relied on a global default.
+  // Only fires when the column is truly safe AND the user didn't pin
+  // a concrete role (no point adding noise when they HAVE a role).
+  if (hasResolvableBaseline && role === null) {
+    items.push({
+      category: "rule_runtime",
+      status: "ok",
+      label: "Rule role optional — default value resolves the column",
+      detail:
+        "Step 3's default already provides a value. Pick a role here only if you want rules to override the default.",
+      fixStep: 4,
+    });
+  }
+
+  // Rule role coherence — if column says IF/LIMIT as default and is
+  // required, surface the classic warning. SKIPPED when an
+  // unconditional baseline exists: the column is already resolved
+  // regardless of the role pinned here.
+  if (
+    required &&
+    (role === "condition" || role === "restriction") &&
+    sourceType === "empty" &&
+    !picture.hasUnconditionalFill &&
+    !hasResolvableBaseline
+  ) {
+    const roleLabel =
+      role === "condition" ? "IF (Condition)" : "LIMIT (Restriction)";
+    items.push({
+      category: "rule_runtime",
+      status: "warning",
+      label: `${roleLabel} does not fill required columns`,
+      detail:
+        "Condition and Restriction roles never write a value. Switch to FILL (Action) or add a default source in Step 3.",
+      fixStep: 4,
+    });
+  }
+
+  // FILL role with no rule actually carrying a value — beginner trap.
+  // SKIPPED when an unconditional baseline exists: the column already
+  // has a value path that doesn't need rule cooperation.
+  if (
+    role === "action" &&
+    sourceType === "empty" &&
+    picture.ruleFills.length === 0 &&
+    rules.length > 0 &&
+    !hasResolvableBaseline
+  ) {
+    items.push({
+      category: "rule_runtime",
+      status: "warning",
+      label: "Default role is FILL, but no rule cell carries a value",
+      detail:
+        "Add a value, catalog selection, or extraction binding to a rule cell in this column under Step 4 of the table/matrix view.",
+      fixStep: 4,
+    });
+  }
+
+  return items;
+}
+
+function summariseReadiness(items: ReadinessItem[]): ReadinessStatus {
+  if (items.some((i) => i.status === "error")) return "error";
+  if (items.some((i) => i.status === "warning")) return "warning";
+  return "ok";
+}
+
+/**
+ * Per-step heuristic status used by the WizardStep header chip.
+ * Local view of `computeReadiness` filtered to one step's concerns.
+ */
+function statusForStep(
+  items: ReadinessItem[],
+  step: 1 | 2 | 3 | 4,
+): ReadinessStatus | null {
+  const relevant = items.filter((i) => i.fixStep === step);
+  if (relevant.length === 0) return null;
+  return summariseReadiness(relevant);
+}
+
+// ===========================================================================
+// Wizard sub-components
+// ===========================================================================
+
+/**
+ * Small inline alert card used inside a step to call out a missing
+ * piece of configuration. Visually louder than the existing inline
+ * hints but smaller than a full Modal alert — sized to sit between
+ * fields without dominating the step.
+ */
+function StepWarning({
+  tone = "warning",
+  title,
+  children,
+}: {
+  tone?: "warning" | "error" | "info";
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const Icon =
+    tone === "error" ? CircleAlert : tone === "info" ? Info : AlertTriangle;
+  const cls =
+    tone === "error"
+      ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+      : tone === "info"
+        ? "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200"
+        : "border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200";
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2 rounded-md border px-3 py-2 text-[12px]",
+        cls,
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        {title && <p className="font-semibold">{title}</p>}
+        <p className={cn(title ? "mt-0.5" : "", "leading-snug")}>{children}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Top-of-wizard "Suggested setup" card. Surfaces a one-click recipe
+ * matched against the canonical column name (e.g. "Bill or Credit"
+ * → dropdown with Bill/Credit + Bill default + FILL role).
+ *
+ * The card is dismissible — once dismissed it stays hidden for the
+ * lifetime of this inspector mount so the operator isn't nagged.
+ */
+function RecommendationBanner({
+  recommendation,
+  onApply,
+}: {
+  recommendation: ColumnRecommendation;
+  onApply: () => void;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 dark:border-brand-900 dark:bg-brand-900/30">
+      <div className="flex items-start gap-3">
+        <span className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-100 text-brand-700 dark:bg-brand-900/60 dark:text-brand-50">
+          <Sparkles className="h-3.5 w-3.5" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12.5px] font-semibold text-brand-800 dark:text-brand-50">
+            Suggested setup for this column
+          </p>
+          <p className="mt-1 text-[11.5px] leading-snug text-brand-900/80 dark:text-brand-50/80">
+            {recommendation.explanation}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={onApply}
+            >
+              Apply suggested setup
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setDismissed(true)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Step 5 content. Mirrors the existing Validate modal's checklist
+ * idiom but lives inline inside the inspector so the operator can
+ * scan readiness without round-tripping through the validator.
+ *
+ * Each item has a status icon and an optional "Fix in step N" link
+ * that scrolls the relevant step into view.
+ */
+function ReadinessChecklist({
+  items,
+  onJumpToStep,
+}: {
+  items: ReadinessItem[];
+  onJumpToStep: (step: 1 | 2 | 3 | 4) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <p className="text-[12px] text-gray-500 dark:text-ink-muted">
+        Nothing to check yet. Configure the steps above.
+      </p>
+    );
+  }
+  // Group by category in the canonical Validate / Resolver order:
+  //   A. Structure  → does the column have a coherent declared shape?
+  //   B. Value source → is there a real path the resolver can use?
+  //   C. Rule runtime → when does that path actually fire?
+  const groups: Array<{
+    key: ReadinessCategory;
+    title: string;
+    hint: string;
+  }> = [
+    {
+      key: "structure",
+      title: "A. Structure",
+      hint: "What this column declares about itself.",
+    },
+    {
+      key: "value_source",
+      title: "B. Value source",
+      hint: "How the resolver gets a value at runtime.",
+    },
+    {
+      key: "rule_runtime",
+      title: "C. Rule runtime",
+      hint: "Which rules write into this column, and when.",
+    },
+  ];
+  return (
+    <div className="space-y-3">
+      {groups.map((group) => {
+        const groupItems = items.filter((i) => i.category === group.key);
+        if (groupItems.length === 0) return null;
+        return (
+          <div key={group.key}>
+            <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+              {group.title}
+            </p>
+            <p className="text-[10.5px] text-gray-500 dark:text-ink-muted leading-snug">
+              {group.hint}
+            </p>
+            <ul className="mt-1 space-y-1.5">
+              {groupItems.map((item, idx) => (
+                <ReadinessRow
+                  key={`${group.key}-${idx}`}
+                  item={item}
+                  onJumpToStep={onJumpToStep}
+                />
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReadinessRow({
+  item,
+  onJumpToStep,
+}: {
+  item: ReadinessItem;
+  onJumpToStep: (step: 1 | 2 | 3 | 4) => void;
+}) {
+  const Icon =
+    item.status === "ok"
+      ? CheckCircle2
+      : item.status === "warning"
+        ? AlertTriangle
+        : CircleAlert;
+  const tone =
+    item.status === "ok"
+      ? "text-green-600 dark:text-green-400"
+      : item.status === "warning"
+        ? "text-yellow-600 dark:text-yellow-400"
+        : "text-red-600 dark:text-red-400";
+  return (
+    <li className="flex items-start gap-2.5 rounded-md border border-gray-100 bg-white px-3 py-2 text-[12px] dark:border-line/60 dark:bg-surface-subtle">
+      <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", tone)} />
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-gray-800 dark:text-ink">{item.label}</p>
+        {item.detail && (
+          <p className="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-ink-muted">
+            {item.detail}
+          </p>
+        )}
+      </div>
+      {item.fixStep && item.status !== "ok" && (
+        <button
+          type="button"
+          onClick={() => onJumpToStep(item.fixStep!)}
+          className="shrink-0 text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-50"
+        >
+          Fix in step {item.fixStep} →
+        </button>
+      )}
+    </li>
+  );
+}
+
+/**
+ * "Resolver expectation" card at the top of Step 5. Translates the
+ * value-source picture into a one-glance verdict the operator can
+ * trust:
+ *
+ *   * "Should resolve" — green. Either an unconditional global
+ *     source or an unconditional rule FILL writes the column.
+ *   * "May be missing unless …" — yellow. Source exists but depends
+ *     on a runtime input (extracted fact, catalog hint, or a rule
+ *     condition matching). Dry Run will probably need help.
+ *   * "Will be missing in Dry Run" — red. Required column with no
+ *     resolvable path. The resolver will emit
+ *     REQUIRED_RUNTIME_VALUE_MISSING.
+ */
+function ResolverExpectationCard({
+  picture,
+}: {
+  picture: ValueSourcePicture;
+}) {
+  const Icon =
+    picture.expectation === "should_resolve"
+      ? CheckCircle2
+      : picture.expectation === "may_be_missing"
+        ? AlertTriangle
+        : CircleAlert;
+  const tone =
+    picture.expectation === "should_resolve"
+      ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200"
+      : picture.expectation === "may_be_missing"
+        ? "border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200"
+        : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200";
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2.5 flex items-start gap-2",
+        tone,
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0 mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] uppercase tracking-wide font-semibold opacity-80">
+          Resolver expectation
+        </p>
+        <p className="text-[13px] font-semibold mt-0.5">
+          {picture.expectationLabel}
+        </p>
+        <p className="text-[11.5px] mt-1 leading-snug">
+          {picture.expectationDetail}
+        </p>
+        <div className="mt-2 grid grid-cols-3 gap-2 text-[10.5px]">
+          <ExpectationStat
+            label="Default source"
+            ok={
+              picture.globalVerdict.status === "ok" &&
+              !picture.globalVerdict.conditional
+            }
+            partial={
+              picture.globalVerdict.status === "ok" &&
+              !!picture.globalVerdict.conditional
+            }
+          />
+          <ExpectationStat
+            label="Rule FILL path"
+            ok={picture.hasUnconditionalFill}
+            partial={
+              picture.hasConditionalFill && !picture.hasUnconditionalFill
+            }
+          />
+          <ExpectationStat
+            label="Needs runtime input"
+            ok={
+              picture.expectation === "should_resolve" ||
+              (!picture.hasConditionalFill &&
+                picture.globalVerdict.status === "ok" &&
+                !picture.globalVerdict.conditional)
+            }
+            partial={false}
+            invertOk
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExpectationStat({
+  label,
+  ok,
+  partial,
+  invertOk = false,
+}: {
+  label: string;
+  ok: boolean;
+  partial: boolean;
+  /** When true, the "yes" label means the row is GOOD (e.g. "needs
+   *  runtime input" is good when the answer is no). */
+  invertOk?: boolean;
+}) {
+  const display =
+    ok && !partial
+      ? invertOk
+        ? "No"
+        : "Yes"
+      : partial
+        ? "Maybe"
+        : invertOk
+          ? "Yes"
+          : "No";
+  return (
+    <div className="rounded-md bg-white/60 px-2 py-1.5 dark:bg-surface/40">
+      <p className="opacity-80 truncate">{label}</p>
+      <p className="font-semibold mt-0.5">{display}</p>
+    </div>
+  );
+}
+
+/**
+ * Inline column-name editor for Step 1. Mirrors the rename input on
+ * the table-mode HeaderCell / matrix-mode FieldLabelCell so renaming
+ * from inside the inspector feels identical.
+ */
+function ColumnNameField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const empty = value.trim().length === 0;
+  return (
+    <div>
+      <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+        Column name
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="e.g. Invoice Number"
+        maxLength={120}
+        className={cn(
+          "mt-1 w-full rounded-md border bg-white px-2.5 py-1.5 text-[13px] text-gray-800 outline-none",
+          "focus:ring-2 focus:ring-brand-500",
+          "dark:bg-surface dark:text-ink",
+          empty
+            ? "border-red-300 dark:border-red-900"
+            : "border-gray-300 dark:border-line",
+        )}
+      />
+      {empty && (
+        <p className="mt-1 text-[10.5px] text-red-600 dark:text-red-300">
+          Give this column a name so the export header makes sense.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Step-by-step journey: types + chrome (stepper + page wrapper + footer)
+// ===========================================================================
+
+/**
+ * Stepper key set. The numbered steps (1–5) carry beginner-friendly
+ * configuration; "advanced" hosts power-user toggles (locks /
+ * validation / allow_rule_override) that the spec requires we keep
+ * reachable but out of the default journey.
+ */
+type WizardStepKey = 1 | 2 | 3 | 4 | 5 | "advanced";
+
+/**
+ * Display labels for each stepper chip. Order is the canonical step
+ * order — see `STEP_ORDER` in the component for the array form used
+ * by Back / Next navigation.
+ */
+const STEP_LABEL: Record<WizardStepKey, string> = {
+  1: "Identity",
+  2: "Values",
+  3: "Default",
+  4: "Rules",
+  5: "Readiness",
+  advanced: "Advanced",
+};
+
+/**
+ * Friendly status label rendered in the footer status chip. Echoes
+ * the stepper badge wording so the operator sees the same verdict
+ * twice when scanning the dialog.
+ */
+function statusLabelForStep(
+  step: WizardStepKey,
+  status: ReadinessStatus | null,
+): string {
+  const base =
+    step === "advanced" ? "Advanced controls" : STEP_LABEL[step];
+  if (status === "error") return `${base} · Needs fixing`;
+  if (status === "warning") return `${base} · Check this`;
+  if (status === "ok") return `${base} · Looks good`;
+  return base;
+}
+
+/**
+ * Page wrapper for the active step. Renders a step title + hint and
+ * a status badge — same idiom as the legacy `WizardStep` card but
+ * without the numbered chip (the stepper above already supplies the
+ * step number).
+ */
+function WizardPage({
+  title,
+  hint,
+  status,
+  children,
+}: {
+  title: string;
+  hint: string;
+  status?: ReadinessStatus | null;
+  children: React.ReactNode;
+}) {
+  const statusLabel =
+    status === "error"
+      ? "Needs fixing"
+      : status === "warning"
+        ? "Check this"
+        : status === "ok"
+          ? "Looks good"
+          : null;
+  const statusTone =
+    status === "error"
+      ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900"
+      : status === "warning"
+        ? "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900"
+        : "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900";
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-line dark:bg-surface-subtle">
+      <header className="px-5 pt-4 pb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-ink">
+            {title}
+          </h3>
+          {statusLabel && (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                statusTone,
+              )}
+            >
+              {statusLabel}
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 text-[11.5px] leading-snug text-gray-600 dark:text-ink-muted">
+          {hint}
+        </p>
+      </header>
+      <div className="px-5 pb-5 pt-2 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * Sticky horizontal stepper. Each step is a clickable chip showing
+ * the step number, label, and a tiny status indicator (✓ ok / ⚠
+ * warning / ! error). The active step is highlighted in brand blue.
+ * The Advanced chip is rendered with a neutral tone so it visually
+ * sits apart from the numbered journey.
+ *
+ * Per the spec: every step is clickable. We never trap the operator
+ * — Next is the only control that can be disabled (see WizardFooter).
+ */
+function Stepper({
+  active,
+  statuses,
+  onSelect,
+}: {
+  active: WizardStepKey;
+  statuses: Record<WizardStepKey, ReadinessStatus | null>;
+  onSelect: (step: WizardStepKey) => void;
+}) {
+  const steps: WizardStepKey[] = [1, 2, 3, 4, 5, "advanced"];
+  return (
+    <nav
+      aria-label="Inspector journey"
+      className="border-b border-gray-200 px-2 py-2 bg-white dark:border-line dark:bg-surface-subtle"
+    >
+      {/* Horizontal scroll on tight viewports keeps every step
+          reachable without crowding the chips. */}
+      <div className="flex items-center gap-1 overflow-x-auto">
+        {steps.map((step, idx) => (
+          <StepperItem
+            key={String(step)}
+            step={step}
+            index={idx + 1}
+            active={active === step}
+            status={statuses[step]}
+            onSelect={() => onSelect(step)}
+          />
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function StepperItem({
+  step,
+  index,
+  active,
+  status,
+  onSelect,
+}: {
+  step: WizardStepKey;
+  index: number;
+  active: boolean;
+  status: ReadinessStatus | null;
+  onSelect: () => void;
+}) {
+  const isAdvanced = step === "advanced";
+  const StatusIcon =
+    status === "ok"
+      ? CheckCircle2
+      : status === "warning"
+        ? AlertTriangle
+        : status === "error"
+          ? CircleAlert
+          : null;
+  const statusIconClass =
+    status === "ok"
+      ? "text-green-600 dark:text-green-400"
+      : status === "warning"
+        ? "text-yellow-600 dark:text-yellow-400"
+        : status === "error"
+          ? "text-red-600 dark:text-red-400"
+          : "";
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={active ? "step" : undefined}
+      className={cn(
+        "shrink-0 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11.5px] font-semibold transition-colors",
+        active
+          ? "bg-brand-600 text-white dark:bg-brand-700"
+          : isAdvanced
+            ? "text-gray-500 hover:bg-gray-100 dark:text-ink-muted dark:hover:bg-surface-muted"
+            : "text-gray-700 hover:bg-gray-100 dark:text-ink dark:hover:bg-surface-muted",
+      )}
+    >
+      {!isAdvanced && (
+        <span
+          className={cn(
+            "inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold",
+            active
+              ? "bg-white/20 text-white"
+              : "bg-gray-200 text-gray-600 dark:bg-surface-muted dark:text-ink-muted",
+          )}
+          aria-hidden="true"
+        >
+          {index}
+        </span>
+      )}
+      <span>{STEP_LABEL[step]}</span>
+      {StatusIcon && (
+        <StatusIcon
+          className={cn("h-3 w-3", active ? "text-white" : statusIconClass)}
+          aria-hidden="true"
+        />
+      )}
+    </button>
+  );
+}
+
+/**
+ * Sticky footer. Pinned to the bottom of the floating window so Back
+ * / Next / Done are always one click away — the spec's core "user
+ * always knows what to do next" requirement.
+ *
+ * Button gating:
+ *   * Back: disabled on the first page.
+ *   * Next: disabled on the LAST page (Done shows instead) AND
+ *     disabled on Page 1 when fundamental identity data (name +
+ *     data type) is missing.
+ *   * Done: rendered on the LAST page only; closes the inspector.
+ *
+ * Status text on the left mirrors the active step's badge so the
+ * operator sees the same verdict twice — once on the stepper, once
+ * down here.
+ */
+function WizardFooter({
+  active,
+  currentIdx,
+  total,
+  isFirst,
+  isLast,
+  nextDisabled,
+  statusLabel,
+  onBack,
+  onNext,
+  onDone,
+  onSaveAndClose,
+  canSave = false,
+  saving = false,
+  dirty = false,
+  isDraft = false,
+}: {
+  active: WizardStepKey;
+  currentIdx: number;
+  total: number;
+  isFirst: boolean;
+  isLast: boolean;
+  nextDisabled: boolean;
+  statusLabel: string;
+  onBack: () => void;
+  onNext: () => void;
+  onDone: () => void;
+  /** When provided, the footer renders a "Save & close" button that
+   *  triggers the editor's main save handler then closes the
+   *  inspector. Mirrors `handleSave` in TemplateEditor. */
+  onSaveAndClose?: () => void;
+  canSave?: boolean;
+  saving?: boolean;
+  dirty?: boolean;
+  isDraft?: boolean;
+}) {
+  const positionLabel =
+    active === "advanced"
+      ? "Advanced"
+      : `Step ${currentIdx + 1} of ${total - 1}`;
+  // Status line below the position now ALSO surfaces unsaved-changes
+  // awareness so the operator never closes thinking changes are
+  // already in the saved template (which is what Validate / Dry Run
+  // read).
+  const unsavedHint = dirty
+    ? isDraft
+      ? "Draft — Save & close persists to the server"
+      : "Unsaved changes — Save & close persists them"
+    : null;
+  return (
+    <footer className="border-t border-gray-200 px-5 py-3 flex items-center gap-3 bg-white rounded-b-xl dark:border-line dark:bg-surface-subtle">
+      <div className="flex-1 min-w-0">
+        <p className="text-[11px] font-semibold text-gray-700 dark:text-ink truncate">
+          {positionLabel}
+        </p>
+        <p className="text-[10.5px] text-gray-500 truncate dark:text-ink-muted">
+          {unsavedHint ?? statusLabel}
+        </p>
+      </div>
+      {/* Save & close — only when the editor handed us a save handler
+          AND there's something to save. Disabled while a save is in
+          flight; shows spinner via Button.loading. */}
+      {onSaveAndClose && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={onSaveAndClose}
+          disabled={!canSave || saving}
+          loading={saving}
+          title={
+            !canSave
+              ? "Nothing to save — fix any blocking issues first."
+              : "Save the template and close the inspector."
+          }
+        >
+          Save & close
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        onClick={onBack}
+        disabled={isFirst}
+      >
+        Back
+      </Button>
+      {isLast ? (
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          onClick={onDone}
+          title={
+            dirty
+              ? "Closes only — your changes are still unsaved. Use Save & close to persist."
+              : undefined
+          }
+        >
+          Done
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          onClick={onNext}
+          disabled={nextDisabled}
+          title={
+            nextDisabled
+              ? "Set a column name and pick a data type before continuing."
+              : undefined
+          }
+        >
+          Next
+        </Button>
+      )}
+    </footer>
   );
 }

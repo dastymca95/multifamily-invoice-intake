@@ -1226,6 +1226,87 @@ export function emptyExtractionBinding(): RuleCellExtractionBinding {
 }
 
 /**
+ * Normalize a single rule cell for save: strip the legacy
+ * `extraction` field when canonical `extraction_bindings` carries at
+ * least one complete binding.
+ *
+ * Why this exists:
+ *   The picker writes `extraction_bindings` exclusively (Phase 2
+ *   shape), but old saved templates carry a legacy `extraction`
+ *   single-binding object too. Backend reads both — the
+ *   `_promote_legacy_extraction` model_validator folds the legacy
+ *   field into bindings on deserialize — but the validator emits
+ *   `LEGACY_EXTRACTION_DIVERGENCE` when both fields exist and
+ *   describe different (pattern, field) pairs. The doc comment on
+ *   `readRuleCellExtractionBindings` explicitly anticipates this
+ *   normalizer as "a future cleanup pass" that drops the legacy
+ *   field on the next save round-trip.
+ *
+ * Behaviour matrix:
+ *   | extraction_bindings has complete binding | cell.extraction | result |
+ *   |------------------------------------------|-----------------|--------|
+ *   | yes                                      | present         | strip extraction |
+ *   | yes                                      | absent          | unchanged (already clean) |
+ *   | no (empty/partial only)                  | present         | unchanged (preserve legacy fallback) |
+ *   | no (empty/partial only)                  | absent          | unchanged (no extraction at all) |
+ *
+ * Pure (never mutates the input cell). Returns the SAME reference
+ * when no change is needed so upstream callers can do referential
+ * equality checks.
+ */
+export function normalizeRuleCellForSave(
+  cell: InvoiceTemplateRuleCell,
+): InvoiceTemplateRuleCell {
+  const bindings = cell.extraction_bindings;
+  const hasCompleteCanonical =
+    Array.isArray(bindings) && bindings.some(extractionBindingIsComplete);
+  if (!hasCompleteCanonical) {
+    // No canonical binding to defer to → keep legacy `extraction` as
+    // the read-side fallback for older readers.
+    return cell;
+  }
+  if (cell.extraction == null) {
+    // Already clean — no legacy field to strip.
+    return cell;
+  }
+  // Spread to a new object; intentionally drop the `extraction` key.
+  // Other cell fields (values, selections, role, extraction_bindings)
+  // pass through unchanged.
+  const { extraction: _legacy, ...rest } = cell;
+  return rest as InvoiceTemplateRuleCell;
+}
+
+/**
+ * Apply {@link normalizeRuleCellForSave} to every cell in every rule.
+ * Returns a new rules array (or the SAME reference if nothing
+ * changed), so the editor's dirty-tracking can short-circuit when the
+ * normalizer is a no-op.
+ *
+ * Wired into the editor's save path (`handleSave` in TemplateEditor)
+ * so the outgoing API payload never persists stale legacy extraction
+ * alongside canonical bindings — eliminating
+ * `LEGACY_EXTRACTION_DIVERGENCE` on the next save round-trip.
+ */
+export function normalizeTemplateRulesForSave(
+  rules: readonly InvoiceTemplateRule[],
+): InvoiceTemplateRule[] {
+  let outerTouched = false;
+  const next = rules.map((rule) => {
+    let innerTouched = false;
+    const nextCells: Record<string, InvoiceTemplateRuleCell> = {};
+    for (const [columnId, cell] of Object.entries(rule.cells)) {
+      const normalized = normalizeRuleCellForSave(cell);
+      if (normalized !== cell) innerTouched = true;
+      nextCells[columnId] = normalized;
+    }
+    if (!innerTouched) return rule;
+    outerTouched = true;
+    return { ...rule, cells: nextCells };
+  });
+  return outerTouched ? next : (rules as InvoiceTemplateRule[]);
+}
+
+/**
  * Construct a fresh rule row with the given column ids pre-keyed to
  * empty cells. Order of column-id iteration determines column order
  * the editor sees, but the dict shape itself is order-insensitive.

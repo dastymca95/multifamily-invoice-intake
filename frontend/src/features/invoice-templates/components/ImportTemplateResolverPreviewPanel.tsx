@@ -170,6 +170,17 @@ interface ImportTemplateResolverPreviewPanelProps {
   /** True when the editor is showing the in-memory canonical-default
    *  draft (no persisted id yet) — disables the run button. */
   isDraft?: boolean;
+  /**
+   * Optional save handler — when provided AND there are unsaved
+   * changes, the panel renders a "Save & run" button so the operator
+   * doesn't have to dismiss the modal, click Save in the editor, and
+   * re-open the panel. Mirrors `handleSave` in TemplateEditor.
+   */
+  onSave?: () => void;
+  /** Whether the editor's Save button is currently enabled. */
+  canSave?: boolean;
+  /** Whether a save is currently in flight. */
+  saving?: boolean;
 }
 
 export function ImportTemplateResolverPreviewPanel({
@@ -179,6 +190,9 @@ export function ImportTemplateResolverPreviewPanel({
   onClose,
   hasUnsavedChanges,
   isDraft,
+  onSave,
+  canSave = false,
+  saving = false,
 }: ImportTemplateResolverPreviewPanelProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -317,9 +331,33 @@ export function ImportTemplateResolverPreviewPanel({
           </InlineAlert>
         )}
         {!isDraft && hasUnsavedChanges && (
-          <InlineAlert tone="warning">
-            Dry-run uses the last saved version of this template. Save
-            first to include recent local changes.
+          <InlineAlert
+            tone="warning"
+            title="Save template before dry-run"
+            action={
+              onSave && canSave ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    // Save first; the user re-clicks Run after the
+                    // editor's mutation finishes. We don't auto-run
+                    // here because save is async + we don't await
+                    // the parent's promise from this surface.
+                    onSave();
+                  }}
+                  disabled={saving}
+                  loading={saving}
+                >
+                  Save and re-open
+                </Button>
+              ) : undefined
+            }
+          >
+            Dry-run uses the last SAVED version of this template. Click
+            Save (in the editor) before running so the diagnostics
+            reflect your local changes.
           </InlineAlert>
         )}
 
@@ -336,6 +374,11 @@ export function ImportTemplateResolverPreviewPanel({
             disabled={loading || !templateId || isDraft}
             loading={loading}
             onClick={handleRun}
+            title={
+              hasUnsavedChanges && !isDraft
+                ? "Heads up: this still uses the last SAVED template. Click Save and re-open above to include local changes."
+                : undefined
+            }
           >
             <Play className="h-3.5 w-3.5" />
             {result ? "Run again" : "Run dry-run"}

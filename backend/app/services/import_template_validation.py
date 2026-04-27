@@ -471,6 +471,51 @@ async def _validate_columns(parsed: ParsedTemplate, ctx: ValidationContext) -> N
                 path=f"{path}.manual_values",
             )
 
+        # Phase A — operator-selected manual_list default sanity check.
+        #
+        # When the wizard's "Default selected" picker writes
+        # `default_value` for a manual_list column, the value MUST be
+        # one of the configured `manual_values`. Otherwise the resolver
+        # falls through to the manual_review path (the default cannot
+        # be applied) and the operator is left with a silent mismatch.
+        # Surface it here as a warning so it shows up in Validate +
+        # the Column Inspector readiness without blocking save.
+        #
+        # Comparison normalization mirrors the resolver (strip
+        # whitespace, case-sensitive). Only fires when BOTH
+        # `default_value` and `manual_values` are populated — empty
+        # `manual_values` is already covered by DROPDOWN_OPTIONS_EMPTY,
+        # and an empty `default_value` is the expected "no selection"
+        # state.
+        if (
+            source_type == "manual_list"
+            and isinstance(column.default_value, str)
+            and column.default_value.strip()
+            and _non_empty_list(column.manual_values)
+        ):
+            default_clean = column.default_value.strip()
+            available = {
+                value.strip()
+                for value in (column.manual_values or [])
+                if isinstance(value, str) and value.strip()
+            }
+            if default_clean not in available:
+                ctx.add(
+                    "warning",
+                    "MANUAL_LIST_DEFAULT_NOT_IN_LIST",
+                    (
+                        f"Manual list column {column.name} has a default "
+                        f"value '{column.default_value}' that is not one "
+                        "of the allowed manual values."
+                    ),
+                    recommendation=(
+                        "Pick one of the allowed values as the default, "
+                        "or clear the default selection."
+                    ),
+                    column=column,
+                    path=f"{path}.default_value",
+                )
+
         if source_type == INVOICE_SOURCE_TYPE:
             _validate_invoice_source_ref(column, ctx, f"{path}.source_ref")
 

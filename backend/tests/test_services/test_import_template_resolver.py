@@ -30,6 +30,8 @@ def _column(
     default_value: str | None = None,
     source_ref: dict | None = None,
     allow_rule_override: bool = True,
+    manual_values: list[str] | None = None,
+    format_: dict | None = None,
 ) -> dict:
     data = {
         "id": column_id,
@@ -44,6 +46,10 @@ def _column(
         data["default_value"] = default_value
     if source_ref is not None:
         data["source_ref"] = source_ref
+    if manual_values is not None:
+        data["manual_values"] = manual_values
+    if format_ is not None:
+        data["format"] = format_
     return data
 
 
@@ -354,3 +360,266 @@ async def test_invalid_data_type_coercion_produces_blocking_issue_for_required_c
 
     assert result.rows[0].status == "blocked"
     assert "DATA_TYPE_COERCION_FAILED" in cell.issue_codes
+
+
+# ---------------------------------------------------------------------------
+# Phase A — manual_list + default_value contract
+# ---------------------------------------------------------------------------
+#
+# Background: the Column Inspector wizard's "Default selected" picker
+# writes `column.default_value` for `source_type=manual_list` columns.
+# Before Phase A, the resolver ignored that field for manual_list and
+# the wizard's green checks didn't match Dry Run reality. The branch
+# below now treats `default_value` as a baseline whenever it matches
+# one of `manual_values` (whitespace-trimmed, case-sensitive). The
+# tests below pin every relevant edge case so the contract stays
+# stable across refactors.
+
+
+@pytest.mark.asyncio
+async def test_manual_list_with_valid_default_resolves_ready():
+    """Case A — Bill or Credit happy path.
+
+    `manual_values` has multiple options, and the operator picked one
+    via `default_value`. The resolver must resolve to that exact value
+    and the row must be ready (no REQUIRED_RUNTIME_VALUE_MISSING).
+    """
+    template = _template(
+        [
+            _column(
+                "bill_or_credit",
+                "Bill or Credit",
+                required=True,
+                data_type="dropdown",
+                source_type="manual_list",
+                manual_values=["Bill", "Credit"],
+                default_value="Bill",
+                format_={"list_options": ["Bill", "Credit"]},
+            )
+        ]
+    )
+
+    result = await dry_run_resolve_import_template(template)
+    cell = _cells_by_id(result)["bill_or_credit"]
+
+    assert result.rows[0].status == "ready"
+    assert cell.status == "resolved"
+    assert cell.value == "Bill"
+    assert cell.source_type == "manual"
+    assert "REQUIRED_RUNTIME_VALUE_MISSING" not in cell.issue_codes
+    assert "MULTIPLE_DEFAULT_OPTIONS_NO_SELECTION" not in cell.issue_codes
+    assert cell.provenance.source_label == "Manual list default"
+
+
+@pytest.mark.asyncio
+async def test_manual_list_with_valid_default_normalizes_whitespace():
+    """Whitespace around `default_value` is trimmed before comparison."""
+    template = _template(
+        [
+            _column(
+                "bill_or_credit",
+                "Bill or Credit",
+                required=True,
+                data_type="dropdown",
+                source_type="manual_list",
+                manual_values=["Bill", "Credit"],
+                default_value="  Bill  ",
+                format_={"list_options": ["Bill", "Credit"]},
+            )
+        ]
+    )
+
+    result = await dry_run_resolve_import_template(template)
+    cell = _cells_by_id(result)["bill_or_credit"]
+
+    # Resolver returns the canonical value as it appears in
+    # `manual_values`, not the whitespace-padded operator input.
+    assert cell.status == "resolved"
+    assert cell.value == "Bill"
+
+
+@pytest.mark.asyncio
+async def test_manual_list_multi_value_no_default_required_fails():
+    """Case B — multi-value list with no default selected.
+
+    Required column with no operator-picked default must surface
+    REQUIRED_RUNTIME_VALUE_MISSING. Existing manual_review behavior
+    preserved.
+    """
+    template = _template(
+        [
+            _column(
+                "bill_or_credit",
+                "Bill or Credit",
+                required=True,
+                data_type="dropdown",
+                source_type="manual_list",
+                manual_values=["Bill", "Credit"],
+                format_={"list_options": ["Bill", "Credit"]},
+            )
+        ]
+    )
+
+    result = await dry_run_resolve_import_template(template)
+    cell = _cells_by_id(result)["bill_or_credit"]
+
+    assert result.rows[0].status == "blocked"
+    assert cell.status == "manual_review"
+    assert cell.value is None
+    assert "MULTIPLE_DEFAULT_OPTIONS_NO_SELECTION" in cell.issue_codes
+    assert "REQUIRED_RUNTIME_VALUE_MISSING" in cell.issue_codes
+
+
+@pytest.mark.asyncio
+async def test_manual_list_single_value_no_default_resolves():
+    """Case C — single-value manual list still auto-resolves."""
+    template = _template(
+        [
+            _column(
+                "currency",
+                "Currency",
+                required=True,
+                source_type="manual_list",
+                manual_values=["USD"],
+            )
+        ]
+    )
+
+    result = await dry_run_resolve_import_template(template)
+    cell = _cells_by_id(result)["currency"]
+
+    assert result.rows[0].status == "ready"
+    assert cell.status == "resolved"
+    assert cell.value == "USD"
+    assert "REQUIRED_RUNTIME_VALUE_MISSING" not in cell.issue_codes
+
+
+@pytest.mark.asyncio
+async def test_manual_list_default_not_in_list_falls_through():
+    """Case D — default_value set but NOT in manual_values.
+
+    The resolver must NOT honor a stale/invalid default. It falls
+    through to the existing manual_review path so the operator still
+    sees the "no selection" hint. The validator (separate test file)
+    surfaces the mismatch as MANUAL_LIST_DEFAULT_NOT_IN_LIST.
+    """
+    template = _template(
+        [
+            _column(
+                "bill_or_credit",
+                "Bill or Credit",
+                required=True,
+                data_type="dropdown",
+                source_type="manual_list",
+                manual_values=["Bill", "Credit"],
+                default_value="Refund",  # not in manual_values
+                format_={"list_options": ["Bill", "Credit"]},
+            )
+        ]
+    )
+
+    result = await dry_run_resolve_import_template(template)
+    cell = _cells_by_id(result)["bill_or_credit"]
+
+    assert result.rows[0].status == "blocked"
+    assert cell.status == "manual_review"
+    assert cell.value is None
+    assert "MULTIPLE_DEFAULT_OPTIONS_NO_SELECTION" in cell.issue_codes
+    assert "REQUIRED_RUNTIME_VALUE_MISSING" in cell.issue_codes
+
+
+@pytest.mark.asyncio
+async def test_fixed_value_default_still_resolves():
+    """Case E — fixed_value behavior unchanged by Phase A."""
+    template = _template(
+        [
+            _column(
+                "expense_type",
+                "Expense Type",
+                required=True,
+                source_type="fixed_value",
+                default_value="General",
+            )
+        ]
+    )
+
+    result = await dry_run_resolve_import_template(template)
+    cell = _cells_by_id(result)["expense_type"]
+
+    assert result.rows[0].status == "ready"
+    assert cell.value == "General"
+    assert cell.source_type == "fixed_value"
+    assert "REQUIRED_RUNTIME_VALUE_MISSING" not in cell.issue_codes
+
+
+@pytest.mark.asyncio
+async def test_invoice_field_behavior_unchanged():
+    """Case F — invoice_field path is untouched by Phase A.
+
+    Required invoice_field column with no extracted facts still emits
+    INVOICE_FIELD_FACT_NOT_FOUND + REQUIRED_RUNTIME_VALUE_MISSING.
+    """
+    template = _template(
+        [
+            _column(
+                "invoice_number",
+                "Invoice Number",
+                required=True,
+                source_type="invoice_field",
+                source_ref={"field": "invoice_number"},
+            )
+        ]
+    )
+
+    result = await dry_run_resolve_import_template(template, ResolverInput())
+    cell = _cells_by_id(result)["invoice_number"]
+
+    assert result.rows[0].status == "blocked"
+    assert "REQUIRED_RUNTIME_VALUE_MISSING" in cell.issue_codes
+    assert "INVOICE_FIELD_FACT_NOT_FOUND" in cell.issue_codes
+
+
+@pytest.mark.asyncio
+async def test_manual_list_default_does_not_block_rule_override():
+    """Rule FILL/Action still overrides a manual_list default selection.
+
+    The default selection is a baseline, not a hard pin — rules with
+    `allow_rule_override=True` (the default) can still write a different
+    value when their conditions match.
+    """
+    template = _template(
+        [
+            _column(
+                "bill_or_credit",
+                "Bill or Credit",
+                required=True,
+                data_type="dropdown",
+                source_type="manual_list",
+                manual_values=["Bill", "Credit"],
+                default_value="Bill",
+                format_={"list_options": ["Bill", "Credit"]},
+            ),
+            _column("vendor", "Vendor"),
+        ],
+        [
+            _rule(
+                "credit_memo_rule",
+                {
+                    "vendor": _cell("condition", ["EPB"]),
+                    "bill_or_credit": _cell("action", ["Credit"]),
+                },
+            )
+        ],
+    )
+
+    result = await dry_run_resolve_import_template(
+        template, ResolverInput(document_metadata={"Vendor": "EPB"})
+    )
+    cell = _cells_by_id(result)["bill_or_credit"]
+
+    assert result.rows[0].status == "ready"
+    # Rule's FILL value wins over the column's manual_list default.
+    assert cell.value == "Credit"
+    assert cell.source_type == "rule_fill"
+    assert "REQUIRED_RUNTIME_VALUE_MISSING" not in cell.issue_codes
+

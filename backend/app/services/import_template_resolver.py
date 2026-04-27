@@ -25,6 +25,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.extracted_invoice_fields import normalize_extracted_field_key
+from app.domain.value_source import (  # noqa: F401  (substrate alignment — see _resolve_column_baseline)
+    all_value_source_kinds,
+    get_value_source,
+)
 from app.models.invoice_template import InvoiceTemplate
 from app.repositories.gl_catalog_repo import GLCatalogRepository
 from app.repositories.property_catalog_repo import PropertyCatalogRepository
@@ -1615,6 +1619,16 @@ async def _resolve_column_baseline(
     catalog_hints: dict[str, CatalogHint],
     db: AsyncSession | None,
 ) -> ResolvedImportCell:
+    # Phase 1 substrate note: every branch below corresponds 1:1 to a
+    # ``ValueSource`` strategy in :mod:`app.domain.value_source`. The
+    # registry is imported so future contributors can find the
+    # parallel documentation surface without a code archaeology
+    # session, and so test parity assertions can iterate the
+    # registered kinds. Behaviour is intentionally NOT yet dispatched
+    # through the registry — Phase 1 is a pure substrate
+    # introduction; behaviour stability is more important than
+    # elegance until the registry is exercised by tests + a future
+    # ``/readiness`` endpoint.
     source_type = column.source_type or "empty"
     has_default = _has_value(column.default_value)
 
@@ -1658,6 +1672,62 @@ async def _resolve_column_baseline(
 
     if source_type == "manual_list":
         manual_values = column.manual_values or []
+
+        # Phase A — operator-selected manual_list default.
+        #
+        # The Import Builder wizard's "Default selected" picker writes
+        # `column.default_value` when the operator nominates one of the
+        # allowed manual values as the column-level default. The
+        # resolver honors that selection here as a baseline value with
+        # the same semantics as `fixed_value`, but constrained to the
+        # `manual_values` universe.
+        #
+        # Comparison normalization: strip whitespace on both sides and
+        # match case-sensitively. We don't lowercase because manual
+        # list values often carry meaningful casing (e.g. "Bill" vs
+        # "bill" can differ in downstream consumers). When matched, we
+        # emit the canonical value as it appears in `manual_values` so
+        # the resolved cell carries the same casing/whitespace the
+        # template persisted.
+        #
+        # When `default_value` is set but does NOT match any manual
+        # value, we fall through to the existing manual_review/missing
+        # behavior so the operator still gets the "no selection" hint.
+        # The validator emits MANUAL_LIST_DEFAULT_NOT_IN_LIST in that
+        # case to surface the mismatch separately.
+        if has_default and manual_values:
+            default_clean = (
+                column.default_value.strip()
+                if isinstance(column.default_value, str)
+                else ""
+            )
+            if default_clean:
+                canonical = next(
+                    (
+                        candidate
+                        for candidate in manual_values
+                        if isinstance(candidate, str)
+                        and candidate.strip() == default_clean
+                    ),
+                    None,
+                )
+                if canonical is not None:
+                    return _resolved_cell(
+                        column,
+                        value=canonical,
+                        source_type="manual",
+                        confidence=1.0,
+                        provenance=CellProvenance(
+                            column_id=column.id,
+                            column_label=column.name,
+                            source_label="Manual list default",
+                            source_detail=(
+                                "Operator-selected default value from the "
+                                "column's manual list."
+                            ),
+                        ),
+                    )
+
         if len(manual_values) == 1:
             return _resolved_cell(
                 column,
