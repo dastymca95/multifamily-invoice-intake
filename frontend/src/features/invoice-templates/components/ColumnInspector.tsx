@@ -37,11 +37,19 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
+import { getApiErrorMessage, invoiceTemplatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type {
+  ColumnReadinessOut as BackendColumnReadiness,
+  ImportTemplateReadinessPreviewResponse,
+  ReadinessItemOut as BackendReadinessItem,
+  ReadinessStatus as BackendReadinessStatus,
+  ResolverExpectation as BackendResolverExpectation,
+} from "@/types/import-readiness";
 import {
   CATALOG_BINDING_SOURCES,
   COLUMN_DATA_TYPE_DESCRIPTION,
@@ -168,8 +176,13 @@ interface ColumnInspectorProps {
    * operator can commit changes from inside the inspector instead of
    * having to dismiss + click the editor's main Save button. Mirrors
    * `handleSave` in `TemplateEditor.tsx`.
+   *
+   * The handler may return ``Promise<void>`` (rejecting on save
+   * failure — Phase 1E) or be void-returning. The inspector's
+   * "Save & close" wrapper swallows rejections because the editor's
+   * `mutationError` already surfaces the error to the user.
    */
-  onSave?: () => void;
+  onSave?: () => Promise<void> | void;
   /** Whether the editor's Save button would currently be enabled. */
   canSave?: boolean;
   /** Whether a save is in flight (drives the Save & close spinner). */
@@ -183,6 +196,18 @@ interface ColumnInspectorProps {
    * a clear hint that nothing is persisted yet.
    */
   isDraft?: boolean;
+  /**
+   * Persisted template id (echoed in the readiness preview request
+   * payload). ``null`` for unsaved drafts — backend doesn't require
+   * it, the columns/rules in the body are the real input.
+   */
+  templateId?: string | null;
+  /**
+   * Current template name (echoed in the readiness preview response
+   * for client correlation). Reflects the in-flight local edit, not
+   * the saved name.
+   */
+  templateName?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +272,8 @@ export function ColumnInspector({
   saving = false,
   dirty = false,
   isDraft = false,
+  templateId = null,
+  templateName = null,
 }: ColumnInspectorProps) {
   const sourceType: ColumnSourceType = columnGlobalMode(column);
   const required = column.required ?? false;
@@ -570,16 +597,62 @@ export function ColumnInspector({
   // columns we still fall through to the existing ManualListEditor.
   const hideManualListEditor = dropdownLike && sourceType === "manual_list";
 
+  // ---- Phase 1D — backend readiness preview --------------------------
+  //
+  // Calls POST /invoice-templates/readiness-preview with the current
+  // local template state (unsaved edits included). The backend's
+  // verdict is the canonical source of truth — when available, the
+  // wizard renders BACKEND items / status / expectation, falling back
+  // to the local heuristic helpers only for the loading / error /
+  // offline windows. Drift between wizard and resolver collapses by
+  // construction.
+  //
+  // Debounce + race protection:
+  //   * 400ms timer between input change and request fire — typing
+  //     a value into a Step 2 list box doesn't fire 12 requests.
+  //   * AbortController cancels stale in-flight requests when newer
+  //     inputs arrive.
+  //   * A request-id ref discards out-of-order responses (cheap
+  //     defense in depth in case AbortController cancellation lags).
+  const backendReadiness = useBackendReadiness({
+    templateId,
+    templateName,
+    columns,
+    rules,
+    columnId: column.id,
+  });
+  const backendColumnReadiness = backendReadiness.columnReadiness;
+
+  // Decide which readiness data feeds the wizard this render. When
+  // the backend has responded for the current column, its items /
+  // value-source / expectation are authoritative. Loading / error
+  // states fall through to the local helpers so the operator never
+  // sees a blank wizard.
+  const useBackend = backendColumnReadiness !== null;
+  const effectiveItems: ReadinessItem[] = useBackend
+    ? backendItemsToLocal(backendColumnReadiness.items)
+    : readiness;
+  const effectivePicture: ValueSourcePicture = useBackend
+    ? backendToValueSourcePicture(backendColumnReadiness)
+    : valuePicture;
+
   // Per-step status badges drive the stepper chips + footer status
-  // text. Steps 1–4 each filter the readiness items by `fixStep`;
-  // Step 5 summarises ALL items; Advanced has no inherent status so
-  // it's always neutral.
+  // text. Steps 1–4 each filter the (effective) readiness items by
+  // `fixStep`; Step 5 summarises ALL items; Advanced has no inherent
+  // status so it's always neutral.
+  //
+  // When backend data is in play, the Step 5 summary uses the
+  // BACKEND's own column-status field directly — that's the
+  // authoritative roll-up the backend computed across structure /
+  // value_source / rule_runtime / required-burden advisories.
   const stepStatuses: Record<WizardStepKey, ReadinessStatus | null> = {
-    1: statusForStep(readiness, 1),
-    2: statusForStep(readiness, 2),
-    3: statusForStep(readiness, 3),
-    4: statusForStep(readiness, 4),
-    5: summariseReadiness(readiness),
+    1: statusForStep(effectiveItems, 1),
+    2: statusForStep(effectiveItems, 2),
+    3: statusForStep(effectiveItems, 3),
+    4: statusForStep(effectiveItems, 4),
+    5: useBackend
+      ? backendStatusToLocal(backendColumnReadiness.status)
+      : summariseReadiness(effectiveItems),
     advanced: null,
   };
 
@@ -1001,25 +1074,40 @@ export function ColumnInspector({
             hint="What the resolver actually sees. Mirrors the same value-source logic the backend uses for Validate + Dry Run, so green checks here mean Dry Run will agree."
             status={stepStatuses[5]}
           >
-            {/* Resolver expectation card — the headline verdict from
-                computeValueSourcePicture. Drives operator trust by
-                being honest about what Dry Run will actually report. */}
-            <ResolverExpectationCard picture={valuePicture} />
+            {/* Backend-readiness provenance banner — tells the
+                operator whether the verdicts they're looking at came
+                from the canonical backend or the local heuristic
+                fallback. Phase 1D contract: green checks must
+                correspond to backend agreement. */}
+            <BackendReadinessBanner
+              loading={backendReadiness.loading}
+              error={backendReadiness.error}
+              hasResponse={useBackend}
+              dirty={Boolean(dirty)}
+              isDraft={Boolean(isDraft)}
+            />
+
+            {/* Resolver expectation card — uses BACKEND verdict when
+                available; falls through to the local heuristic
+                picture during loading / error / offline windows. */}
+            <ResolverExpectationCard picture={effectivePicture} />
 
             {/* Saved-changes hint — even when readiness is green,
-                Dry Run uses the LAST SAVED template. Make sure the
-                operator knows that before they hit Done & wonder
-                why nothing changed. */}
+                Dry Run uses the LAST SAVED template. Readiness
+                preview, however, evaluates the local in-flight
+                payload; keep both signals visible so the operator
+                doesn't conflate them. */}
             {dirty && !isDraft && (
-              <StepWarning tone="warning" title="Unsaved changes">
-                Validate and Dry Run read the last SAVED version. Use
-                Save & close in the footer (or the editor's Save
-                button) before running diagnostics.
+              <StepWarning tone="warning" title="Unsaved changes for Dry Run">
+                Readiness preview above already reflects your local
+                edits. Validate and Dry Run still read the LAST SAVED
+                version — use Save & close in the footer before
+                running diagnostics.
               </StepWarning>
             )}
 
             <ReadinessChecklist
-              items={readiness}
+              items={effectiveItems}
               onJumpToStep={onJumpToStep}
             />
           </WizardPage>
@@ -1081,7 +1169,17 @@ export function ColumnInspector({
         onSaveAndClose={
           onSave
             ? () => {
-                onSave();
+                // Phase 1E — `onSave` (TemplateEditor.handleSave)
+                // returns a Promise that REJECTS on save failure.
+                // The editor toolbar surfaces the error via
+                // `mutationError`, so swallow here to avoid an
+                // "unhandled promise rejection" in the console; the
+                // inspector closes either way (matching the original
+                // fire-and-forget behavior — the user re-opens after
+                // fixing the error in the toolbar).
+                Promise.resolve(onSave()).catch(() => {
+                  /* mutationError handles UX */
+                });
                 onClose();
               }
             : undefined
@@ -4417,4 +4515,328 @@ function WizardFooter({
       )}
     </footer>
   );
+}
+
+// ===========================================================================
+// Phase 1D — backend readiness preview hook + adapters + banner
+// ===========================================================================
+//
+// The ColumnInspector renders the BACKEND'S verdict whenever it has
+// one for the current column; the local heuristic helpers
+// (`computeReadiness`, `evaluateGlobalSource`, etc.) become the
+// fallback for the loading / error / offline windows. The hook below
+// is the integration point — it fetches with debounce, cancels stale
+// requests, and surfaces the per-column slice the inspector needs.
+
+interface UseBackendReadinessParams {
+  templateId: string | null;
+  templateName: string | null;
+  columns: InvoiceTemplateColumn[];
+  rules: InvoiceTemplateRule[];
+  /** Which column to surface from the response. */
+  columnId: string;
+  /** Debounce window in milliseconds. Default 400ms. */
+  debounceMs?: number;
+}
+
+interface BackendReadinessSnapshot {
+  /** True while a fetch is in flight. */
+  loading: boolean;
+  /** Last error message, or null. Cleared on next successful fetch. */
+  error: string | null;
+  /**
+   * The backend column readiness matching ``columnId``. ``null``
+   * when no response yet, when the columnId isn't in the response,
+   * or when the most recent fetch errored.
+   */
+  columnReadiness: BackendColumnReadiness | null;
+  /** The full last-good response (useful for whole-template UI). */
+  response: ImportTemplateReadinessPreviewResponse | null;
+}
+
+function useBackendReadiness({
+  templateId,
+  templateName,
+  columns,
+  rules,
+  columnId,
+  debounceMs = 400,
+}: UseBackendReadinessParams): BackendReadinessSnapshot {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [response, setResponse] = useState<
+    ImportTemplateReadinessPreviewResponse | null
+  >(null);
+
+  // Stable hash of the inputs that drive the request body. JSON
+  // serialisation is sufficient — the inspector's columns/rules
+  // arrays are JSONB-shaped state already, so stringify is cheap
+  // (linear in template size, no cycles, no functions).
+  const payloadKey = useMemo(() => {
+    try {
+      return JSON.stringify({
+        tid: templateId,
+        tname: templateName,
+        columns,
+        rules,
+      });
+    } catch {
+      // Defensive — if a future column shape introduces a circular
+      // ref, fall back to a non-stable key so the effect doesn't
+      // wedge silently. The next render produces a different random
+      // key and re-fires.
+      return `unhashable-${Math.random()}`;
+    }
+  }, [templateId, templateName, columns, rules]);
+
+  // Race protection: every fetch increments this counter and writes
+  // the value at request-start; on response, we only commit state
+  // when our counter still matches the current request id. This is
+  // belt-and-suspenders alongside AbortController — covers the
+  // narrow race where a response slips through after cancel.
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const myRequestId = ++requestIdRef.current;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const result = await invoiceTemplatesApi.previewReadiness(
+          {
+            template_id: templateId,
+            template_name: templateName,
+            columns: columns as unknown[],
+            rules: rules as unknown[],
+          },
+          { signal: controller.signal },
+        );
+        if (myRequestId !== requestIdRef.current) return;
+        setResponse(result);
+        setError(null);
+      } catch (err) {
+        // Aborts are expected on rapid input — don't surface them
+        // as user-facing errors.
+        if (controller.signal.aborted) return;
+        if (myRequestId !== requestIdRef.current) return;
+        setError(getApiErrorMessage(err, "Backend readiness check failed."));
+      } finally {
+        if (myRequestId === requestIdRef.current) {
+          setLoading(false);
+        }
+      }
+    }, debounceMs);
+
+    return () => {
+      if (timer != null) clearTimeout(timer);
+      controller.abort();
+    };
+  }, [payloadKey, debounceMs, templateId, templateName, columns, rules]);
+
+  const columnReadiness = useMemo<BackendColumnReadiness | null>(() => {
+    if (!response) return null;
+    return (
+      response.columns.find((col) => col.column_id === columnId) ?? null
+    );
+  }, [response, columnId]);
+
+  return { loading, error, columnReadiness, response };
+}
+
+/**
+ * Map a backend ReadinessStatus ("ready"|"warning"|"blocked") to
+ * the wizard's local 3-tier vocabulary ("ok"|"warning"|"error").
+ * Unknown future literals default to "warning" — visible enough that
+ * the operator notices, conservative enough that we don't promote
+ * mystery values to a green pass.
+ */
+function backendStatusToLocal(status: BackendReadinessStatus): ReadinessStatus {
+  if (status === "ready") return "ok";
+  if (status === "blocked") return "error";
+  return "warning";
+}
+
+/**
+ * Map a backend item's ``fix_step`` (number | "advanced" | null) to
+ * the wizard's per-step jump indices (1..4 only — Step 5 is the
+ * readiness page itself, "advanced" doesn't carry a numeric jump).
+ */
+function backendFixStep(
+  fixStep: number | string | null | undefined,
+): 1 | 2 | 3 | 4 | undefined {
+  if (typeof fixStep !== "number") return undefined;
+  if (fixStep === 1 || fixStep === 2 || fixStep === 3 || fixStep === 4) {
+    return fixStep;
+  }
+  return undefined;
+}
+
+/**
+ * Map backend categories to the wizard's three local categories.
+ * "advanced" and "validation" fall back to "structure" so the
+ * wizard's Step-5 grouping stays readable; the backend item still
+ * carries its own ``code`` + ``message`` so no information is lost.
+ */
+function backendCategoryToLocal(category: string): ReadinessCategory {
+  if (
+    category === "structure"
+    || category === "value_source"
+    || category === "rule_runtime"
+  ) {
+    return category;
+  }
+  // "advanced" / "validation" / future literals → bucket as
+  // "structure" so the readiness checklist still groups them under a
+  // known section header.
+  return "structure";
+}
+
+/**
+ * Adapter — backend ReadinessItem[] → wizard-local ReadinessItem[].
+ *
+ * The wizard's existing ReadinessChecklist + statusForStep helpers
+ * iterate the local shape; instead of forking those for backend
+ * data, we adapt the backend items into local shape and reuse the
+ * existing rendering machinery untouched. Information loss is
+ * minimal: ``recommendation`` and ``code`` collapse into the
+ * ``detail`` field; per-cell pointers (rule_id / cell_key / path)
+ * are dropped because the wizard doesn't render them today.
+ */
+function backendItemsToLocal(
+  items: BackendReadinessItem[],
+): ReadinessItem[] {
+  return items.map((item) => {
+    const localStatus = backendStatusToLocal(item.status);
+    // Compose detail from backend detail + recommendation + code so
+    // the operator sees the full backend context without us adding
+    // new render branches to the existing ReadinessChecklist.
+    const detailParts: string[] = [];
+    if (item.detail) detailParts.push(item.detail);
+    if (item.recommendation && item.recommendation !== item.detail) {
+      detailParts.push(item.recommendation);
+    }
+    return {
+      status: localStatus,
+      category: backendCategoryToLocal(item.category),
+      label: item.message,
+      detail: detailParts.length > 0 ? detailParts.join(" — ") : undefined,
+      fixStep: backendFixStep(item.fix_step),
+    };
+  });
+}
+
+/**
+ * Adapter — backend ColumnReadiness → wizard-local
+ * ValueSourcePicture. Lets the existing ResolverExpectationCard
+ * render backend verdicts without an alternative code path.
+ *
+ * Stat-card derivation: the card shows three tiles (Default source /
+ * Rule FILL path / Needs runtime input). The backend's response
+ * doesn't return per-rule fill records, so we infer the
+ * unconditional / conditional flags from the backend item codes the
+ * Phase 1C service emits (READINESS_UNCONDITIONAL_FILL,
+ * READINESS_CONDITIONAL_FILL_ONLY, READINESS_CONDITIONAL_FILL_OVERRIDE).
+ * Approximate but truthful — the operator never sees a green tile
+ * when the backend says the column lacks the corresponding path.
+ */
+function backendToValueSourcePicture(
+  column: BackendColumnReadiness,
+): ValueSourcePicture {
+  const hasUnconditionalFill = column.items.some(
+    (item) => item.code === "READINESS_UNCONDITIONAL_FILL",
+  );
+  const hasConditionalFill = column.items.some(
+    (item) =>
+      item.code === "READINESS_CONDITIONAL_FILL_ONLY"
+      || item.code === "READINESS_CONDITIONAL_FILL_OVERRIDE",
+  );
+  // Narrow the backend's widened ResolverExpectation (which carries a
+  // `string & {}` arm for forward-compat) into the wizard's strict
+  // union. Unknown future literals fall back to "may_be_missing" so
+  // the operator gets a yellow card rather than a crash.
+  const KNOWN_EXPECTATIONS = new Set([
+    "should_resolve",
+    "may_be_missing",
+    "will_be_missing",
+  ]);
+  const expectation: ValueSourcePicture["expectation"] =
+    KNOWN_EXPECTATIONS.has(column.expectation as string)
+      ? (column.expectation as ValueSourcePicture["expectation"])
+      : "may_be_missing";
+  return {
+    globalVerdict: {
+      status: backendStatusToLocal(column.value_source.status),
+      label: column.value_source.label,
+      detail: column.value_source.detail ?? undefined,
+      conditional: Boolean(column.value_source.conditional),
+    },
+    // Backend doesn't expose per-rule fill records. Empty list is
+    // safe — the existing card logic only consults this for the
+    // gating-hint string in non-backend mode.
+    ruleFills: [],
+    hasUnconditionalFill,
+    hasConditionalFill,
+    expectation,
+    expectationLabel: column.expectation_label,
+    expectationDetail: column.expectation_detail,
+  };
+}
+
+/**
+ * Provenance banner rendered above the ResolverExpectationCard on
+ * Step 5. Tells the operator whether the verdicts they're looking at
+ * came from the canonical backend readiness preview or the local
+ * heuristic fallback, plus an explicit reminder that the readiness
+ * preview honors local edits while Dry Run still uses the saved
+ * template.
+ */
+function BackendReadinessBanner({
+  loading,
+  error,
+  hasResponse,
+  dirty,
+  isDraft,
+}: {
+  loading: boolean;
+  error: string | null;
+  hasResponse: boolean;
+  dirty: boolean;
+  isDraft: boolean;
+}) {
+  if (loading) {
+    return (
+      <StepWarning tone="info" title="Checking backend readiness…">
+        Asking the backend to evaluate your local edits. The local
+        estimate below stays visible while we wait.
+      </StepWarning>
+    );
+  }
+  if (error) {
+    return (
+      <StepWarning
+        tone="warning"
+        title="Backend readiness check failed"
+      >
+        {error} Showing local estimate instead.
+      </StepWarning>
+    );
+  }
+  if (hasResponse) {
+    const localEditsHint = isDraft
+      ? "Includes your draft edits — Dry Run only sees the saved template once you save."
+      : dirty
+        ? "Includes your unsaved edits — Dry Run still uses the LAST SAVED template until you save."
+        : "Reflects the saved template.";
+    return (
+      <StepWarning tone="info" title="Backend verified">
+        Readiness above was computed by the canonical backend readiness
+        engine. {localEditsHint}
+      </StepWarning>
+    );
+  }
+  // Initial render before debounce fires — render nothing; the local
+  // estimate carries the wizard until the first response arrives.
+  return null;
 }

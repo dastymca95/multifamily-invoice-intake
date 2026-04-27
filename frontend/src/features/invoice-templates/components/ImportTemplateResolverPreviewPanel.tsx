@@ -11,7 +11,7 @@ import {
   Play,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -172,14 +172,20 @@ interface ImportTemplateResolverPreviewPanelProps {
   isDraft?: boolean;
   /**
    * Optional save handler — when provided AND there are unsaved
-   * changes, the panel renders a "Save & run" button so the operator
-   * doesn't have to dismiss the modal, click Save in the editor, and
-   * re-open the panel. Mirrors `handleSave` in TemplateEditor.
+   * changes, the panel renders a "Save then run" button that awaits
+   * the save and then automatically re-runs Dry Run against the
+   * freshly-saved template, eliminating the "save outside the modal,
+   * reopen, click Run" friction loop.
+   *
+   * Phase 1E refactored TemplateEditor.handleSave to return
+   * Promise<void> so this chain works deterministically. Older
+   * void-returning handlers still type-check (the panel just doesn't
+   * await anything meaningful and re-runs immediately).
    */
-  onSave?: () => void;
+  onSave?: () => Promise<void> | void;
   /** Whether the editor's Save button is currently enabled. */
   canSave?: boolean;
-  /** Whether a save is currently in flight. */
+  /** Whether a save is currently in flight (parent-tracked). */
   saving?: boolean;
 }
 
@@ -210,6 +216,32 @@ export function ImportTemplateResolverPreviewPanel({
     catalog_hints?: string;
     document_metadata?: string;
   }>({});
+
+  // ---- Phase 1E — Save then run flow --------------------------------
+  //
+  // When the operator opens Dry Run with unsaved changes, we surface
+  // a Save-then-run action that (1) awaits the parent save promise,
+  // (2) then auto-fires a fresh dry-run against the saved template.
+  // Eliminates the manual "close modal, click Save in editor, reopen
+  // modal, click Run" friction loop.
+  //
+  // `saveThenRunBusy` is the panel-local lock for the chained flow;
+  // distinct from the parent's `saving` prop (which guards the
+  // editor's main Save button). Both are checked when disabling the
+  // Save-then-run button to prevent double-fire.
+  //
+  // `resultIsStale` flips true the moment we have a result AND the
+  // parent reports unsaved changes; used to label the result panel
+  // so the operator never confuses old saved-version diagnostics
+  // with their in-flight edits. Cleared after a fresh run.
+  const [saveThenRunBusy, setSaveThenRunBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Request counter — guards against out-of-order responses if a
+  // user fires multiple runs in quick succession. Belt-and-suspenders
+  // race protection (the run promise itself is awaited in sequence
+  // for Save-then-run, but the manual Run button can fire while a
+  // previous run is settling).
+  const runRequestIdRef = useRef(0);
 
   const handleRun = useCallback(async () => {
     if (!templateId || isDraft) return;
@@ -283,15 +315,25 @@ export function ImportTemplateResolverPreviewPanel({
     if (catalogHints) payload.catalog_hints = catalogHints;
     if (documentMetadata) payload.document_metadata = documentMetadata;
 
+    // Bump request id BEFORE we await — any earlier in-flight request
+    // sees a stale id when its response settles and will silently
+    // discard its own setResult / setError. Belt-and-suspenders against
+    // out-of-order responses from the chained Save-then-run flow or
+    // rapid manual clicks.
+    const requestId = ++runRequestIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const next = await invoiceTemplatesApi.resolveDryRun(templateId, payload);
+      if (runRequestIdRef.current !== requestId) return;
       setResult(next);
     } catch (err) {
+      if (runRequestIdRef.current !== requestId) return;
       setError(getApiErrorMessage(err, "Could not run the resolver dry-run."));
     } finally {
-      setLoading(false);
+      if (runRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [
     templateId,
@@ -300,6 +342,42 @@ export function ImportTemplateResolverPreviewPanel({
     catalogHintsJson,
     documentMetadataJson,
   ]);
+
+  // Phase 1E — chained "Save then run" handler.
+  //
+  // Awaits the parent save (which may be a no-op or void-returning
+  // legacy handler) and, only on success, fires a fresh dry-run. Any
+  // save error short-circuits the run and surfaces inline so the
+  // operator never gets stale results without realising the save
+  // didn't land.
+  //
+  // We deliberately do NOT call this from anywhere except the user-
+  // initiated "Save then run" button — Phase 1E spec explicitly
+  // forbids silent auto-save when the operator clicks Run.
+  const handleSaveThenRun = useCallback(async () => {
+    if (!onSave || isDraft || saveThenRunBusy || saving) return;
+    setSaveError(null);
+    setSaveThenRunBusy(true);
+    try {
+      const maybePromise = onSave();
+      if (
+        maybePromise &&
+        typeof (maybePromise as Promise<void>).then === "function"
+      ) {
+        await maybePromise;
+      }
+      // Save succeeded — fire the dry-run against the freshly
+      // persisted template. handleRun has its own loading lock and
+      // request-id guard, so it's safe to await here.
+      await handleRun();
+    } catch (err) {
+      setSaveError(
+        getApiErrorMessage(err, "Could not save the template before dry-run."),
+      );
+    } finally {
+      setSaveThenRunBusy(false);
+    }
+  }, [onSave, isDraft, saveThenRunBusy, saving, handleRun]);
 
   const summary = useMemo(
     () => deriveSummary(result),
@@ -331,53 +409,73 @@ export function ImportTemplateResolverPreviewPanel({
           </InlineAlert>
         )}
         {!isDraft && hasUnsavedChanges && (
-          <InlineAlert
-            tone="warning"
-            title="Save template before dry-run"
-            action={
-              onSave && canSave ? (
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    // Save first; the user re-clicks Run after the
-                    // editor's mutation finishes. We don't auto-run
-                    // here because save is async + we don't await
-                    // the parent's promise from this surface.
-                    onSave();
-                  }}
-                  disabled={saving}
-                  loading={saving}
-                >
-                  Save and re-open
-                </Button>
-              ) : undefined
-            }
-          >
-            Dry-run uses the last SAVED version of this template. Click
-            Save (in the editor) before running so the diagnostics
-            reflect your local changes.
-          </InlineAlert>
+          // Phase 1E — strong unsaved-changes banner. Replaces the
+          // older "Save and re-open" InlineAlert with a more visible
+          // panel that owns its own primary "Save then run" CTA and
+          // surfaces any save error inline. We use a custom div
+          // (instead of InlineAlert) so the action area can host both
+          // a button + helper copy + error line without fighting the
+          // alert's compact layout.
+          <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-3 dark:border-yellow-900 dark:bg-yellow-950/30">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-yellow-700 dark:text-yellow-300" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
+                  Unsaved changes are not included in this dry-run
+                </p>
+                <p className="mt-0.5 text-xs text-yellow-800 dark:text-yellow-200">
+                  Dry Run reads the LAST SAVED template from the
+                  server. To test your local edits, save first.
+                </p>
+                {onSave && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSaveThenRun}
+                      disabled={
+                        !canSave ||
+                        loading ||
+                        saveThenRunBusy ||
+                        saving
+                      }
+                      loading={saveThenRunBusy || saving}
+                    >
+                      Save then run
+                    </Button>
+                    <span className="text-[11px] text-yellow-700 dark:text-yellow-300">
+                      Saves the template, then runs a fresh dry-run.
+                    </span>
+                  </div>
+                )}
+                {saveError && (
+                  <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+                    Save failed: {saveError}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ---- Run controls ------------------------------------------- */}
         <div className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-line dark:bg-surface-muted">
           <p className="text-xs text-gray-600 dark:text-ink-muted">
-            Diagnostic only. The dry-run never mutates the template,
-            never exports, and never touches Review Queue.
+            Diagnostic only — runs against the LAST SAVED template.
+            Never mutates, exports, or touches Review Queue.
           </p>
           <Button
             type="button"
             variant="primary"
             size="sm"
-            disabled={loading || !templateId || isDraft}
+            disabled={loading || !templateId || isDraft || saveThenRunBusy}
             loading={loading}
             onClick={handleRun}
             title={
               hasUnsavedChanges && !isDraft
-                ? "Heads up: this still uses the last SAVED template. Click Save and re-open above to include local changes."
-                : undefined
+                ? "Heads up: this uses the last SAVED template. Use 'Save then run' above to include your local edits."
+                : "Run a diagnostic dry-run of the resolver."
             }
           >
             <Play className="h-3.5 w-3.5" />
@@ -419,6 +517,19 @@ export function ImportTemplateResolverPreviewPanel({
         {/* ---- Result ------------------------------------------------- */}
         {result && !loading && (
           <>
+            {hasUnsavedChanges && !isDraft && (
+              // Phase 1E — stale-result label. The result we are
+              // rendering was computed against the saved template;
+              // the operator's local edits are NOT reflected. Without
+              // this label it is too easy to mistake "Ready" for
+              // "Ready including my edits".
+              <div className="rounded-md border border-yellow-200 bg-yellow-50/60 px-2.5 py-1.5 text-[11px] text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200">
+                These results reflect the LAST SAVED version. Local
+                edits since the last save are not included — use
+                “Save then run” above to refresh.
+              </div>
+            )}
+
             <ResultStatusCard result={result} summary={summary} />
 
             <SummaryGrid summary={summary} />

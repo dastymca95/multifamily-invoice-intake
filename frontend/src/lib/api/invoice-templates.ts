@@ -8,6 +8,10 @@ import type {
 } from "@/types/invoice-template";
 import type { UsedByReport } from "@/types/dependencies";
 import type { ResolverInput, ResolverResult } from "@/types/import-resolver";
+import type {
+  ImportTemplateReadinessPreviewRequest,
+  ImportTemplateReadinessPreviewResponse,
+} from "@/types/import-readiness";
 
 import { apiClient } from "./client";
 
@@ -64,6 +68,35 @@ export const invoiceTemplatesApi = {
       .post<ResolverResult>(
         `/invoice-templates/${id}/resolve-dry-run`,
         payload ?? {},
+      )
+      .then((r) => r.data),
+
+  /**
+   * Backend readiness preview for a (possibly unsaved) template
+   * payload. The wizard posts its current local state — including
+   * unsaved edits — and gets back per-column readiness diagnostics
+   * computed by the canonical backend contract (Phase 1C endpoint).
+   *
+   * Distinction from ``resolveDryRun``:
+   *   * ``resolveDryRun`` reads the LAST SAVED template from the
+   *     server. To include local edits the operator must save first.
+   *   * ``previewReadiness`` reads the payload IN THE BODY. Local
+   *     edits are evaluated immediately — eliminates the
+   *     "wizard says ready but Dry Run still says blocked" gap.
+   *
+   * The `signal` parameter accepts an ``AbortController.signal`` so
+   * callers can cancel in-flight requests when their inputs change
+   * (debounced fetch pattern).
+   */
+  previewReadiness: (
+    payload: ImportTemplateReadinessPreviewRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<ImportTemplateReadinessPreviewResponse> =>
+    apiClient
+      .post<ImportTemplateReadinessPreviewResponse>(
+        "/invoice-templates/readiness-preview",
+        payload,
+        options?.signal ? { signal: options.signal } : undefined,
       )
       .then((r) => r.data),
 

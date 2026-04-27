@@ -180,9 +180,14 @@ export function ImportBuilderPage() {
         rules: body.rules,
         source: "default",
       });
-      if (detail) {
-        setViewingDraft(false);
+      if (!detail) {
+        // `create()` already populated `mutationError`; propagate
+        // the failure so chained callers (Phase 1E "Save then run"
+        // in the dry-run panel) can abort instead of silently
+        // running diagnostics against the OLD saved version.
+        throw new Error("Save failed");
       }
+      setViewingDraft(false);
     },
     [create],
   );
@@ -195,7 +200,12 @@ export function ImportBuilderPage() {
       rules: InvoiceTemplateRule[];
     }) => {
       if (!selectedId) return;
-      await update(selectedId, body);
+      const detail = await update(selectedId, body);
+      if (!detail) {
+        // See comment in `handleSaveDraft` — Phase 1E chained flows
+        // depend on a rejected promise to detect save failure.
+        throw new Error("Save failed");
+      }
     },
     [selectedId, update],
   );

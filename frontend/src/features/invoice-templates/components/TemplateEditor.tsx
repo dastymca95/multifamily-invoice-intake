@@ -176,6 +176,14 @@ interface TemplateEditorProps {
    * bindings. Owned at the page level so column-switches don't refetch.
    */
   catalogIndex: CatalogIndex;
+  /**
+   * Persist the template to the server. Resolves on success and
+   * REJECTS on save failure (Phase 1E) so chained callers — the
+   * dry-run panel's "Save then run" — can detect failure and abort
+   * instead of silently running diagnostics against the OLD saved
+   * version. The page-level `mutationError` is also populated on
+   * failure for the editor's toolbar to display.
+   */
   onSave: (body: {
     name: string;
     description: string | null;
@@ -459,9 +467,14 @@ export function TemplateEditor({
     validRuleCount &&
     (isDraft || dirty);
 
-  const handleSave = () => {
-    if (!canSave) return;
-    void onSave({
+  // Phase 1E — return the Promise from `onSave` so callers (the
+  // dry-run panel's "Save then run" flow + the inspector's
+  // "Save & close") can `await` it and chain follow-up work
+  // deterministically. When canSave is false we resolve immediately
+  // with no-op so callers don't need to special-case the gate.
+  const handleSave = (): Promise<void> => {
+    if (!canSave) return Promise.resolve();
+    return onSave({
       name: name.trim(),
       description: description.trim() ? description.trim() : null,
       columns: columns.map((c, i) => ({ ...c, name: trimmedColumnNames[i] })),
@@ -925,12 +938,27 @@ export function TemplateEditor({
               isDraft
                 ? "Save this template before running a dry-run."
                 : dirty
-                  ? "Dry-run uses the last saved version."
+                  ? // Phase 1E — be explicit that Dry Run does NOT
+                    // see local edits. The modal also surfaces this
+                    // with a stronger banner + Save then run action,
+                    // but the toolbar tooltip is the first hint the
+                    // operator sees on hover.
+                    "Dry Run uses the last saved version. Save first to test current edits."
                   : "Diagnostic dry-run of the resolver"
             }
           >
             <Play className="h-3.5 w-3.5" />
             Dry run
+            {/* Tiny dot signal that Dry Run will see the saved
+                version, not the in-flight local edits. Mirrors the
+                tooltip copy above. */}
+            {!isDraft && dirty && (
+              <span
+                aria-hidden="true"
+                className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-yellow-500"
+                title="Unsaved changes exist — Dry Run uses the saved version"
+              />
+            )}
           </Button>
           <Button
             type="button"
@@ -956,7 +984,17 @@ export function TemplateEditor({
             size="sm"
             disabled={!canSave}
             loading={saving}
-            onClick={handleSave}
+            // Phase 1E — `handleSave` now returns a Promise that
+            // REJECTS on save failure (so the dry-run panel's chained
+            // "Save then run" can detect failure and abort). The
+            // editor toolbar already surfaces the same error via
+            // `mutationError` below, so we swallow here to avoid an
+            // "unhandled promise rejection" in the console.
+            onClick={() => {
+              void handleSave().catch(() => {
+                /* mutationError handles UX */
+              });
+            }}
           >
             <Save className="h-3.5 w-3.5" />
             {isDraft
@@ -1465,6 +1503,13 @@ export function TemplateEditor({
           saving={saving}
           dirty={dirty}
           isDraft={isDraft}
+          // Phase 1D — passed so the inspector can call
+          // POST /invoice-templates/readiness-preview with the
+          // current local template state (unsaved edits included).
+          // Drafts pass null so the backend just echoes the field;
+          // the readiness body's columns/rules are the real input.
+          templateId={isDraft ? null : templateKey}
+          templateName={name || initial.name}
         />
       )}
       <ImportTemplateValidationPanel
