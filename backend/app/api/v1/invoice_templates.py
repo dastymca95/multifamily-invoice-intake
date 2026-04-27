@@ -49,8 +49,15 @@ from app.schemas.invoice_template import (
     build_default_template,
 )
 from app.schemas.import_resolver import ResolverInput, ResolverResult
+from app.schemas.import_readiness import (
+    ImportTemplateReadinessPreviewRequest,
+    ImportTemplateReadinessPreviewResponse,
+)
 from app.schemas.dependencies import UsedByReport
 from app.services.dependency_usage import get_invoice_template_usage
+from app.services.import_template_readiness import (
+    preview_import_template_readiness,
+)
 from app.services.import_template_validation import validate_import_template
 from app.services.import_template_resolver import dry_run_resolve_import_template
 
@@ -105,6 +112,46 @@ async def get_default_template(user: CurrentUser) -> InvoiceTemplateDefault:
     row whose columns are then independent of this constant.
     """
     return build_default_template()
+
+
+@router.post(
+    "/readiness-preview",
+    response_model=ImportTemplateReadinessPreviewResponse,
+)
+async def preview_invoice_template_readiness(
+    body: ImportTemplateReadinessPreviewRequest,
+    user: CurrentUser,
+) -> ImportTemplateReadinessPreviewResponse:
+    """Evaluate readiness for a (possibly unsaved) Import Template payload.
+
+    Phase 1C — pure / non-mutating diagnostic surface. The Column
+    Inspector currently runs its OWN local heuristic readiness logic;
+    this endpoint exposes the canonical backend readiness contract so
+    the wizard (in a future phase) can stop drifting from Validate /
+    Dry Run.
+
+    Why POST + body (instead of GET by template_id):
+    The wizard needs to evaluate UNSAVED local edits — a saved-version
+    GET would repeat the stale-save problem this endpoint exists to
+    solve. The body uses the same ``InvoiceTemplateColumn`` /
+    ``InvoiceTemplateRule`` shapes the frontend already sends to
+    create/update endpoints, so no client-side payload transformation
+    is needed.
+
+    What this endpoint does NOT do:
+      * Touch the database (catalog existence is not validated here).
+      * Run OCR / AI / extraction.
+      * Call the resolver dry-run.
+      * Apply rules with runtime extracted facts (template readiness,
+        not scenario resolution).
+      * Mutate the template.
+
+    Auth-only dependency. No DB session is required at this phase
+    (future phases may add catalog-existence checks; the endpoint
+    will gain a DB dep then without changing the request shape).
+    """
+
+    return preview_import_template_readiness(body)
 
 
 # ---------------------------------------------------------------------------
