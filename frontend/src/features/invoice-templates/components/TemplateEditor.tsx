@@ -47,6 +47,7 @@ import { Switch } from "@/components/ui/Switch";
 import { getApiErrorMessage, invoiceTemplatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { UsedByReport } from "@/types/dependencies";
+import type { ImportTemplateReadinessPreviewResponse } from "@/types/import-readiness";
 import {
   MAX_COLUMNS,
   MAX_COLUMN_NAME_LENGTH,
@@ -55,7 +56,6 @@ import {
   RULE_ROLE_LABEL,
   SOURCE_TYPE_LABEL,
   type ColumnSourceType,
-  type ImportTemplateValidationResult,
   type InvoiceTemplateColumn,
   type InvoiceTemplateRule,
   type InvoiceTemplateRuleCell,
@@ -76,7 +76,7 @@ import {
 
 import type { CatalogIndex } from "../hooks/useCatalogIndex";
 
-import { ColumnInspector } from "./ColumnInspector";
+import { ColumnInspector, type WizardStepKey } from "./ColumnInspector";
 import { ImportTemplateResolverPreviewPanel } from "./ImportTemplateResolverPreviewPanel";
 import { ImportTemplateValidationPanel } from "./ImportTemplateValidationPanel";
 import {
@@ -355,11 +355,16 @@ export function TemplateEditor({
   // together on save.
   const [rules, setRules] = useState<InvoiceTemplateRule[]>(initial.rules);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Phase 1F — Validate now uses the backend readiness-preview
+  // endpoint so the panel speaks the same contract as the Column
+  // Inspector (Phase 1D). The local-edit payload is posted directly,
+  // eliminating the "save first to validate" friction loop AND the
+  // wording / verdict drift between Inspector and Validate.
   const [validationOpen, setValidationOpen] = useState(false);
   const [validationLoading, setValidationLoading] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationResult, setValidationResult] =
-    useState<ImportTemplateValidationResult | null>(null);
+    useState<ImportTemplateReadinessPreviewResponse | null>(null);
   // Resolver dry-run preview — purely diagnostic, never mutates the
   // template. Open/close is independent from validation; only one
   // boolean is needed because the panel owns its own loading/result
@@ -395,6 +400,35 @@ export function TemplateEditor({
   // is removed.
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null);
   const [inspectorColumnId, setInspectorColumnId] = useState<string | null>(null);
+  // Phase 1F — when the operator clicks "Fix" inside the Validate
+  // panel, the parent records the requested wizard step here. The
+  // ColumnInspector consumes ``inspectorInitialStep`` on mount + each
+  // time ``inspectorIntentNonce`` changes, so re-clicking Fix on a
+  // DIFFERENT issue for the same column re-navigates instead of
+  // silently no-op'ing (column.id didn't change).
+  const [inspectorInitialStep, setInspectorInitialStep] = useState<
+    WizardStepKey | undefined
+  >(undefined);
+  const [inspectorIntentNonce, setInspectorIntentNonce] = useState(0);
+
+  // Stable Fix-navigation handler. Wired into the Validate panel's
+  // per-column "Fix" CTA. Steps:
+  //   1. Record the desired step (or undefined → start at 1).
+  //   2. Bump the nonce so the inspector re-applies even if the
+  //      step is the same as a previous request.
+  //   3. Open the inspector for the column.
+  //   4. Close the Validate panel so the inspector isn't behind it
+  //      — the operator's flow is "see issue → fix it", not "see
+  //      issue → see issue list AND inspector".
+  const openInspectorAt = useCallback(
+    (columnId: string, step?: WizardStepKey) => {
+      setInspectorInitialStep(step);
+      setInspectorIntentNonce((n) => n + 1);
+      setInspectorColumnId(columnId);
+      setValidationOpen(false);
+    },
+    [],
+  );
 
   // Layout mode — horizontal (spreadsheet, default) vs vertical
   // (transposed rule matrix: fields down as rows, rules across as
@@ -497,27 +531,37 @@ export function TemplateEditor({
     setRules(initial.rules);
   };
 
+  // Phase 1F — Validate now POSTs the CURRENT LOCAL template state
+  // to the readiness-preview endpoint (the same contract Phase 1D
+  // wired into the Column Inspector). Drafts work too — the backend
+  // doesn't require a saved id; the columns/rules in the body are
+  // the real input.
+  //
+  // We deliberately do NOT fall back to the legacy
+  // ``invoiceTemplatesApi.validate(id)`` on failure: that would
+  // re-introduce the wording / verdict drift Phase 1F is meant to
+  // eliminate. The panel surfaces a Retry button instead.
   const handleValidate = useCallback(async () => {
     setValidationOpen(true);
     setValidationResult(null);
-    if (isDraft) {
-      setValidationError("Save this template before checking readiness.");
-      return;
-    }
-
-    setValidationLoading(true);
     setValidationError(null);
+    setValidationLoading(true);
     try {
-      const result = await invoiceTemplatesApi.validate(templateKey);
+      const result = await invoiceTemplatesApi.previewReadiness({
+        template_id: isDraft ? null : templateKey,
+        template_name: name,
+        columns: columns as unknown[],
+        rules: rules as unknown[],
+      });
       setValidationResult(result);
     } catch (err) {
       setValidationError(
-        getApiErrorMessage(err, "Could not validate this template."),
+        getApiErrorMessage(err, "Could not check template readiness."),
       );
     } finally {
       setValidationLoading(false);
     }
-  }, [isDraft, templateKey]);
+  }, [isDraft, templateKey, name, columns, rules]);
 
   const handleRequestDelete = useCallback(async () => {
     if (isDraft) return;
@@ -967,13 +1011,12 @@ export function TemplateEditor({
             disabled={validationLoading}
             loading={validationLoading}
             onClick={handleValidate}
-            title={
-              isDraft
-                ? "Save this template before checking readiness."
-                : dirty
-                  ? "Checks the last saved version."
-                  : "Check readiness"
-            }
+            // Phase 1F — Validate now uses readiness-preview against
+            // CURRENT LOCAL state, so drafts + dirty edits both work.
+            // The tooltip mirrors the panel's scope banner so the
+            // operator sees the same wording before and after the
+            // click.
+            title="Check readiness — uses your current local edits, same as the Column Inspector."
           >
             <ListChecks className="h-3.5 w-3.5" />
             Validate
@@ -1510,6 +1553,11 @@ export function TemplateEditor({
           // the readiness body's columns/rules are the real input.
           templateId={isDraft ? null : templateKey}
           templateName={name || initial.name}
+          // Phase 1F — initial step + nonce drive "Fix" navigation
+          // from the Validate panel. The inspector applies these on
+          // mount and every nonce bump.
+          initialStep={inspectorInitialStep}
+          initialStepNonce={inspectorIntentNonce}
         />
       )}
       <ImportTemplateValidationPanel
@@ -1518,7 +1566,10 @@ export function TemplateEditor({
         error={validationError}
         result={validationResult}
         hasUnsavedChanges={dirty && !isDraft}
+        isDraft={isDraft}
         onClose={() => setValidationOpen(false)}
+        onRetry={handleValidate}
+        onFixColumn={openInspectorAt}
       />
       {/* Resolver dry-run preview — diagnostic only. Mounted alongside
           the validation panel so both surfaces share the same modal

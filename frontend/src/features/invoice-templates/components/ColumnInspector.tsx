@@ -208,6 +208,24 @@ interface ColumnInspectorProps {
    * the saved name.
    */
   templateName?: string | null;
+  /**
+   * Phase 1F — when the inspector is opened from the Validate
+   * panel's "Fix" link, the parent specifies which wizard step the
+   * operator should land on. The inspector applies this step on
+   * mount AND every time ``initialStepNonce`` changes (so re-clicking
+   * Fix on a different issue for the SAME column re-navigates).
+   *
+   * When omitted, the inspector falls back to Step 1 on column
+   * switch (the original behavior).
+   */
+  initialStep?: WizardStepKey;
+  /**
+   * Bump-counter that signals "the parent wants to (re-)apply
+   * ``initialStep`` even if the value didn't change". Without this
+   * the inspector can't distinguish "operator manually clicked a
+   * different step" from "Validate asked us to jump again".
+   */
+  initialStepNonce?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +292,8 @@ export function ColumnInspector({
   isDraft = false,
   templateId = null,
   templateName = null,
+  initialStep,
+  initialStepNonce,
 }: ColumnInspectorProps) {
   const sourceType: ColumnSourceType = columnGlobalMode(column);
   const required = column.required ?? false;
@@ -505,19 +525,47 @@ export function ColumnInspector({
   // `activeStep` is a discriminated union so the Advanced page (the
   // power-user controls — locks / validation / allow_rule_override)
   // can live alongside the numbered steps without polluting the type.
-  const [activeStep, setActiveStep] = useState<WizardStepKey>(1);
+  //
+  // Phase 1F — initial step honours ``initialStep`` from the parent
+  // (set when the inspector is opened from the Validate panel's
+  // "Fix" link). Falls back to Step 1.
+  const [activeStep, setActiveStep] = useState<WizardStepKey>(
+    initialStep ?? 1,
+  );
 
-  // Reset to Step 1 whenever the inspector switches to a DIFFERENT
-  // column. We key off `column.id` rather than the full `column` so
-  // in-flight edits to the same column don't kick the operator back
-  // to the start of the wizard.
+  // Reset whenever the inspector switches to a DIFFERENT column. We
+  // key off `column.id` rather than the full `column` so in-flight
+  // edits to the same column don't kick the operator back to the
+  // start of the wizard.
+  //
+  // Phase 1F — when ``initialStep`` is set, jump there instead of
+  // Step 1 so a "Fix" click opens directly on the offending step.
   const columnIdRef = useRef(column.id);
   useEffect(() => {
     if (columnIdRef.current !== column.id) {
       columnIdRef.current = column.id;
-      setActiveStep(1);
+      setActiveStep(initialStep ?? 1);
     }
-  }, [column.id]);
+  }, [column.id, initialStep]);
+
+  // Phase 1F — re-apply ``initialStep`` whenever the parent bumps
+  // ``initialStepNonce``. This handles the "Fix on issue A then Fix
+  // on issue B for the SAME column" case — column.id doesn't change
+  // so the column-switch effect doesn't fire, but we still need to
+  // navigate to the new step. The nonce is the parent's signal that
+  // a NEW fix request just landed.
+  const lastConsumedNonceRef = useRef<number | undefined>(initialStepNonce);
+  useEffect(() => {
+    if (
+      initialStepNonce !== undefined &&
+      initialStepNonce !== lastConsumedNonceRef.current
+    ) {
+      lastConsumedNonceRef.current = initialStepNonce;
+      if (initialStep) {
+        setActiveStep(initialStep);
+      }
+    }
+  }, [initialStep, initialStepNonce]);
 
   // The readiness checklist's "Fix in step N" links route through
   // setActiveStep — the legacy scrollIntoView approach doesn't apply
@@ -4177,7 +4225,31 @@ function ColumnNameField({
  * validation / allow_rule_override) that the spec requires we keep
  * reachable but out of the default journey.
  */
-type WizardStepKey = 1 | 2 | 3 | 4 | 5 | "advanced";
+/**
+ * Stepper key used by the ColumnInspector wizard.
+ *
+ * Phase 1F — exported so external surfaces (the Validate panel's
+ * "Fix" navigation) can ask the inspector to open at a specific
+ * step. The validator's per-issue ``fix_step`` is mapped onto this
+ * shape via ``fixStepToWizardStep`` below.
+ */
+export type WizardStepKey = 1 | 2 | 3 | 4 | 5 | "advanced";
+
+/**
+ * Map a backend readiness ``fix_step`` (number 1–5, the literal
+ * ``"advanced"``, or unknown/missing) onto a concrete inspector
+ * step. Unknown values land on Step 5 (Readiness) so the operator
+ * sees the full backend readiness picture without us guessing.
+ */
+export function fixStepToWizardStep(
+  fix: number | string | null | undefined,
+): WizardStepKey {
+  if (typeof fix === "number" && fix >= 1 && fix <= 5) {
+    return fix as WizardStepKey;
+  }
+  if (fix === "advanced") return "advanced";
+  return 5;
+}
 
 /**
  * Display labels for each stepper chip. Order is the canonical step
