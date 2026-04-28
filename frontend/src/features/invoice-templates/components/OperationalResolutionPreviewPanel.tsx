@@ -67,6 +67,16 @@ import {
   type OperationalExportPreviewRow,
 } from "../lib/operational-export-preview";
 import { buildOperationalExportPreviewMarkdownReport } from "../lib/operational-export-preview-reports";
+import {
+  getBuiltInExportProfiles,
+  type ExportProfile,
+} from "../lib/export-profile-contract";
+import {
+  validateExportPreviewAgainstProfile,
+  type ExportProfileIssueSeverity,
+  type ExportProfileValidationResult,
+} from "../lib/export-profile-validation";
+import { buildExportProfileValidationMarkdownReport } from "../lib/export-profile-reports";
 
 /**
  * Phase 3B — Operational Resolution Preview UI.
@@ -413,6 +423,20 @@ export function OperationalResolutionPreviewPanel({
   );
   // ---- Phase 3E — "Show only issues" filter toggle ------------
   const [exportShowOnlyIssues, setExportShowOnlyIssues] = useState(false);
+
+  // ---- Phase 3F — Export Profile selection + copy toast --------
+  // Stored separately from the preview-copy toast so the two
+  // surfaces never overwrite each other's confirmation.
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
+    null,
+  );
+  const [profileCopyStatus, setProfileCopyStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const profileCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // ---- Phase 3C — apply launch context on open transition -----
   // Re-applies whenever the panel transitions from closed → open OR
@@ -795,6 +819,22 @@ export function OperationalResolutionPreviewPanel({
     [],
   );
 
+  // Phase 3F — separate transient toast for the export-profile
+  // "Copy profile check" action.
+  const showProfileCopyStatus = useCallback(
+    (type: "success" | "error", message: string) => {
+      setProfileCopyStatus({ type, message });
+      if (profileCopyTimerRef.current) {
+        clearTimeout(profileCopyTimerRef.current);
+      }
+      profileCopyTimerRef.current = setTimeout(() => {
+        setProfileCopyStatus(null);
+        profileCopyTimerRef.current = null;
+      }, 4000);
+    },
+    [],
+  );
+
   // Clear the toasts on panel close so they don't settle onto an
   // unmounted view.
   useEffect(() => {
@@ -807,6 +847,11 @@ export function OperationalResolutionPreviewPanel({
       clearTimeout(exportCopyTimerRef.current);
       exportCopyTimerRef.current = null;
       setExportCopyStatus(null);
+    }
+    if (!isOpen && profileCopyTimerRef.current) {
+      clearTimeout(profileCopyTimerRef.current);
+      profileCopyTimerRef.current = null;
+      setProfileCopyStatus(null);
     }
   }, [isOpen]);
 
@@ -1100,6 +1145,14 @@ export function OperationalResolutionPreviewPanel({
               onToggleShowOnlyIssues={() =>
                 setExportShowOnlyIssues((v) => !v)
               }
+              // Phase 3F — Export Profile selector + validation
+              // sit inside the same section so the operator
+              // mental-models them as part of the export-style
+              // preview rather than a separate surface.
+              selectedProfileId={selectedProfileId}
+              onSelectProfileId={setSelectedProfileId}
+              profileCopyStatus={profileCopyStatus}
+              onProfileCopyStatus={showProfileCopyStatus}
             />
             <ResolverInputCard result={result} />
             <ResolverResultCard result={result} />
@@ -2151,6 +2204,10 @@ function ExportPreviewSection({
   onCopyStatus,
   showOnlyIssues,
   onToggleShowOnlyIssues,
+  selectedProfileId,
+  onSelectProfileId,
+  profileCopyStatus,
+  onProfileCopyStatus,
 }: {
   result: OperationalResolutionResult;
   contextLabel: string | null;
@@ -2158,10 +2215,47 @@ function ExportPreviewSection({
   onCopyStatus: (type: "success" | "error", message: string) => void;
   showOnlyIssues: boolean;
   onToggleShowOnlyIssues: () => void;
+  // Phase 3F — profile-check plumbing.
+  selectedProfileId: string | null;
+  onSelectProfileId: (id: string | null) => void;
+  profileCopyStatus: { type: "success" | "error"; message: string } | null;
+  onProfileCopyStatus: (type: "success" | "error", message: string) => void;
 }) {
   const preview = useMemo(
     () => buildOperationalExportPreview(result),
     [result],
+  );
+
+  // Phase 3F — built-in profile bundle, refreshed when the preview
+  // changes (column inference flows through ``buildCustomCsvMirrorProfile``).
+  const profiles = useMemo(
+    () => getBuiltInExportProfiles(preview),
+    [preview],
+  );
+
+  // Default to the first profile (Custom CSV mirror) on mount, and
+  // fall back to it whenever the previously-selected profile is no
+  // longer present in the rebuilt list.
+  const effectiveProfileId = useMemo(() => {
+    if (selectedProfileId && profiles.some((p) => p.id === selectedProfileId)) {
+      return selectedProfileId;
+    }
+    return profiles[0]?.id ?? null;
+  }, [selectedProfileId, profiles]);
+
+  const selectedProfile = useMemo(
+    () => profiles.find((p) => p.id === effectiveProfileId) ?? null,
+    [profiles, effectiveProfileId],
+  );
+
+  // Validation runs in a pure useMemo so it stays cheap on
+  // re-renders that don't change the preview / profile.
+  const validation = useMemo(
+    () =>
+      selectedProfile
+        ? validateExportPreviewAgainstProfile(preview, selectedProfile)
+        : null,
+    [preview, selectedProfile],
   );
 
   const visibleRows = useMemo(
@@ -2309,6 +2403,22 @@ function ExportPreviewSection({
             visibleRows={visibleRows}
           />
         )}
+
+        {/* Phase 3F — Export Profile check. Lives inside the same
+            section so the operator sees it as part of the same
+            export-style preview rather than a separate surface. */}
+        <ExportProfileCheckBlock
+          result={result}
+          preview={preview}
+          contextLabel={contextLabel}
+          profiles={profiles}
+          selectedProfileId={effectiveProfileId}
+          onSelectProfileId={onSelectProfileId}
+          selectedProfile={selectedProfile}
+          validation={validation}
+          copyStatus={profileCopyStatus}
+          onCopyStatus={onProfileCopyStatus}
+        />
       </div>
     </section>
   );
@@ -2475,6 +2585,423 @@ function ExportPreviewStatusBadge({
     >
       {EXPORT_ROW_STATUS_LABEL[status]}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3F — Export Profile check sub-section
+// ---------------------------------------------------------------------------
+//
+// Lives inside the Export-style Rows Preview section. Operator
+// picks one of the built-in profiles, sees a status banner +
+// settings strip + issues list + column-mapping table, and can
+// copy a Markdown report. Strictly diagnostic — no file is ever
+// generated.
+
+const PROFILE_STATUS_LABEL: Record<
+  NonNullable<ExportProfileValidationResult>["status"],
+  string
+> = {
+  clear: "No blocking issues in this diagnostic profile check",
+  needs_review: "Needs review",
+  blocked: "Blocked",
+  conflict: "Conflict",
+};
+
+const PROFILE_STATUS_CHIP: Record<
+  NonNullable<ExportProfileValidationResult>["status"],
+  string
+> = {
+  clear:
+    "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900",
+  needs_review:
+    "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900",
+  blocked:
+    "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900",
+  conflict:
+    "bg-orange-50 text-orange-800 border-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:border-orange-900",
+};
+
+const PROFILE_SEVERITY_CHIP: Record<ExportProfileIssueSeverity, string> = {
+  blocked:
+    "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900",
+  warning:
+    "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900",
+  info:
+    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900",
+  clear:
+    "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900",
+};
+
+function ExportProfileCheckBlock({
+  result,
+  preview,
+  contextLabel,
+  profiles,
+  selectedProfileId,
+  onSelectProfileId,
+  selectedProfile,
+  validation,
+  copyStatus,
+  onCopyStatus,
+}: {
+  result: OperationalResolutionResult;
+  preview: OperationalExportPreview;
+  contextLabel: string | null;
+  profiles: ExportProfile[];
+  selectedProfileId: string | null;
+  onSelectProfileId: (id: string | null) => void;
+  selectedProfile: ExportProfile | null;
+  validation: ExportProfileValidationResult | null;
+  copyStatus: { type: "success" | "error"; message: string } | null;
+  onCopyStatus: (type: "success" | "error", message: string) => void;
+}) {
+  const handleCopy = useCallback(async () => {
+    if (!selectedProfile || !validation) return;
+    try {
+      const text = buildExportProfileValidationMarkdownReport({
+        result,
+        preview,
+        profile: selectedProfile,
+        validation,
+        contextLabel,
+      });
+      await copyTextToClipboard(text);
+      onCopyStatus("success", "Profile check copied.");
+    } catch (err) {
+      onCopyStatus(
+        "error",
+        `Could not copy profile check: ${(err as Error).message}`,
+      );
+    }
+  }, [
+    result,
+    preview,
+    selectedProfile,
+    validation,
+    contextLabel,
+    onCopyStatus,
+  ]);
+
+  // No profile available (preview empty + getBuiltInExportProfiles
+  // returned []). Render nothing — the host section's empty state
+  // already explains the situation.
+  if (profiles.length === 0 || !selectedProfile || !validation) {
+    return null;
+  }
+
+  return (
+    <section
+      className="rounded-md border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle"
+      aria-label="Export profile check"
+    >
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 py-2 dark:border-line/60">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-800 dark:text-ink">
+            Export profile check
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-ink-muted">
+            Diagnostic profile check only — no export file is generated.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {copyStatus && (
+            <span
+              className={cn(
+                "text-[11px] font-medium",
+                copyStatus.type === "success"
+                  ? "text-green-700 dark:text-green-300"
+                  : "text-red-700 dark:text-red-300",
+              )}
+              role={copyStatus.type === "error" ? "alert" : "status"}
+              aria-live="polite"
+            >
+              {copyStatus.message}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCopy}
+            title="Copy a Markdown summary of this profile check to the clipboard. No file is generated."
+          >
+            <ClipboardCopy className="h-3.5 w-3.5" />
+            Copy profile check
+          </Button>
+        </div>
+      </header>
+
+      <div className="px-3 py-2 space-y-3">
+        {/* Selector + status badge */}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-[11px] font-semibold text-gray-700 dark:text-ink-muted">
+            Profile
+          </label>
+          <select
+            value={selectedProfileId ?? ""}
+            onChange={(e) => onSelectProfileId(e.target.value || null)}
+            className={cn(
+              "min-w-[14rem] rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-800 outline-none",
+              "focus:ring-2 focus:ring-brand-500",
+              "dark:bg-surface dark:text-ink dark:border-line",
+            )}
+          >
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              PROFILE_STATUS_CHIP[validation.status],
+            )}
+          >
+            {PROFILE_STATUS_LABEL[validation.status]}
+          </span>
+        </div>
+
+        {/* Description + settings strip */}
+        <p className="text-[11px] text-gray-700 dark:text-ink-muted">
+          {selectedProfile.description}
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+          <ProfileMetaCell label="Target system" value={selectedProfile.target_system} />
+          <ProfileMetaCell label="Delimiter" value={selectedProfile.settings.delimiter} />
+          <ProfileMetaCell
+            label="Header"
+            value={selectedProfile.settings.include_header ? "Included" : "Omitted"}
+          />
+          <ProfileMetaCell label="Date format" value={selectedProfile.settings.date_format} />
+          <ProfileMetaCell label="Amount format" value={selectedProfile.settings.amount_format} />
+          <ProfileMetaCell label="Quote strategy" value={selectedProfile.settings.quote_strategy} />
+          <ProfileMetaCell label="Newline" value={selectedProfile.settings.newline} />
+          <ProfileMetaCell label="Encoding" value={selectedProfile.settings.encoding} />
+        </div>
+
+        {/* Validation summary counts */}
+        <ProfileValidationCounts validation={validation} profile={selectedProfile} />
+
+        {/* Issues + column mapping */}
+        <ProfileIssuesList issues={validation.issues} />
+        <ProfileColumnMappingTable validation={validation} />
+      </div>
+    </section>
+  );
+}
+
+function ProfileMetaCell({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded border border-gray-200 bg-white px-2 py-1 dark:border-line dark:bg-surface-subtle">
+      <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+        {label}
+      </p>
+      <p className="text-xs font-mono text-gray-800 dark:text-ink truncate">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ProfileValidationCounts({
+  validation,
+  profile,
+}: {
+  validation: ExportProfileValidationResult;
+  profile: ExportProfile;
+}) {
+  const cards = [
+    { label: "Blocked", value: validation.summary.blocked_count, tone: "text-red-700 dark:text-red-200" },
+    { label: "Needs review", value: validation.summary.warning_count, tone: "text-yellow-700 dark:text-yellow-200" },
+    { label: "Info", value: validation.summary.info_count, tone: "text-blue-700 dark:text-blue-200" },
+    {
+      label: "Columns matched",
+      value: `${validation.summary.matched_columns} / ${profile.columns.length}`,
+      tone: "text-gray-800 dark:text-ink",
+    },
+    { label: "Rows blocked", value: validation.summary.rows_blocked, tone: "text-red-700 dark:text-red-200" },
+    {
+      label: "Rows with issues",
+      value: validation.summary.rows_with_issues,
+      tone: "text-yellow-700 dark:text-yellow-200",
+    },
+  ];
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      {cards.map((card) => (
+        <div
+          key={card.label}
+          className="rounded border border-gray-200 bg-white px-2 py-1 dark:border-line dark:bg-surface-subtle"
+        >
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+            {card.label}
+          </p>
+          <p className={cn("text-base font-semibold", card.tone)}>{card.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProfileIssuesList({
+  issues,
+}: {
+  issues: ExportProfileValidationResult["issues"];
+}) {
+  if (issues.length === 0) {
+    return (
+      <div className="rounded border border-green-200 bg-green-50/60 px-3 py-2 text-xs text-green-800 dark:border-green-900 dark:bg-green-950/20 dark:text-green-200">
+        No blocking issues in this diagnostic check. Future
+        production export depends on final export profiles and
+        validation.
+      </div>
+    );
+  }
+  // Group blocked → warning → info — same order the report uses.
+  const grouped: Array<[ExportProfileIssueSeverity, typeof issues]> = [
+    ["blocked", issues.filter((i) => i.severity === "blocked")],
+    ["warning", issues.filter((i) => i.severity === "warning")],
+    ["info", issues.filter((i) => i.severity === "info")],
+  ];
+  return (
+    <div className="space-y-2">
+      {grouped.map(([sev, items]) => {
+        if (items.length === 0) return null;
+        return (
+          <div
+            key={sev}
+            className="rounded border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle"
+          >
+            <header className="flex items-center justify-between gap-3 border-b border-gray-100 px-2 py-1 dark:border-line/60">
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  PROFILE_SEVERITY_CHIP[sev],
+                )}
+              >
+                {sev}
+              </span>
+              <span className="text-[11px] text-gray-500 dark:text-ink-muted">
+                {items.length}
+              </span>
+            </header>
+            <ul className="divide-y divide-gray-100 dark:divide-line/60">
+              {items.map((issue, idx) => (
+                <li
+                  key={`${issue.code}-${idx}`}
+                  className="px-2 py-1.5 text-[11px]"
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-gray-900 dark:text-ink">
+                        {issue.message}
+                      </p>
+                      <p className="text-gray-600 dark:text-ink-muted">
+                        <Info className="inline h-3 w-3 mr-1 -mt-0.5" />
+                        {issue.recommendation}
+                      </p>
+                      <div className="mt-1 flex items-center gap-1 flex-wrap">
+                        {issue.row_index != null && (
+                          <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+                            row {issue.row_index + 1}
+                          </span>
+                        )}
+                        {issue.profile_column_key && (
+                          <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+                            column {issue.profile_column_key}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-gray-500 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+                      {issue.code}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProfileColumnMappingTable({
+  validation,
+}: {
+  validation: ExportProfileValidationResult;
+}) {
+  if (validation.column_results.length === 0) return null;
+  return (
+    <div className="rounded border border-gray-200 dark:border-line overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50 dark:bg-surface-muted">
+          <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+            <th className="px-2 py-1.5">Profile column</th>
+            <th className="px-2 py-1.5">Required</th>
+            <th className="px-2 py-1.5">Matched preview column</th>
+            <th className="px-2 py-1.5">Issues</th>
+            <th className="px-2 py-1.5">Worst severity</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100 dark:divide-line/60">
+          {validation.column_results.map((col) => (
+            <tr key={col.profile_column_key}>
+              <td className="px-2 py-1.5 align-top">
+                <span className="font-medium text-gray-800 dark:text-ink">
+                  {col.profile_column_label}
+                </span>
+                <span className="ml-1 font-mono text-[10px] text-gray-400 dark:text-ink-subtle">
+                  {col.profile_column_key}
+                </span>
+              </td>
+              <td className="px-2 py-1.5 align-top">
+                {col.required ? (
+                  <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                    required
+                  </span>
+                ) : (
+                  <span className="text-gray-400 dark:text-ink-subtle">—</span>
+                )}
+              </td>
+              <td className="px-2 py-1.5 align-top">
+                {col.matched ? (
+                  <span className="text-gray-800 dark:text-ink">
+                    {col.matched_preview_column_label ?? col.matched_preview_column_key}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full border border-yellow-200 bg-yellow-50 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200">
+                    unmapped
+                  </span>
+                )}
+              </td>
+              <td className="px-2 py-1.5 align-top text-gray-700 dark:text-ink-muted">
+                {col.issue_count}
+              </td>
+              <td className="px-2 py-1.5 align-top">
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    PROFILE_SEVERITY_CHIP[col.worst_severity],
+                  )}
+                >
+                  {col.worst_severity}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
