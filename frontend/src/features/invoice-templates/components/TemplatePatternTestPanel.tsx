@@ -2,15 +2,22 @@
 
 import {
   AlertTriangle,
+  Bookmark,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Copy,
+  Eraser,
+  FilePlus,
   FlaskConical,
   Info,
   Loader2,
   Play,
   RefreshCw,
+  Save,
+  Sparkles,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +46,24 @@ import type {
   TemplatePatternTestRequest,
   TemplatePatternTestResult,
 } from "@/types/template-pattern-test-runner";
+
+import {
+  MAX_SCENARIO_NAME_LENGTH,
+  MAX_SCENARIOS_PER_PAIR,
+  _normalizeName,
+  buildStarterScenarios,
+  createScenarioFromPayload,
+  deleteScenarioById,
+  duplicateScenario,
+  loadScenarios,
+  mergeStarterScenarios,
+  payloadEqualsScenario,
+  saveScenarios,
+  scenarioFormState,
+  stampLastRun,
+  updateScenarioFromPayload,
+  type PatternTestScenario,
+} from "../lib/pattern-test-scenarios";
 
 /**
  * Phase 2C — Template + Pattern Test Runner UI.
@@ -277,6 +302,24 @@ export function TemplatePatternTestPanel({
   const runRequestIdRef = useRef(0);
   const runAbortRef = useRef<AbortController | null>(null);
 
+  // ---- Phase 2D — scenario presets -------------------------------
+  // Scenarios are local-only (localStorage), keyed by the
+  // (templateId, patternId) pair. The panel re-loads them whenever
+  // either id changes. Storage errors land in scenarioStorageError
+  // and surface as a non-blocking warning — scenario management
+  // continues to work in-memory even if the browser refuses writes.
+  const [scenarios, setScenarios] = useState<PatternTestScenario[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(
+    null,
+  );
+  const [scenarioStorageError, setScenarioStorageError] = useState<
+    string | null
+  >(null);
+  // One-time toast after a Load — clears on the next form change.
+  const [scenarioLoadedNote, setScenarioLoadedNote] = useState<string | null>(
+    null,
+  );
+
   // ---- Pattern fetch on open -------------------------------------
   useEffect(() => {
     if (!isOpen) return;
@@ -318,6 +361,30 @@ export function TemplatePatternTestPanel({
       runAbortRef.current?.abort();
     }
   }, [isOpen]);
+
+  // ---- Phase 2D — load scenarios from localStorage when the
+  // (templateId, patternId) pair changes (or panel opens). Drafts /
+  // missing patterns yield an empty list since the storage key
+  // requires both ids.
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!templateId || !selectedPatternId) {
+      setScenarios([]);
+      setSelectedScenarioId(null);
+      setScenarioStorageError(null);
+      return;
+    }
+    setScenarioStorageError(null);
+    const loaded = loadScenarios(templateId, selectedPatternId, (msg) => {
+      setScenarioStorageError(msg);
+    });
+    setScenarios(loaded);
+    // Selected scenario carries forward only if it's still present
+    // for the current pair; otherwise reset.
+    setSelectedScenarioId((curr) =>
+      curr && loaded.some((s) => s.id === curr) ? curr : null,
+    );
+  }, [isOpen, templateId, selectedPatternId]);
 
   // ---- Payload construction --------------------------------------
   // Builds a TemplatePatternTestRequest from the quick-fields form +
@@ -468,6 +535,28 @@ export function TemplatePatternTestPanel({
       );
       if (myRequestId !== runRequestIdRef.current) return;
       setResult(next);
+      // Phase 2D — stamp last-run metadata on the selected scenario.
+      // Persisted to localStorage so the operator sees the freshness
+      // indicator next time they open the panel. We only stamp when
+      // a scenario is actually selected; ad-hoc runs don't auto-create
+      // a scenario (the spec is explicit about not silently saving).
+      if (selectedScenarioId && templateId && selectedPatternId) {
+        const status = next.summary?.status ?? "unknown";
+        setScenarios((curr) => {
+          const updated = curr.map((s) =>
+            s.id === selectedScenarioId ? stampLastRun(s, status) : s,
+          );
+          const write = saveScenarios(
+            templateId,
+            selectedPatternId,
+            updated,
+          );
+          if (!write.ok && write.error) {
+            setScenarioStorageError(write.error);
+          }
+          return updated;
+        });
+      }
     } catch (err) {
       if (controller.signal.aborted) return;
       if (myRequestId !== runRequestIdRef.current) return;
@@ -477,7 +566,13 @@ export function TemplatePatternTestPanel({
         setRunning(false);
       }
     }
-  }, [templateId, isDraft, selectedPatternId, buildPayload]);
+  }, [
+    templateId,
+    isDraft,
+    selectedPatternId,
+    buildPayload,
+    selectedScenarioId,
+  ]);
 
   // ---- Save then test --------------------------------------------
   // Mirrors the Phase 1E pattern in the dry-run panel: await save,
@@ -519,12 +614,274 @@ export function TemplatePatternTestPanel({
     [patterns, selectedPatternId],
   );
 
+  const selectedScenario = useMemo(
+    () => scenarios.find((s) => s.id === selectedScenarioId) ?? null,
+    [scenarios, selectedScenarioId],
+  );
+
+  // Phase 2D — scenario dirty detection. Compares the current
+  // form's effective payload against the selected scenario's stored
+  // payload via a stable canonical-JSON serialisation. Only meaningful
+  // when a scenario is selected AND the current form parses cleanly
+  // (parse errors gate Save anyway).
+  const scenarioDirty = useMemo(() => {
+    if (!selectedScenario) return false;
+    try {
+      const payload = _buildPayloadForCompare({
+        quickFacts,
+        vendorHint,
+        propertyHint,
+        glHint,
+        factsJson,
+        hintsJson,
+        runtimeOptionsJson,
+        docMetadataJson,
+        includeEmptyFields,
+      });
+      if (!payload) return true; // current form has parse errors
+      return !payloadEqualsScenario(selectedScenario, payload);
+    } catch {
+      return true;
+    }
+  }, [
+    selectedScenario,
+    quickFacts,
+    vendorHint,
+    propertyHint,
+    glHint,
+    factsJson,
+    hintsJson,
+    runtimeOptionsJson,
+    docMetadataJson,
+    includeEmptyFields,
+  ]);
+
+  // Clear the "Scenario loaded" toast on the next form change so it
+  // doesn't linger after the operator starts editing.
+  useEffect(() => {
+    if (!scenarioLoadedNote) return;
+    if (scenarioDirty) setScenarioLoadedNote(null);
+  }, [scenarioLoadedNote, scenarioDirty]);
+
   const canRun =
     !!templateId &&
     !isDraft &&
     !!selectedPatternId &&
     !running &&
     !saveThenTestBusy;
+
+  // ---- Scenario actions -----------------------------------------
+  const persistScenarios = useCallback(
+    (next: PatternTestScenario[]): boolean => {
+      if (!templateId || !selectedPatternId) return false;
+      const write = saveScenarios(templateId, selectedPatternId, next);
+      if (!write.ok && write.error) {
+        setScenarioStorageError(write.error);
+        return false;
+      }
+      setScenarioStorageError(null);
+      return true;
+    },
+    [templateId, selectedPatternId],
+  );
+
+  const hydrateFromScenario = useCallback((s: PatternTestScenario) => {
+    const form = scenarioFormState(s);
+    setQuickFacts(form.quickFacts);
+    setVendorHint(form.vendorHint);
+    setPropertyHint(form.propertyHint);
+    setGlHint(form.glHint);
+    setFactsJson(form.factsJson);
+    setHintsJson(form.hintsJson);
+    setRuntimeOptionsJson(form.runtimeOptionsJson);
+    setDocMetadataJson(form.docMetadataJson);
+    setIncludeEmptyFields(form.includeEmptyFields);
+    setJsonErrors({});
+    // Open the advanced section if the scenario carries non-quick
+    // overflow — otherwise the operator sees an apparently empty
+    // form even though the scenario has data.
+    if (
+      form.factsJson ||
+      form.hintsJson ||
+      form.runtimeOptionsJson ||
+      form.docMetadataJson
+    ) {
+      setAdvancedOpen(true);
+    }
+    setScenarioLoadedNote(`Loaded scenario “${s.name}”. Click Run test to execute.`);
+  }, []);
+
+  const handleSelectScenario = useCallback(
+    (id: string | null) => {
+      setSelectedScenarioId(id);
+      if (!id) return;
+      const s = scenarios.find((sc) => sc.id === id);
+      if (s) hydrateFromScenario(s);
+    },
+    [scenarios, hydrateFromScenario],
+  );
+
+  /** Save the current form payload onto the selected scenario, OR
+   *  prompt for a name and create a new one if nothing is selected. */
+  const handleSave = useCallback(() => {
+    if (!templateId || !selectedPatternId) return;
+    const payload = buildPayload();
+    if (payload === null) return; // JSON errors block save
+    if (selectedScenarioId) {
+      const base = scenarios.find((s) => s.id === selectedScenarioId);
+      if (!base) return;
+      const updated = updateScenarioFromPayload(base, payload);
+      const next = scenarios.map((s) =>
+        s.id === selectedScenarioId ? updated : s,
+      );
+      setScenarios(next);
+      persistScenarios(next);
+      return;
+    }
+    // No selection — prompt for a new name.
+    const raw = window.prompt("Name this scenario:", "");
+    if (raw === null) return; // user cancelled
+    const name = _normalizeName(raw);
+    if (!name) return;
+    if (scenarios.length >= MAX_SCENARIOS_PER_PAIR) {
+      window.alert(
+        `You already have ${MAX_SCENARIOS_PER_PAIR} scenarios for this template + pattern. Delete one before saving more.`,
+      );
+      return;
+    }
+    if (
+      scenarios.some((s) => s.name.toLowerCase() === name.toLowerCase()) &&
+      !window.confirm(
+        `A scenario called “${name}” already exists for this template + pattern. Save anyway as a duplicate?`,
+      )
+    ) {
+      return;
+    }
+    const created = createScenarioFromPayload({
+      templateId,
+      patternId: selectedPatternId,
+      name,
+      payload,
+    });
+    const next = [...scenarios, created];
+    setScenarios(next);
+    setSelectedScenarioId(created.id);
+    persistScenarios(next);
+  }, [
+    templateId,
+    selectedPatternId,
+    selectedScenarioId,
+    scenarios,
+    buildPayload,
+    persistScenarios,
+  ]);
+
+  const handleSaveAsNew = useCallback(() => {
+    if (!templateId || !selectedPatternId) return;
+    const payload = buildPayload();
+    if (payload === null) return;
+    const seed = selectedScenario ? `${selectedScenario.name} copy` : "";
+    const raw = window.prompt("Save as new scenario name:", seed);
+    if (raw === null) return;
+    const name = _normalizeName(raw);
+    if (!name) return;
+    if (scenarios.length >= MAX_SCENARIOS_PER_PAIR) {
+      window.alert(
+        `You already have ${MAX_SCENARIOS_PER_PAIR} scenarios for this template + pattern. Delete one before saving more.`,
+      );
+      return;
+    }
+    if (
+      scenarios.some((s) => s.name.toLowerCase() === name.toLowerCase()) &&
+      !window.confirm(
+        `A scenario called “${name}” already exists. Save anyway as a duplicate?`,
+      )
+    ) {
+      return;
+    }
+    const created = createScenarioFromPayload({
+      templateId,
+      patternId: selectedPatternId,
+      name,
+      payload,
+    });
+    const next = [...scenarios, created];
+    setScenarios(next);
+    setSelectedScenarioId(created.id);
+    persistScenarios(next);
+  }, [
+    templateId,
+    selectedPatternId,
+    selectedScenario,
+    scenarios,
+    buildPayload,
+    persistScenarios,
+  ]);
+
+  const handleDuplicate = useCallback(() => {
+    if (!selectedScenario) return;
+    if (scenarios.length >= MAX_SCENARIOS_PER_PAIR) {
+      window.alert(
+        `You already have ${MAX_SCENARIOS_PER_PAIR} scenarios for this template + pattern. Delete one before duplicating.`,
+      );
+      return;
+    }
+    const dup = duplicateScenario(selectedScenario);
+    const next = [...scenarios, dup];
+    setScenarios(next);
+    setSelectedScenarioId(dup.id);
+    persistScenarios(next);
+  }, [selectedScenario, scenarios, persistScenarios]);
+
+  const handleDelete = useCallback(() => {
+    if (!selectedScenario) return;
+    if (
+      !window.confirm(
+        `Delete scenario “${selectedScenario.name}”? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    const next = deleteScenarioById(scenarios, selectedScenario.id);
+    setScenarios(next);
+    setSelectedScenarioId(null);
+    persistScenarios(next);
+  }, [selectedScenario, scenarios, persistScenarios]);
+
+  const handleClearForm = useCallback(() => {
+    setQuickFacts({});
+    setVendorHint("");
+    setPropertyHint("");
+    setGlHint("");
+    setFactsJson("");
+    setHintsJson("");
+    setRuntimeOptionsJson("");
+    setDocMetadataJson("");
+    setIncludeEmptyFields(false);
+    setJsonErrors({});
+    setSelectedScenarioId(null);
+    setScenarioLoadedNote(null);
+  }, []);
+
+  const handleAddStarters = useCallback(() => {
+    if (!templateId || !selectedPatternId) return;
+    const { merged, added } = mergeStarterScenarios(
+      scenarios,
+      templateId,
+      selectedPatternId,
+    );
+    if (added === 0) {
+      window.alert(
+        "All starter scenarios already exist for this template + pattern.",
+      );
+      return;
+    }
+    setScenarios(merged);
+    persistScenarios(merged);
+    window.alert(
+      `Added ${added} starter scenario${added === 1 ? "" : "s"}. Adjust values to match your bills before running.`,
+    );
+  }, [scenarios, templateId, selectedPatternId, persistScenarios]);
 
   return (
     <Modal
@@ -634,6 +991,24 @@ export function TemplatePatternTestPanel({
           selectedPatternId={selectedPatternId}
           onSelect={setSelectedPatternId}
         />
+
+        {/* ---- Phase 2D — Scenarios ---------------------------- */}
+        {selectedPatternId && (
+          <ScenariosSection
+            scenarios={scenarios}
+            selectedScenarioId={selectedScenarioId}
+            scenarioDirty={scenarioDirty}
+            scenarioLoadedNote={scenarioLoadedNote}
+            scenarioStorageError={scenarioStorageError}
+            onSelect={handleSelectScenario}
+            onSave={handleSave}
+            onSaveAsNew={handleSaveAsNew}
+            onDuplicate={handleDuplicate}
+            onDelete={handleDelete}
+            onClearForm={handleClearForm}
+            onAddStarters={handleAddStarters}
+          />
+        )}
 
         {/* ---- Manual facts (quick + advanced JSON) ------------- */}
         {selectedPatternId && (
@@ -759,7 +1134,10 @@ export function TemplatePatternTestPanel({
               </div>
             )}
 
-            <SummaryCard result={result} />
+            <SummaryCard
+              result={result}
+              scenarioName={selectedScenario?.name ?? null}
+            />
             <BridgeInputCard result={result} />
             <ResolvedRowsCard rows={result.resolver_result.rows ?? []} />
             <IssuesCard issues={result.resolver_result.issues ?? []} />
@@ -865,6 +1243,202 @@ function PatternSelectorSection({
                 );
               })()}
           </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2D — Scenarios section
+// ---------------------------------------------------------------------------
+
+function ScenariosSection({
+  scenarios,
+  selectedScenarioId,
+  scenarioDirty,
+  scenarioLoadedNote,
+  scenarioStorageError,
+  onSelect,
+  onSave,
+  onSaveAsNew,
+  onDuplicate,
+  onDelete,
+  onClearForm,
+  onAddStarters,
+}: {
+  scenarios: PatternTestScenario[];
+  selectedScenarioId: string | null;
+  scenarioDirty: boolean;
+  scenarioLoadedNote: string | null;
+  scenarioStorageError: string | null;
+  onSelect: (id: string | null) => void;
+  onSave: () => void;
+  onSaveAsNew: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onClearForm: () => void;
+  onAddStarters: () => void;
+}) {
+  const selected =
+    scenarios.find((s) => s.id === selectedScenarioId) ?? null;
+  const lastRunRel = selected
+    ? _formatRelativeTime(selected.last_run_at)
+    : "";
+  // Sort scenarios for the dropdown — most recently updated first.
+  const sorted = useMemo(
+    () =>
+      [...scenarios].sort((a, b) =>
+        (b.updated_at || "").localeCompare(a.updated_at || ""),
+      ),
+    [scenarios],
+  );
+
+  return (
+    <section className="rounded-md border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle">
+      <header className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-line/60">
+        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-ink">
+          <Bookmark className="h-4 w-4 text-brand-600 dark:text-brand-50" />
+          Scenarios
+        </div>
+        <span className="text-[11px] text-gray-500 dark:text-ink-muted">
+          {scenarios.length} saved · stored in this browser only
+        </span>
+      </header>
+      <div className="px-3 py-2 space-y-2">
+        {/* Selector + dirty / last-run pill */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={selectedScenarioId ?? ""}
+            onChange={(e) => onSelect(e.target.value || null)}
+            className={cn(
+              "min-w-[12rem] rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-800 outline-none",
+              "focus:ring-2 focus:ring-brand-500",
+              "dark:bg-surface dark:text-ink dark:border-line",
+            )}
+          >
+            <option value="">— No scenario selected —</option>
+            {sorted.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {s.last_result_status ? ` · ${s.last_result_status}` : ""}
+              </option>
+            ))}
+          </select>
+          {selected && scenarioDirty && (
+            <span
+              className="inline-flex items-center rounded-full border border-yellow-300 bg-yellow-50 px-2 py-0.5 text-[10px] font-semibold text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-200"
+              title="The current form differs from the saved scenario."
+            >
+              Unsaved scenario changes
+            </span>
+          )}
+          {selected && lastRunRel && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+              Last run: {lastRunRel}
+              {selected.last_result_status
+                ? ` · ${selected.last_result_status}`
+                : ""}
+            </span>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={onSave}
+            title={
+              selected
+                ? "Save current form values onto this scenario"
+                : "Save current form values as a new scenario"
+            }
+          >
+            <Save className="h-3.5 w-3.5" />
+            Save
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onSaveAsNew}
+            title="Save current form values as a new scenario"
+          >
+            <FilePlus className="h-3.5 w-3.5" />
+            Save as new
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onDuplicate}
+            disabled={!selected}
+            title="Create a copy of the selected scenario"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Duplicate
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            disabled={!selected}
+            title="Delete the selected scenario"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </Button>
+          <div className="flex-1" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClearForm}
+            title="Clear the form and deselect any scenario (does not delete the saved scenario)"
+          >
+            <Eraser className="h-3.5 w-3.5" />
+            Clear form
+          </Button>
+          {scenarios.length === 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onAddStarters}
+              title="Add three sample scenarios — adjust values to match your bills before running"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Add starter scenarios
+            </Button>
+          )}
+        </div>
+
+        {/* Empty / loaded / storage error notes */}
+        {scenarios.length === 0 && (
+          <p className="text-[11px] text-gray-500 dark:text-ink-muted">
+            No saved scenarios yet. Fill in test values and click Save
+            — or click Add starter scenarios for a few placeholders.
+          </p>
+        )}
+        {scenarioLoadedNote && (
+          <p className="text-[11px] text-blue-700 dark:text-blue-300">
+            <Info className="inline h-3 w-3 mr-1 -mt-0.5" />
+            {scenarioLoadedNote}
+          </p>
+        )}
+        {scenarioStorageError && (
+          <p className="text-[11px] text-red-700 dark:text-red-300">
+            {scenarioStorageError}
+          </p>
+        )}
+        {selected && (
+          <p className="text-[11px] text-gray-500 dark:text-ink-muted">
+            Scenario changes only affect local test values — they
+            never modify the template configuration.
+          </p>
         )}
       </div>
     </section>
@@ -1127,7 +1701,14 @@ function JsonField({
 // Result — Summary card
 // ---------------------------------------------------------------------------
 
-function SummaryCard({ result }: { result: TemplatePatternTestResult }) {
+function SummaryCard({
+  result,
+  scenarioName,
+}: {
+  result: TemplatePatternTestResult;
+  /** Phase 2D — selected scenario name (when one is selected). */
+  scenarioName?: string | null;
+}) {
   const meta =
     RESOLVER_STATUS_META[result.summary.status] ??
     RESOLVER_STATUS_META.needs_review;
@@ -1152,17 +1733,25 @@ function SummaryCard({ result }: { result: TemplatePatternTestResult }) {
         meta.banner,
       )}
     >
-      <div className="flex items-center gap-2">
-        <Icon className={cn("h-5 w-5 shrink-0", meta.iconClass)} />
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-gray-900 dark:text-ink">
-            {meta.label}
-          </div>
-          <div className="text-xs text-gray-700 truncate dark:text-ink-muted">
-            {result.template_name ?? "Untitled template"}
-            {result.pattern_name ? ` × ${result.pattern_name}` : ""}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className={cn("h-5 w-5 shrink-0", meta.iconClass)} />
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-gray-900 dark:text-ink">
+              {meta.label}
+            </div>
+            <div className="text-xs text-gray-700 truncate dark:text-ink-muted">
+              {result.template_name ?? "Untitled template"}
+              {result.pattern_name ? ` × ${result.pattern_name}` : ""}
+            </div>
           </div>
         </div>
+        {scenarioName && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-gray-700 shrink-0 dark:border-line dark:bg-surface-subtle dark:text-ink">
+            <Bookmark className="h-3 w-3" />
+            Scenario: {scenarioName}
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-5 gap-1.5">
         {cards.map((card) => (
@@ -1762,4 +2351,128 @@ function dedupeFacts(
     out.push(item);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2D — pure compare-only payload builder.
+//
+// Mirrors ``buildPayload`` (the in-component callback) but is SIDE-
+// EFFECT FREE: no setState, no setting of jsonErrors, no auto-opening
+// the advanced section. Used by the scenario dirty-detection effect
+// where calling setState would cause a render-loop warning.
+// Returns ``null`` when any JSON textarea fails to parse — the
+// scenario dirty check treats that as "dirty" (the operator has
+// half-typed JSON that doesn't match the saved scenario).
+// ---------------------------------------------------------------------------
+function _buildPayloadForCompare(state: {
+  quickFacts: Record<string, string>;
+  vendorHint: string;
+  propertyHint: string;
+  glHint: string;
+  factsJson: string;
+  hintsJson: string;
+  runtimeOptionsJson: string;
+  docMetadataJson: string;
+  includeEmptyFields: boolean;
+}): TemplatePatternTestRequest | null {
+  const factsFromQuick: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(state.quickFacts)) {
+    if (value && value.trim()) factsFromQuick[key] = value.trim();
+  }
+  let factsFromJson: Record<string, unknown> = {};
+  if (state.factsJson.trim()) {
+    try {
+      const parsed = JSON.parse(state.factsJson);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return null;
+      }
+      factsFromJson = parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  const manual_fact_values = { ...factsFromQuick, ...factsFromJson };
+
+  const hintsFromQuick: Record<string, unknown> = {};
+  if (state.vendorHint.trim()) hintsFromQuick.vendor = state.vendorHint.trim();
+  if (state.propertyHint.trim())
+    hintsFromQuick.property = state.propertyHint.trim();
+  if (state.glHint.trim()) hintsFromQuick.gl = state.glHint.trim();
+
+  let hintsFromJson: Record<string, unknown> = {};
+  if (state.hintsJson.trim()) {
+    try {
+      const parsed = JSON.parse(state.hintsJson);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return null;
+      }
+      hintsFromJson = parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  const manual_catalog_hints = { ...hintsFromQuick, ...hintsFromJson };
+
+  let runtime_options: Record<string, unknown> | undefined;
+  if (state.runtimeOptionsJson.trim()) {
+    try {
+      const parsed = JSON.parse(state.runtimeOptionsJson);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return null;
+      }
+      runtime_options = parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  let document_metadata: Record<string, unknown> | undefined;
+  if (state.docMetadataJson.trim()) {
+    try {
+      const parsed = JSON.parse(state.docMetadataJson);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return null;
+      }
+      document_metadata = parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  const out: TemplatePatternTestRequest = {
+    include_empty_fields: state.includeEmptyFields,
+  };
+  if (Object.keys(manual_fact_values).length > 0)
+    out.manual_fact_values = manual_fact_values;
+  if (Object.keys(manual_catalog_hints).length > 0)
+    out.manual_catalog_hints = manual_catalog_hints;
+  if (runtime_options) out.runtime_options = runtime_options;
+  if (document_metadata) out.document_metadata = document_metadata;
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2D — friendly relative timestamp ("2 minutes ago", etc.) for
+// the scenario "Last run" line. Tiny implementation — keeps the
+// dependency surface minimal.
+// ---------------------------------------------------------------------------
+function _formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const diffSec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60)
+    return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? "" : "s"} ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return `${diffDay} day${diffDay === 1 ? "" : "s"} ago`;
+  // Fall back to the absolute date for older runs — relative copy
+  // gets vague past a month.
+  try {
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return iso;
+  }
 }
