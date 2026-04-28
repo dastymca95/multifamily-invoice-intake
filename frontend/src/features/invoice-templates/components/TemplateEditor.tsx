@@ -13,6 +13,7 @@ import {
   ListChecks,
   Lock,
   LockKeyhole,
+  Map,
   Pencil,
   Pin,
   Play,
@@ -77,6 +78,7 @@ import {
 import type { CatalogIndex } from "../hooks/useCatalogIndex";
 
 import { ColumnInspector, type WizardStepKey } from "./ColumnInspector";
+import { ImportTemplateHealthMapPanel } from "./ImportTemplateHealthMapPanel";
 import { ImportTemplateResolverPreviewPanel } from "./ImportTemplateResolverPreviewPanel";
 import { ImportTemplateValidationPanel } from "./ImportTemplateValidationPanel";
 import {
@@ -370,6 +372,10 @@ export function TemplateEditor({
   // boolean is needed because the panel owns its own loading/result
   // state internally (it can be re-run from inside the modal).
   const [resolverPreviewOpen, setResolverPreviewOpen] = useState(false);
+  // Phase 1G — Template Health Map / Setup Overview. Like the dry-run
+  // panel, the Health Map owns its own readiness fetch + loading
+  // state internally; this boolean only tracks open/closed.
+  const [healthMapOpen, setHealthMapOpen] = useState(false);
   const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
   const [deleteDependencyReport, setDeleteDependencyReport] =
     useState<UsedByReport | null>(null);
@@ -972,6 +978,20 @@ export function TemplateEditor({
           </span>
           <div className="flex-1" />
           <LayoutToggle mode={layoutMode} onChange={handleSetLayoutMode} />
+          {/* Phase 1G — Health Map / Setup Overview. Works for drafts
+              + dirty edits (calls readiness-preview against current
+              local state). Sits next to Dry Run / Validate to form a
+              consistent "check then run" cluster. */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setHealthMapOpen(true)}
+            title="Open the template health map — full readiness view of every column, runtime dependency, and rule coverage."
+          >
+            <Map className="h-3.5 w-3.5" />
+            Health Map
+          </Button>
           <Button
             type="button"
             variant="secondary"
@@ -1585,6 +1605,28 @@ export function TemplateEditor({
         onSave={handleSave}
         canSave={canSave}
         saving={saving}
+      />
+      {/* Phase 1G — Template Health Map. Self-fetching panel that
+          consumes the same readiness-preview contract as Validate +
+          Column Inspector. The action bar at the bottom proxies the
+          editor's main actions (Save / Dry Run / Save then Dry Run)
+          so the operator can finish an end-to-end review without
+          leaving the modal. Fix CTAs reuse the Phase 1F
+          openInspectorAt navigation. */}
+      <ImportTemplateHealthMapPanel
+        open={healthMapOpen}
+        onClose={() => setHealthMapOpen(false)}
+        templateId={isDraft ? null : templateKey}
+        templateName={name || initial.name}
+        columns={columns}
+        rules={rules}
+        hasUnsavedChanges={dirty && !isDraft}
+        isDraft={isDraft}
+        canSave={canSave}
+        saving={saving}
+        onSave={handleSave}
+        onOpenDryRun={() => setResolverPreviewOpen(true)}
+        onFixColumn={openInspectorAt}
       />
     </div>
   );
