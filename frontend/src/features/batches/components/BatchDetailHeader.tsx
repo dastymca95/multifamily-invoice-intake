@@ -5,6 +5,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { OperationalPreviewLauncher } from "@/features/invoice-templates/components/OperationalPreviewLauncher";
 import { displayBatchStatus } from "@/lib/status";
 import { formatDate } from "@/lib/utils";
 import type { Batch } from "@/types/batch";
@@ -39,6 +40,26 @@ export function BatchDetailHeader({ batch, onReload }: BatchDetailHeaderProps) {
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
           </Button>
+          {/* Phase 3C — Operational Preview launch from this batch.
+              Diagnostic only: it never changes batch status, never
+              creates Review Queue records, and never produces an
+              export row. Pre-fills batch_id only — operators can
+              add facts manually inside the preview panel to test
+              how the resolver would handle them. */}
+          <OperationalPreviewLauncher
+            label="Operational Preview"
+            variant="ghost"
+            size="sm"
+            batchId={batch.id}
+            initialDocumentMetadata={{
+              source: "batch_context",
+              batch_id: batch.id,
+              batch_name: batch.name,
+              launch_surface: "batch_detail",
+            }}
+            launchContextLabel={`Batch: ${batch.name}`}
+            contextNotice="Pre-filled with this batch's id. No specific document is selected — pick one in the Review Queue if you want document-level facts pre-filled."
+          />
         </div>
       </div>
 

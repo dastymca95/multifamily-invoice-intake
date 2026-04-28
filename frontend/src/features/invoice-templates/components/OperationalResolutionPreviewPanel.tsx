@@ -249,6 +249,35 @@ interface OperationalResolutionPreviewPanelProps {
    * the operator change it.
    */
   initialPatternId?: string | null;
+  // ---- Phase 3C — document/batch operational bridge ----------
+  /**
+   * Operator can still edit any of these once the panel is open;
+   * the values are applied on the open transition (false → true)
+   * and re-applied if the panel is closed and reopened with new
+   * context. While the panel stays open with the same context,
+   * the operator's edits are preserved.
+   */
+  initialDocumentId?: string | null;
+  initialBatchId?: string | null;
+  /** Mapping of canonical field key → value, e.g. extracted invoice
+   *  facts captured during Review. Empty / null entries are skipped
+   *  on hydrate. Quick fields ONLY — keys that aren't in the panel's
+   *  built-in quick-field set still flow into the request payload
+   *  via the pre-filled JSON editor. */
+  initialExtractedFacts?: Record<string, unknown>;
+  /** Mapping of vendor / property / gl hint → string. Other kinds /
+   *  structured shapes are ignored on hydrate. */
+  initialCatalogHints?: Record<string, unknown>;
+  /** Caller metadata merged into the request's ``document_metadata``
+   *  alongside the operator's own JSON edits. The operator's
+   *  ``document_metadata`` JSON wins on key collision so they can
+   *  always override. */
+  initialDocumentMetadata?: Record<string, unknown>;
+  /** Short label for the context banner — e.g. ``"Document: epb-march.pdf"``
+   *  or ``"Batch: April 2026 Utilities"``. */
+  launchContextLabel?: string;
+  /** Optional one-line note shown below the context label. */
+  contextNotice?: string;
 }
 
 export function OperationalResolutionPreviewPanel({
@@ -262,6 +291,13 @@ export function OperationalResolutionPreviewPanel({
   saving = false,
   onSaveTemplate,
   initialPatternId,
+  initialDocumentId,
+  initialBatchId,
+  initialExtractedFacts,
+  initialCatalogHints,
+  initialDocumentMetadata,
+  launchContextLabel,
+  contextNotice,
 }: OperationalResolutionPreviewPanelProps) {
   // ---- Pattern listing ------------------------------------------
   const [patterns, setPatterns] = useState<InvoicePatternSummary[]>([]);
@@ -310,9 +346,89 @@ export function OperationalResolutionPreviewPanel({
   const [saveThenPreviewBusy, setSaveThenPreviewBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // ---- Phase 3C — context-derived metadata --------------------
+  // Captured from ``initialDocumentMetadata`` on open; merged into
+  // the request payload alongside the operator's JSON edits (the
+  // operator's JSON wins on key collision so they can override).
+  const [contextDocumentMetadata, setContextDocumentMetadata] = useState<
+    Record<string, unknown>
+  >({});
+
   // ---- Race-protected request id -------------------------------
   const runRequestIdRef = useRef(0);
   const runAbortRef = useRef<AbortController | null>(null);
+
+  // ---- Phase 3C — apply launch context on open transition -----
+  // Re-applies whenever the panel transitions from closed → open OR
+  // when the launch identity changes while open. Operator edits
+  // mid-panel are preserved as long as the identity stays the same.
+  // Tracks the last-applied identity so re-renders with stable
+  // initial props don't blow away in-progress edits.
+  const lastAppliedContextRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) {
+      lastAppliedContextRef.current = null;
+      return;
+    }
+    const contextKey = [
+      initialDocumentId ?? "",
+      initialBatchId ?? "",
+      launchContextLabel ?? "",
+    ].join("::");
+    if (lastAppliedContextRef.current === contextKey) return;
+    lastAppliedContextRef.current = contextKey;
+
+    // Document / batch ids — empty string when caller didn't supply.
+    setDocumentId(initialDocumentId ?? "");
+    setBatchId(initialBatchId ?? "");
+
+    // Quick facts — only canonical fields the panel renders inputs
+    // for. Unknown keys are dropped here (caller can put them in
+    // initialDocumentMetadata if they want them on the request).
+    const knownQuickKeys = new Set(QUICK_FACT_FIELDS.map((f) => f.key));
+    if (initialExtractedFacts) {
+      const next: Record<string, string> = {};
+      for (const [key, value] of Object.entries(initialExtractedFacts)) {
+        if (!knownQuickKeys.has(key)) continue;
+        if (value === null || value === undefined) continue;
+        const text = String(value).trim();
+        if (!text) continue;
+        next[key] = text;
+      }
+      setQuickFacts(next);
+    } else {
+      setQuickFacts({});
+    }
+
+    // Hints — only string values for vendor/property/gl flow into
+    // the quick fields.
+    if (initialCatalogHints) {
+      const v = initialCatalogHints.vendor;
+      const p = initialCatalogHints.property;
+      const g = initialCatalogHints.gl;
+      setVendorHint(typeof v === "string" ? v : "");
+      setPropertyHint(typeof p === "string" ? p : "");
+      setGlHint(typeof g === "string" ? g : "");
+    } else {
+      setVendorHint("");
+      setPropertyHint("");
+      setGlHint("");
+    }
+
+    // Caller-side metadata — held in state, merged into the payload
+    // at request time. Operator's advanced JSON wins on collision.
+    setContextDocumentMetadata(
+      initialDocumentMetadata ? { ...initialDocumentMetadata } : {},
+    );
+  }, [
+    isOpen,
+    initialDocumentId,
+    initialBatchId,
+    initialExtractedFacts,
+    initialCatalogHints,
+    initialDocumentMetadata,
+    launchContextLabel,
+  ]);
 
   // ---- Pattern fetch on open -----------------------------------
   useEffect(() => {
@@ -466,12 +582,24 @@ export function OperationalResolutionPreviewPanel({
       ...hintsFromJson,
     };
 
-    // Merge document_metadata: caller JSON wins over the preview
-    // label. Backend strips protected keys before merging into the
-    // bridge / operational layers.
+    // Merge document_metadata. Order (lowest → highest precedence):
+    //   1. preview_label (always wins over the caller's launch
+    //      context if both happen to set the same key)
+    //   2. caller-side launch context (Phase 3C — preset by the
+    //      document/batch surface)
+    //   3. operator's advanced JSON edits — wins on every key
+    //      collision so operators can always override
+    // Backend strips its own protected keys before merging into the
+    // bridge / operational layers, so spoofing isn't a concern here.
     const docMetadata: Record<string, unknown> = {};
     if (previewLabel.trim()) {
       docMetadata.preview_label = previewLabel.trim();
+    }
+    if (
+      contextDocumentMetadata &&
+      Object.keys(contextDocumentMetadata).length > 0
+    ) {
+      Object.assign(docMetadata, contextDocumentMetadata);
     }
     if (docMetadataFromJson) Object.assign(docMetadata, docMetadataFromJson);
 
@@ -613,6 +741,24 @@ export function OperationalResolutionPreviewPanel({
             documents.
           </p>
         </div>
+
+        {/* ---- Phase 3C — launch context banner --------------- */}
+        {launchContextLabel && (
+          <LaunchContextBanner
+            label={launchContextLabel}
+            notice={contextNotice}
+            documentId={initialDocumentId ?? null}
+            batchId={initialBatchId ?? null}
+            extractedFactsCount={
+              initialExtractedFacts
+                ? Object.values(initialExtractedFacts).filter(
+                    (v) =>
+                      v !== null && v !== undefined && String(v).trim() !== "",
+                  ).length
+                : 0
+            }
+          />
+        )}
 
         {/* ---- Draft / dirty banners -------------------------- */}
         {isDraft && (
@@ -814,6 +960,47 @@ export function OperationalResolutionPreviewPanel({
         )}
       </div>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3C — Launch context banner
+// ---------------------------------------------------------------------------
+
+function LaunchContextBanner({
+  label,
+  notice,
+  documentId,
+  batchId,
+  extractedFactsCount,
+}: {
+  label: string;
+  notice?: string;
+  documentId: string | null;
+  batchId: string | null;
+  extractedFactsCount: number;
+}) {
+  return (
+    <div className="rounded-md border border-cyan-200 bg-cyan-50/60 px-3 py-2 text-xs text-cyan-900 dark:border-cyan-900 dark:bg-cyan-950/20 dark:text-cyan-100">
+      <p className="font-semibold">{label}</p>
+      <p className="mt-0.5 text-cyan-800 dark:text-cyan-200">
+        {notice ??
+          (extractedFactsCount > 0
+            ? `Pre-filled with ${extractedFactsCount} extracted fact${extractedFactsCount === 1 ? "" : "s"}. You can edit any value below before running.`
+            : "No extracted facts are available for this context yet — enter facts manually below to test the resolver.")}
+      </p>
+      {(documentId || batchId) && (
+        <p className="mt-1 font-mono text-[10px] text-cyan-700 dark:text-cyan-300">
+          {documentId ? `document_id: ${documentId}` : ""}
+          {documentId && batchId ? "  ·  " : ""}
+          {batchId ? `batch_id: ${batchId}` : ""}
+        </p>
+      )}
+      <p className="mt-1 text-[11px] text-cyan-700 dark:text-cyan-300">
+        Diagnostic only — this will not update the document, create
+        review items, or export rows.
+      </p>
+    </div>
   );
 }
 

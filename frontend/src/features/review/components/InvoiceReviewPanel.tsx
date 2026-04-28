@@ -22,6 +22,9 @@ import type {
 import { CheckCircle2, FileText } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+
+import { OperationalPreviewLauncher } from "@/features/invoice-templates/components/OperationalPreviewLauncher";
+
 import { LineItemTable } from "./LineItemTable";
 
 interface InvoiceReviewPanelProps {
@@ -308,6 +311,42 @@ export function InvoiceReviewPanel({ documentId }: InvoiceReviewPanelProps) {
           <p className="text-[11px] text-gray-400 pt-1 text-center leading-snug">
             Warnings are advisory. You can approve or reject regardless.
           </p>
+
+          {/* Phase 3C — Operational Preview launch from this
+              document. Diagnostic only: it never changes the
+              document/batch status, never creates Review Queue
+              records, and never produces an export row. The
+              launcher prompts for an Import Template, then opens
+              the existing OperationalResolutionPreviewPanel with
+              this document's id, batch id, and currently-edited
+              extracted facts pre-filled. */}
+          {detail?.document && (
+            <div className="pt-3 border-t border-gray-100 dark:border-line/60">
+              <OperationalPreviewLauncher
+                label="Operational Preview"
+                variant="ghost"
+                size="sm"
+                documentId={detail.document.id}
+                batchId={detail.document.batch_id}
+                initialExtractedFacts={_invoicePayloadToFacts(draft)}
+                initialCatalogHints={_invoicePayloadToHints(draft)}
+                initialDocumentMetadata={{
+                  source: "document_context",
+                  document_id: detail.document.id,
+                  batch_id: detail.document.batch_id,
+                  filename: detail.document.original_filename,
+                  original_filename: detail.document.original_filename,
+                  launch_surface: "review_queue",
+                }}
+                launchContextLabel={`Document: ${detail.document.original_filename}`}
+                contextNotice={
+                  detail.invoice
+                    ? "Pre-filled from this document's currently-edited invoice fields. You can adjust any value before running."
+                    : "No extracted invoice for this document yet. Enter facts manually below to test the resolver."
+                }
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -466,4 +505,53 @@ function toNum(v: number | string | null | undefined): number | null {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3C — extract operational-preview facts/hints from the
+// canonical invoice draft. Keys mirror the Operational Preview
+// panel's quick-fields catalog so the values land in the right
+// inputs on hydrate.
+// ---------------------------------------------------------------------------
+
+function _invoicePayloadToFacts(
+  payload: CanonicalInvoicePayload,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const candidates: Array<[string, unknown]> = [
+    ["invoice_number", payload.invoice_number],
+    ["account_number", payload.account_number],
+    ["invoice_date", payload.invoice_date],
+    ["due_date", payload.due_date],
+    ["total_amount", payload.total_amount],
+    ["subtotal", payload.subtotal],
+    ["tax_amount", payload.tax_amount],
+    ["service_period_start", payload.service_period_start],
+    ["service_period_end", payload.service_period_end],
+    ["vendor_name", payload.vendor_name],
+    ["property_name", payload.property_name],
+  ];
+  for (const [key, raw] of candidates) {
+    if (raw === null || raw === undefined) continue;
+    const text = String(raw).trim();
+    if (!text) continue;
+    out[key] = text;
+  }
+  return out;
+}
+
+function _invoicePayloadToHints(
+  payload: CanonicalInvoicePayload,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  // Use vendor_name + property_name as catalog hints — they're
+  // already the operator's best guess at vendor/property identity
+  // and will be matched against Reference Data downstream.
+  if (payload.vendor_name && payload.vendor_name.trim()) {
+    out.vendor = payload.vendor_name.trim();
+  }
+  if (payload.property_name && payload.property_name.trim()) {
+    out.property = payload.property_name.trim();
+  }
+  return out;
 }
