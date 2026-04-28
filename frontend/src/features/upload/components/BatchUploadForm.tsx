@@ -121,7 +121,7 @@ export function BatchUploadForm() {
             <div>
               <label
                 htmlFor="batch-name"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="block text-sm font-medium text-gray-700 dark:text-ink mb-1"
               >
                 Batch name
               </label>
@@ -131,10 +131,10 @@ export function BatchUploadForm() {
                 onChange={(e) => setBatchName(e.target.value)}
                 placeholder="e.g. May 2026 Utilities — Oakwood Portfolio"
                 disabled={!isIdle}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-500"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-500 dark:border-line dark:bg-surface-subtle dark:text-ink dark:placeholder:text-ink-subtle dark:disabled:bg-surface-muted dark:disabled:text-ink-subtle"
                 required={batch == null}
               />
-              <p className="text-[11px] text-gray-400 mt-1">
+              <p className="text-[11px] text-gray-400 dark:text-ink-subtle mt-1">
                 Pick something a reviewer will recognize a week from now —
                 month + property usually works well.
               </p>
@@ -142,11 +142,11 @@ export function BatchUploadForm() {
           )}
 
           {batch != null && (
-            <div className="rounded-md bg-brand-50/50 border border-brand-100 px-3 py-2">
+            <div className="rounded-lg bg-brand-50/50 border border-brand-100 dark:border-brand-900/60 dark:bg-brand-900/20 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wide text-brand-700/70 font-semibold">
                 Adding to existing batch
               </p>
-              <p className="text-sm text-brand-900 mt-0.5 truncate">
+              <p className="text-sm text-brand-900 dark:text-brand-50 mt-0.5 truncate">
                 {batch.name}
               </p>
               <p className="text-[11px] text-brand-700/70 mt-1">
@@ -215,7 +215,7 @@ export function BatchUploadForm() {
           )}
 
           {isIdle && files.length === 0 && persistedDocuments.length === 0 && (
-            <p className="text-[11px] text-gray-400">
+            <p className="text-[11px] text-gray-400 dark:text-ink-subtle">
               Drop one or more PDFs/images on the left, or open an existing
               batch from the picker above. Each file uploads sequentially;
               you&apos;ll see live status in the middle and a preview on the

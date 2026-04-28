@@ -11,12 +11,12 @@ import { type ButtonHTMLAttributes, forwardRef } from "react";
 //   * ghost is purely chrome and follows the surface tokens
 const variants = {
   primary:
-    "bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500",
+    "bg-brand-600 text-white shadow-sm hover:bg-brand-700 focus-visible:ring-brand-500",
   secondary:
-    "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 " +
+    "bg-white text-gray-700 border border-gray-300 shadow-sm hover:bg-gray-50 " +
     "dark:bg-surface-subtle dark:text-ink dark:border-line dark:hover:bg-surface-muted",
   danger:
-    "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500",
+    "bg-red-600 text-white shadow-sm hover:bg-red-700 focus-visible:ring-red-500",
   ghost:
     "text-gray-600 hover:bg-gray-100 " +
     "dark:text-ink-muted dark:hover:bg-surface-muted",
@@ -40,8 +40,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors",
+        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors duration-150",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+        "focus-visible:ring-offset-white dark:focus-visible:ring-offset-surface-subtle",
         "disabled:cursor-not-allowed disabled:opacity-50",
         variants[variant],
         sizes[size],

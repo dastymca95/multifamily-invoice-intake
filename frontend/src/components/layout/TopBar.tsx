@@ -35,14 +35,14 @@ export function TopBar({ title }: TopBarProps) {
   };
 
   return (
-    <header className="h-14 border-b bg-white dark:bg-surface-subtle dark:border-line px-6 flex items-center justify-between shrink-0">
-      <h1 className="text-base font-semibold text-gray-900 dark:text-ink">
+    <header className="h-14 border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 dark:bg-surface-subtle/95 dark:border-line px-6 flex items-center justify-between shrink-0">
+      <h1 className="text-base font-semibold tracking-tight text-gray-900 dark:text-ink">
         {title}
       </h1>
       <div className="flex items-center gap-1">
         <Link
           href="/help"
-          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-ink-muted dark:hover:bg-surface-muted"
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:text-ink-muted dark:hover:bg-surface-muted"
           title="Help center"
           aria-label="Open help center"
         >
@@ -52,7 +52,7 @@ export function TopBar({ title }: TopBarProps) {
         <ThemeToggle />
         <Link
           href="/settings"
-          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-ink-muted dark:hover:bg-surface-muted"
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:text-ink-muted dark:hover:bg-surface-muted"
           title="Account settings"
           aria-label="Open account settings"
         >

@@ -28,7 +28,7 @@ interface AppShellProps {
  */
 export function AppShell({ children }: AppShellProps) {
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-surface">
+    <div className="flex h-screen overflow-hidden bg-surface text-ink">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">{children}</main>
       <FloatingHelpChat />

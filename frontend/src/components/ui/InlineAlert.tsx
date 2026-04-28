@@ -91,18 +91,18 @@ export function InlineAlert({ tone, title, children, action, className }: Inline
   return (
     <div
       className={cn(
-        "rounded-md border px-3 py-2 text-xs flex items-start gap-2",
+        "rounded-lg border px-3.5 py-2.5 text-xs flex items-start gap-2.5 shadow-sm",
         box,
         className,
       )}
       role={tone === "error" ? "alert" : "status"}
     >
-      <Icon className={cn("h-3.5 w-3.5 shrink-0 mt-0.5", iconColor)} />
+      <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", iconColor)} />
       <div className="flex-1 min-w-0">
         {title && <div className="font-semibold">{title}</div>}
         {children != null && <div className={title ? "mt-0.5" : ""}>{children}</div>}
       </div>
-      {action && <div className="shrink-0 ml-2">{action}</div>}
+      {action && <div className="shrink-0 ml-2.5">{action}</div>}
     </div>
   );
 }

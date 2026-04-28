@@ -86,7 +86,7 @@ export function SettingsLayout({ children }: SettingsLayoutProps) {
     <div className="flex flex-1 min-h-0">
       {/* Left rail */}
       <aside
-        className="w-60 shrink-0 border-r bg-white dark:bg-surface-subtle dark:border-line px-3 py-4 overflow-y-auto"
+        className="w-60 shrink-0 border-r border-gray-200 bg-white dark:bg-surface-subtle dark:border-line px-3 py-4 overflow-y-auto"
         aria-label="Settings navigation"
       >
         <p className="px-3 pb-2 text-[10.5px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle font-semibold">
@@ -102,7 +102,7 @@ export function SettingsLayout({ children }: SettingsLayoutProps) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-start gap-2.5 px-3 py-2 rounded-md text-sm transition-colors",
+                  "flex items-start gap-2.5 px-3 py-2 rounded-md text-sm transition-colors duration-150",
                   active
                     ? "bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-50"
                     : "text-gray-700 hover:bg-gray-50 dark:text-ink-muted dark:hover:bg-surface-muted",
@@ -140,7 +140,7 @@ export function SettingsLayout({ children }: SettingsLayoutProps) {
 
       {/* Content well */}
       <section className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-6">{children}</div>
+        <div className="max-w-3xl mx-auto px-6 py-6 lg:py-8">{children}</div>
       </section>
     </div>
   );

@@ -146,7 +146,7 @@ export function Sidebar() {
     // light mode, slate-950 in dark — so the brand square + nav still
     // read as the "chrome" of the app rather than blending into the
     // page surface. Border + text muting tokens swap.
-    <aside className="w-60 shrink-0 bg-brand-900 text-white dark:bg-surface-inverted flex flex-col min-h-screen">
+    <aside className="w-60 shrink-0 bg-brand-900 text-white dark:bg-surface-inverted flex flex-col min-h-screen border-r border-brand-700/70 dark:border-line/70">
       {/* Brand mark — Rivera logo (full lockup PNG: icon + "Rivera"
           wordmark). The PNG already includes the wordmark so we
           intentionally do NOT render a separate "Rivera" <span> next
@@ -155,7 +155,7 @@ export function Sidebar() {
           to preserve the existing positioning line.
 
           Replace `public/brand/rivera-logo.png` to refresh the mark. */}
-      <div className="px-5 py-5 border-b border-brand-700 flex flex-col gap-1.5">
+      <div className="px-5 py-5 border-b border-brand-700/80 dark:border-line/70 flex flex-col gap-1.5">
         <RiveraLogo variant="fullLockup" className="h-auto w-[150px]" />
         <p className="text-[11px] text-brand-50/60 leading-none">
           Property Accounting
@@ -178,7 +178,7 @@ export function Sidebar() {
             `mt-auto` does the pinning; if the sidebar ever gets short
             on vertical space the workspace list scrolls and this tray
             stays glued to the bottom. */}
-        <div className="mt-auto pt-3 border-t border-brand-700/60 space-y-1">
+        <div className="mt-auto pt-3 border-t border-brand-700/60 dark:border-line/60 space-y-1">
           {utilityNavItems.map((item) => (
             <SidebarLink key={item.href} item={item} pathname={pathname} />
           ))}
@@ -202,7 +202,7 @@ function SidebarLink({ item, pathname }: { item: NavLeaf; pathname: string }) {
         // `relative` + the lime indicator below: gives every active
         // item an Electric Lime left bar so the brand validation
         // accent shows up across the chrome without dominating.
-        "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+        "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150",
         active
           ? // Active: Real Estate Blue body + brighter foreground.
             "bg-brand-700 text-white"
@@ -274,7 +274,7 @@ function SidebarSection({
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
         className={cn(
-          "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+        "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150",
           // Use a softer tint for "section active" so the contrast
           // with the explicitly-active child link below stays clear:
           // child = solid brand-700, parent = brand-700 at 40%. Idle
@@ -323,7 +323,7 @@ function SidebarSection({
                   // into the deep-navy bg reads as a greenish wash
                   // that's off-brand). The cyan accent already
                   // shows up via the rail's left guide border below.
-                  "relative flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors",
+                  "relative flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors duration-150",
                   childActive
                     ? "bg-brand-700 text-white font-medium"
                     : "text-brand-50/60 hover:bg-brand-700/50 hover:text-white",

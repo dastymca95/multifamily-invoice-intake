@@ -38,7 +38,7 @@ export function ReviewQueue() {
     };
   }, [reloadKey]);
 
-  if (loading) return <div className="text-sm text-gray-400">Loading review queue…</div>;
+  if (loading) return <div className="text-sm text-gray-400 dark:text-ink-subtle">Loading review queue…</div>;
 
   if (error) {
     return (
@@ -58,16 +58,16 @@ export function ReviewQueue() {
 
   if (invoices.length === 0) {
     return (
-      <div className="bg-white rounded-xl border py-16 text-center">
-        <Inbox className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-        <p className="text-base font-medium text-gray-700">Nothing waiting for review</p>
-        <p className="text-sm text-gray-500 mt-1">
+      <div className="bg-white rounded-xl border border-gray-200 py-16 text-center shadow-sm dark:bg-surface-subtle dark:border-line">
+        <Inbox className="h-10 w-10 text-gray-300 dark:text-ink-subtle mx-auto mb-3" />
+        <p className="text-base font-medium text-gray-700 dark:text-ink">Nothing waiting for review</p>
+        <p className="text-sm text-gray-500 dark:text-ink-muted mt-1">
           Approved or rejected invoices won&apos;t show up here.
         </p>
         <div className="mt-4 flex items-center justify-center gap-2">
           <Link
             href="/upload"
-            className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-brand-600 transition-colors hover:bg-brand-50 hover:text-brand-700 dark:text-brand-50 dark:hover:bg-surface-muted"
           >
             Upload documents <ArrowRight className="h-3.5 w-3.5" />
           </Link>
@@ -77,21 +77,21 @@ export function ReviewQueue() {
   }
 
   return (
-    <div className="bg-white rounded-xl border">
-      <div className="px-5 py-4 border-b flex items-center justify-between">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm dark:bg-surface-subtle dark:border-line">
+      <div className="px-5 py-4 border-b border-gray-200 dark:border-line flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-gray-700">Pending Review</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-ink">Pending Review</h2>
+          <p className="text-xs text-gray-500 dark:text-ink-muted mt-0.5">
             Open an invoice to verify the extracted fields and approve or reject.
           </p>
         </div>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-gray-400 dark:text-ink-subtle">
           {invoices.length} invoice{invoices.length === 1 ? "" : "s"}
         </span>
       </div>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b text-gray-500 text-xs">
+          <tr className="border-b border-gray-200 dark:border-line text-gray-500 dark:text-ink-subtle text-xs">
             <th className="text-left px-5 py-3 font-medium">Vendor</th>
             <th className="text-left px-5 py-3 font-medium">Invoice #</th>
             <th className="text-left px-5 py-3 font-medium">Date</th>
@@ -103,16 +103,16 @@ export function ReviewQueue() {
         </thead>
         <tbody>
           {invoices.map((inv) => (
-            <tr key={inv.id} className="border-b last:border-0 hover:bg-gray-50">
-              <td className="px-5 py-3 font-medium text-gray-900">
-                {inv.vendor_name || <span className="text-gray-300">—</span>}
+            <tr key={inv.id} className="border-b border-gray-100 dark:border-line/60 last:border-0 hover:bg-gray-50 dark:hover:bg-surface-muted">
+              <td className="px-5 py-3 font-medium text-gray-900 dark:text-ink">
+                {inv.vendor_name || <span className="text-gray-300 dark:text-ink-subtle">—</span>}
               </td>
-              <td className="px-5 py-3 text-gray-600 font-mono text-xs">
-                {inv.invoice_number || <span className="text-gray-300">—</span>}
+              <td className="px-5 py-3 text-gray-600 dark:text-ink-muted font-mono text-xs">
+                {inv.invoice_number || <span className="text-gray-300 dark:text-ink-subtle">—</span>}
               </td>
-              <td className="px-5 py-3 text-gray-600">{formatDate(inv.invoice_date)}</td>
-              <td className="px-5 py-3 text-gray-500">{inv.property_name || "—"}</td>
-              <td className="px-5 py-3 text-right font-medium">
+              <td className="px-5 py-3 text-gray-600 dark:text-ink-muted">{formatDate(inv.invoice_date)}</td>
+              <td className="px-5 py-3 text-gray-500 dark:text-ink-muted">{inv.property_name || "—"}</td>
+              <td className="px-5 py-3 text-right font-medium text-gray-900 dark:text-ink">
                 {formatCurrency(Number(inv.total_amount ?? 0), inv.currency)}
               </td>
               <td className="px-5 py-3">
@@ -125,7 +125,7 @@ export function ReviewQueue() {
               <td className="px-5 py-3 text-right">
                 <Link
                   href={`/review/${inv.document_id}`}
-                  className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-xs font-medium"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-brand-600 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-50 dark:hover:bg-surface-muted text-xs font-medium"
                 >
                   Review <ArrowRight className="h-3 w-3" />
                 </Link>

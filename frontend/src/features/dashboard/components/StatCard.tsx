@@ -23,7 +23,7 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-1 dark:bg-surface-subtle dark:border-line">
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-1 shadow-sm dark:bg-surface-subtle dark:border-line">
       <p className="text-sm text-gray-500 dark:text-ink-muted">{label}</p>
       <p className="text-2xl font-bold text-gray-900 dark:text-ink">{value}</p>
       {sub && <p className="text-xs text-gray-400 dark:text-ink-subtle">{sub}</p>}
@@ -112,7 +112,7 @@ export function DashboardStats() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Total Documents" value={totalDocs} />
         <StatCard label="Processed" value={processed} />
         <StatCard label="Failed" value={failed} />
@@ -120,7 +120,7 @@ export function DashboardStats() {
 
       {exportError && <InlineAlert tone="error">{exportError}</InlineAlert>}
 
-      <div className="bg-white rounded-xl border border-gray-200 dark:bg-surface-subtle dark:border-line">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm dark:bg-surface-subtle dark:border-line">
         <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between dark:border-line">
           <div>
             <h2 className="text-sm font-semibold text-gray-700 dark:text-ink">
@@ -132,7 +132,7 @@ export function DashboardStats() {
           </div>
           <Link
             href="/upload"
-            className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-50/80"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-brand-600 transition-colors hover:bg-brand-50 hover:text-brand-700 dark:text-brand-50 dark:hover:bg-surface-muted dark:hover:text-brand-50/80"
           >
             <Upload className="h-3.5 w-3.5" />
             New batch
@@ -148,7 +148,7 @@ export function DashboardStats() {
             </p>
             <Link
               href="/upload"
-              className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-50/80"
+              className="mt-4 inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-brand-600 transition-colors hover:bg-brand-50 hover:text-brand-700 dark:text-brand-50 dark:hover:bg-surface-muted dark:hover:text-brand-50/80"
             >
               Upload documents <ArrowRight className="h-3.5 w-3.5" />
             </Link>

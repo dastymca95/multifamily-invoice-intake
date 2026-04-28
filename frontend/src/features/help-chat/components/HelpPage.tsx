@@ -41,26 +41,26 @@ export function HelpPage() {
     filteredIds == null ? FAQ_CARDS.length : filteredIds.length;
 
   return (
-    <div className="px-6 py-6 max-w-6xl mx-auto space-y-5">
+    <div className="px-6 py-6 max-w-6xl mx-auto space-y-6">
       <HelpHeader />
 
       <HelpSearchBar onFilteredIdsChange={handleFilteredIdsChange} />
 
       <section aria-label="Frequently asked questions">
         <div className="flex items-baseline justify-between mb-2">
-          <h2 className="text-sm font-semibold text-gray-800">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-ink">
             FAQs by workspace
           </h2>
           {filteredIds != null && (
-            <p className="text-[11.5px] text-gray-500">
+            <p className="text-[11.5px] text-gray-500 dark:text-ink-muted">
               {visibleCardCount} of {FAQ_CARDS.length} card
               {FAQ_CARDS.length === 1 ? "" : "s"} match
             </p>
           )}
         </div>
         {visibleCardCount === 0 ? (
-          <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center">
-            <p className="text-[12.5px] text-gray-600">
+          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 dark:border-line dark:bg-surface-muted px-4 py-6 text-center">
+            <p className="text-[12.5px] text-gray-600 dark:text-ink-muted">
               No FAQ cards match that search. Try a different keyword,
               or ask the help assistant below.
             </p>
@@ -71,7 +71,7 @@ export function HelpPage() {
       </section>
 
       <section aria-label="Help assistant">
-        <h2 className="text-sm font-semibold text-gray-800 mb-2">
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-ink mb-2">
           Ask the assistant
         </h2>
         <HelpChatPanel />
@@ -115,21 +115,21 @@ function FilteredCardList({
   // call FaqGrid directly because it iterates the full FAQ_CARDS
   // module-level constant; mirror its container classes here.
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
           <a
             key={card.id}
             href={card.workspaceHref}
-            className="group rounded-lg border border-gray-200 bg-white p-4 hover:border-brand-400 hover:shadow-sm transition-all"
+            className="group rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md dark:border-line dark:bg-surface-subtle dark:hover:border-brand-500/60"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center justify-center h-8 w-8 rounded-md bg-brand-50 text-brand-700 shrink-0">
+                <span className="inline-flex items-center justify-center h-8 w-8 rounded-md bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-50 shrink-0">
                   <Icon className="h-4 w-4" aria-hidden />
                 </span>
-                <h3 className="text-sm font-semibold text-gray-900">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-ink">
                   {card.title}
                 </h3>
               </div>
@@ -138,7 +138,7 @@ function FilteredCardList({
               {card.body.map((p, i) => (
                 <p
                   key={i}
-                  className="text-[12px] text-gray-600 leading-relaxed"
+                  className="text-[12px] text-gray-600 dark:text-ink-muted leading-relaxed"
                 >
                   {p}
                 </p>

@@ -106,7 +106,7 @@ export function InvoiceBuilderPage() {
           slate-900 dark) so it reads as the workspace surface — the
           PDF page itself stays white inside the viewer for readability,
           everything around it darkens. */}
-      <main className="flex-1 min-w-0 flex flex-col bg-gray-50 dark:bg-surface">
+      <main className="flex-1 min-w-0 flex flex-col bg-surface">
         <CenterPane
           loadingList={loadingList}
           loadingDetail={loadingDetail}
@@ -195,13 +195,13 @@ function CenterPane({
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center p-8">
         <div className="max-w-md text-center">
-          <div className="mx-auto h-12 w-12 rounded-full bg-brand-50 dark:bg-brand-900/40 flex items-center justify-center mb-3">
+          <div className="mx-auto h-12 w-12 rounded-full bg-brand-50 dark:bg-brand-900/40 flex items-center justify-center mb-3 shadow-sm">
             <FileSearch className="h-6 w-6 text-brand-600 dark:text-brand-50" />
           </div>
           <h2 className="text-base font-semibold text-gray-800 dark:text-ink">
             Teach the extractor where invoice fields live
           </h2>
-          <p className="text-[12.5px] text-gray-600 dark:text-ink-muted mt-1.5">
+          <p className="text-[12.5px] text-gray-600 dark:text-ink-muted mt-1.5 leading-relaxed">
             Each saved pattern captures one vendor's bill layout —
             upload a sample bill, draw a box around each canonical
             field, and save. Import Builder rule cells can then
@@ -242,7 +242,7 @@ function CenterPane({
 
   // Detail in flight or errored.
   return (
-    <div className="flex-1 min-h-0 flex flex-col p-4">
+    <div className="flex-1 min-h-0 flex flex-col p-5">
       {detailError ? (
         <InlineAlert
           tone="error"
