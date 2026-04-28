@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  ClipboardCopy,
   Hash,
   Info,
   Loader2,
@@ -44,6 +45,20 @@ import type {
   OperationalReviewSeverity,
   PatternSelectionMode,
 } from "@/types/operational-resolution";
+
+import {
+  SEVERITY_LABEL,
+  buildOperationalDiagnosticCards,
+  groupOperationalDiagnosticCards,
+  summarizeOperationalDiagnosticCards,
+  type NormalizedFixArea,
+  type NormalizedSeverity,
+  type OperationalDiagnosticCard,
+} from "../lib/operational-review-diagnostics";
+import {
+  buildOperationalDiagnosticsMarkdownReport,
+  copyTextToClipboard,
+} from "../lib/operational-review-reports";
 
 /**
  * Phase 3B — Operational Resolution Preview UI.
@@ -357,6 +372,25 @@ export function OperationalResolutionPreviewPanel({
   // ---- Race-protected request id -------------------------------
   const runRequestIdRef = useRef(0);
   const runAbortRef = useRef<AbortController | null>(null);
+
+  // ---- Phase 3D — section refs for "focus input" assistance ----
+  // Each diagnostic card with a fix area like extracted_fact /
+  // catalog_hint / runtime_context can offer a button that scrolls
+  // the relevant input section into view. Refs are wired on the
+  // wrapper divs below so the section components themselves stay
+  // unchanged.
+  const factsSectionRef = useRef<HTMLDivElement | null>(null);
+  const hintsSectionRef = useRef<HTMLDivElement | null>(null);
+  const contextSectionRef = useRef<HTMLDivElement | null>(null);
+
+  // ---- Phase 3D — copy-diagnostics transient toast ------------
+  const [diagnosticsCopyStatus, setDiagnosticsCopyStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const diagnosticsCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // ---- Phase 3C — apply launch context on open transition -----
   // Re-applies whenever the panel transitions from closed → open OR
@@ -706,6 +740,45 @@ export function OperationalResolutionPreviewPanel({
     handleRun,
   ]);
 
+  // ---- Phase 3D — focus / scroll helpers + copy diagnostics ---
+
+  const showDiagnosticsCopyStatus = useCallback(
+    (type: "success" | "error", message: string) => {
+      setDiagnosticsCopyStatus({ type, message });
+      if (diagnosticsCopyTimerRef.current) {
+        clearTimeout(diagnosticsCopyTimerRef.current);
+      }
+      diagnosticsCopyTimerRef.current = setTimeout(() => {
+        setDiagnosticsCopyStatus(null);
+        diagnosticsCopyTimerRef.current = null;
+      }, 4000);
+    },
+    [],
+  );
+
+  // Clear the toast on panel close so it doesn't settle onto an
+  // unmounted view.
+  useEffect(() => {
+    if (!isOpen && diagnosticsCopyTimerRef.current) {
+      clearTimeout(diagnosticsCopyTimerRef.current);
+      diagnosticsCopyTimerRef.current = null;
+      setDiagnosticsCopyStatus(null);
+    }
+  }, [isOpen]);
+
+  const handleFocusSection = useCallback(
+    (target: "facts" | "hints" | "context") => {
+      const ref =
+        target === "facts"
+          ? factsSectionRef
+          : target === "hints"
+            ? hintsSectionRef
+            : contextSectionRef;
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    [],
+  );
+
   // ---- Derived ------------------------------------------------
   const selectedPattern = useMemo(
     () => patterns.find((p) => p.id === selectedPatternId) ?? null,
@@ -825,32 +898,40 @@ export function OperationalResolutionPreviewPanel({
         />
 
         {/* ---- Operational context ---------------------------- */}
-        <OperationalContextSection
-          documentId={documentId}
-          batchId={batchId}
-          previewLabel={previewLabel}
-          onChangeDocumentId={setDocumentId}
-          onChangeBatchId={setBatchId}
-          onChangePreviewLabel={setPreviewLabel}
-        />
+        {/* Phase 3D — wrap in a ref-bearing div so the diagnostic
+            "Edit context" button can scroll the section into view. */}
+        <div ref={contextSectionRef}>
+          <OperationalContextSection
+            documentId={documentId}
+            batchId={batchId}
+            previewLabel={previewLabel}
+            onChangeDocumentId={setDocumentId}
+            onChangeBatchId={setBatchId}
+            onChangePreviewLabel={setPreviewLabel}
+          />
+        </div>
 
         {/* ---- Manual extracted facts ------------------------- */}
-        <ManualFactsSection
-          quickFacts={quickFacts}
-          onChange={(key, value) =>
-            setQuickFacts((curr) => ({ ...curr, [key]: value }))
-          }
-        />
+        <div ref={factsSectionRef}>
+          <ManualFactsSection
+            quickFacts={quickFacts}
+            onChange={(key, value) =>
+              setQuickFacts((curr) => ({ ...curr, [key]: value }))
+            }
+          />
+        </div>
 
         {/* ---- Manual catalog hints --------------------------- */}
-        <ManualHintsSection
-          vendor={vendorHint}
-          property={propertyHint}
-          gl={glHint}
-          onChangeVendor={setVendorHint}
-          onChangeProperty={setPropertyHint}
-          onChangeGl={setGlHint}
-        />
+        <div ref={hintsSectionRef}>
+          <ManualHintsSection
+            vendor={vendorHint}
+            property={propertyHint}
+            gl={glHint}
+            onChangeVendor={setVendorHint}
+            onChangeProperty={setPropertyHint}
+            onChangeGl={setGlHint}
+          />
+        </div>
 
         {/* ---- Advanced JSON ---------------------------------- */}
         <AdvancedJsonSection
@@ -950,8 +1031,16 @@ export function OperationalResolutionPreviewPanel({
             )}
 
             <OperationalSummaryCard result={result} />
-            <ReviewDiagnosticsSection
-              diagnostics={result.review_diagnostics ?? []}
+            {/* Phase 3D — replaced the old simple list with the
+                review-style grouped cards + summary + copy. The
+                section preserves backend code/message/recommendation
+                inside each card so support / debugging are unchanged. */}
+            <OperationalReviewSection
+              result={result}
+              contextLabel={launchContextLabel ?? null}
+              copyStatus={diagnosticsCopyStatus}
+              onCopyStatus={showDiagnosticsCopyStatus}
+              onFocusSection={handleFocusSection}
             />
             <ResolverInputCard result={result} />
             <ResolverResultCard result={result} />
@@ -1536,123 +1625,426 @@ function OperationalSummaryCard({
 }
 
 // ---------------------------------------------------------------------------
-// Result — Review diagnostics
+// Phase 3D — Operational Review section (replaces the old simple list)
 // ---------------------------------------------------------------------------
+//
+// Renders the operational diagnostics as review-style cards grouped
+// by severity (blocked → warning → info → ready). Includes:
+//   * a summary card (counts + top fix area + first recommended action)
+//   * a "Copy diagnostics" Markdown action
+//   * per-card "Edit facts / hints / context" focus buttons that
+//     scroll the relevant input section into view (Phase 3D
+//     intentionally stops short of auto-applying fixes)
+//   * an empty state for runs that produce no diagnostics
 
-function ReviewDiagnosticsSection({
-  diagnostics,
+const FIX_AREA_CHIP_CLASSES: Record<NormalizedFixArea, string> = {
+  extracted_fact:
+    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900",
+  catalog_hint:
+    "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-950/30 dark:text-cyan-200 dark:border-cyan-900",
+  reference_data:
+    "bg-orange-50 text-orange-800 border-orange-200 dark:bg-orange-950/30 dark:text-orange-200 dark:border-orange-900",
+  import_template:
+    "bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/30 dark:text-purple-200 dark:border-purple-900",
+  invoice_pattern:
+    "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-950/30 dark:text-cyan-200 dark:border-cyan-900",
+  runtime_context:
+    "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-200 dark:border-yellow-900",
+  unknown:
+    "bg-gray-100 text-gray-700 border-gray-200 dark:bg-surface-muted dark:text-ink-muted dark:border-line",
+};
+
+function OperationalReviewSection({
+  result,
+  contextLabel,
+  copyStatus,
+  onCopyStatus,
+  onFocusSection,
 }: {
-  diagnostics: OperationalReviewDiagnostic[];
+  result: OperationalResolutionResult;
+  contextLabel: string | null;
+  copyStatus: { type: "success" | "error"; message: string } | null;
+  onCopyStatus: (type: "success" | "error", message: string) => void;
+  onFocusSection: (target: "facts" | "hints" | "context") => void;
 }) {
-  if (!diagnostics || diagnostics.length === 0) {
+  const cards = useMemo(
+    () => buildOperationalDiagnosticCards(result.review_diagnostics ?? []),
+    [result.review_diagnostics],
+  );
+  const summary = useMemo(
+    () => summarizeOperationalDiagnosticCards(cards),
+    [cards],
+  );
+  const groups = useMemo(
+    () => groupOperationalDiagnosticCards(cards),
+    [cards],
+  );
+
+  const handleCopy = useCallback(async () => {
+    try {
+      const text = buildOperationalDiagnosticsMarkdownReport({
+        result,
+        cards,
+        contextLabel,
+      });
+      await copyTextToClipboard(text);
+      onCopyStatus("success", "Diagnostics copied.");
+    } catch (err) {
+      onCopyStatus(
+        "error",
+        `Could not copy diagnostics: ${(err as Error).message}`,
+      );
+    }
+  }, [result, cards, contextLabel, onCopyStatus]);
+
+  // Empty state — careful wording per spec: do NOT claim
+  // production-ready. Future export readiness still depends on the
+  // production export phase.
+  if (cards.length === 0) {
     return (
-      <section className="rounded-md border border-green-200 bg-green-50/60 px-3 py-2 text-xs text-green-800 dark:border-green-900 dark:bg-green-950/20 dark:text-green-200">
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4" />
-          <span>
-            No review diagnostics. Resolver output is ready or
-            advisory-only.
-          </span>
+      <section
+        className="rounded-md border border-green-200 bg-green-50/60 px-3 py-3 dark:border-green-900 dark:bg-green-950/20"
+        aria-label="Review diagnostics"
+      >
+        <div className="flex items-start gap-2 text-xs text-green-800 dark:text-green-200">
+          <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">No review diagnostics found.</p>
+            <p className="mt-0.5">
+              This diagnostic preview did not produce exceptions.
+              Future export readiness still depends on the final
+              export phase.
+            </p>
+          </div>
         </div>
       </section>
     );
   }
-  // Sort: blocked → warning → info → ready → unknown.
-  const SORT: Record<string, number> = {
-    blocked: 0,
-    warning: 1,
-    info: 2,
-    ready: 3,
-  };
-  const sorted = [...diagnostics].sort((a, b) => {
-    const ra = SORT[String(a.severity)] ?? 4;
-    const rb = SORT[String(b.severity)] ?? 4;
-    return ra - rb;
-  });
 
   return (
-    <section
-      className="rounded-md border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle"
-      aria-label="Review diagnostics"
-    >
-      <header className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-line/60">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-ink">
-          <Bookmark className="h-4 w-4 text-brand-600 dark:text-brand-50" />
-          Review diagnostics
+    <section className="space-y-3" aria-label="Operational Review diagnostics">
+      {/* ---- Summary card + copy ----------------------------- */}
+      <div className="rounded-md border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle">
+        <header className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-line/60">
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-ink">
+            <Bookmark className="h-4 w-4 text-brand-600 dark:text-brand-50" />
+            Operational Review summary
+          </div>
+          <div className="flex items-center gap-2">
+            {copyStatus && (
+              <span
+                className={cn(
+                  "text-[11px] font-medium",
+                  copyStatus.type === "success"
+                    ? "text-green-700 dark:text-green-300"
+                    : "text-red-700 dark:text-red-300",
+                )}
+                role={copyStatus.type === "error" ? "alert" : "status"}
+                aria-live="polite"
+              >
+                {copyStatus.message}
+              </span>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleCopy}
+              title="Copy a Markdown summary of these diagnostics to the clipboard (support / debugging)."
+            >
+              <ClipboardCopy className="h-3.5 w-3.5" />
+              Copy diagnostics
+            </Button>
+          </div>
+        </header>
+        <div className="px-3 py-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <SummaryCount
+            label="Total"
+            value={summary.total}
+            tone="text-gray-800 dark:text-ink"
+          />
+          <SummaryCount
+            label="Blocked"
+            value={summary.blocked}
+            tone="text-red-700 dark:text-red-200"
+          />
+          <SummaryCount
+            label="Needs review"
+            value={summary.warning}
+            tone="text-yellow-700 dark:text-yellow-200"
+          />
+          <SummaryCount
+            label="Info"
+            value={summary.info}
+            tone="text-blue-700 dark:text-blue-200"
+          />
         </div>
+        {(summary.top_fix_area_label || summary.first_recommended_action) && (
+          <div className="px-3 pb-2 space-y-1 text-[11px] text-gray-700 dark:text-ink-muted">
+            {summary.top_fix_area_label && (
+              <p>
+                <span className="font-semibold text-gray-800 dark:text-ink">
+                  Top fix area:
+                </span>{" "}
+                {summary.top_fix_area_label}
+              </p>
+            )}
+            {summary.first_recommended_action && (
+              <p>
+                <span className="font-semibold text-gray-800 dark:text-ink">
+                  First recommended next step:
+                </span>{" "}
+                {summary.first_recommended_action}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---- Grouped diagnostic cards ------------------------ */}
+      <DiagnosticGroup
+        severity="blocked"
+        cards={groups.blocked}
+        onFocusSection={onFocusSection}
+      />
+      <DiagnosticGroup
+        severity="warning"
+        cards={groups.warning}
+        onFocusSection={onFocusSection}
+      />
+      <DiagnosticGroup
+        severity="info"
+        cards={groups.info}
+        onFocusSection={onFocusSection}
+      />
+      <DiagnosticGroup
+        severity="ready"
+        cards={groups.ready}
+        onFocusSection={onFocusSection}
+      />
+    </section>
+  );
+}
+
+function SummaryCount({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: string;
+}) {
+  return (
+    <div className="rounded border border-gray-200 bg-white px-2 py-1 dark:border-line dark:bg-surface-subtle">
+      <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+        {label}
+      </p>
+      <p className={cn("text-lg font-semibold", tone)}>{value}</p>
+    </div>
+  );
+}
+
+function DiagnosticGroup({
+  severity,
+  cards,
+  onFocusSection,
+}: {
+  severity: NormalizedSeverity;
+  cards: OperationalDiagnosticCard[];
+  onFocusSection: (target: "facts" | "hints" | "context") => void;
+}) {
+  if (cards.length === 0) return null;
+  // Severity groups have their own header tone — green for ready,
+  // amber for warning, red for blocked, blue for info. Matches the
+  // SaaS palette already used elsewhere in the panel.
+  const headerClasses =
+    severity === "blocked"
+      ? "border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20"
+      : severity === "warning"
+        ? "border-yellow-200 bg-yellow-50/60 dark:border-yellow-900 dark:bg-yellow-950/20"
+        : severity === "info"
+          ? "border-blue-200 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/20"
+          : "border-green-200 bg-green-50/60 dark:border-green-900 dark:bg-green-950/20";
+  return (
+    <section
+      className={cn("rounded-md border", headerClasses)}
+      aria-label={SEVERITY_LABEL[severity]}
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-gray-100/70 px-3 py-2 dark:border-line/60">
+        <p className="text-sm font-semibold text-gray-900 dark:text-ink">
+          {SEVERITY_LABEL[severity]}
+        </p>
         <span className="text-xs font-semibold text-gray-500 dark:text-ink-muted">
-          {sorted.length}
+          {cards.length}
         </span>
       </header>
-      <ul className="divide-y divide-gray-100 dark:divide-line/60">
-        {sorted.map((d, idx) => (
-          <DiagnosticRow key={`${d.code ?? "uncoded"}-${idx}`} diagnostic={d} />
+      <ul className="divide-y divide-gray-100/70 dark:divide-line/60">
+        {cards.map((card) => (
+          <li key={card.id} className="px-3 py-3">
+            <DiagnosticCardView card={card} onFocusSection={onFocusSection} />
+          </li>
         ))}
       </ul>
     </section>
   );
 }
 
-function DiagnosticRow({
-  diagnostic,
+function DiagnosticCardView({
+  card,
+  onFocusSection,
 }: {
-  diagnostic: OperationalReviewDiagnostic;
+  card: OperationalDiagnosticCard;
+  onFocusSection: (target: "facts" | "hints" | "context") => void;
 }) {
-  const severity = (
-    ["ready", "info", "warning", "blocked"].includes(String(diagnostic.severity))
-      ? (diagnostic.severity as "ready" | "info" | "warning" | "blocked")
-      : "warning"
-  ) as "ready" | "info" | "warning" | "blocked";
-  const visual = REVIEW_SEVERITY_VISUAL[severity];
-  const fixArea =
-    (diagnostic.fix_area as OperationalReviewFixArea) ?? "unknown";
-  const fixLabel = FIX_AREA_LABEL[String(fixArea)] ?? String(fixArea);
+  const visual = REVIEW_SEVERITY_VISUAL[card.severity];
+  const fixChip = FIX_AREA_CHIP_CLASSES[card.fix_area];
+
+  // Map the fix area to a focus target — only three of the six are
+  // reachable inside this panel. The others (import_template /
+  // invoice_pattern / unknown) get a small note explaining where
+  // to fix instead of a button.
+  const focusTarget: "facts" | "hints" | "context" | null =
+    card.fix_area === "extracted_fact"
+      ? "facts"
+      : card.fix_area === "catalog_hint" ||
+          card.fix_area === "reference_data"
+        ? "hints"
+        : card.fix_area === "runtime_context"
+          ? "context"
+          : null;
+
+  const focusLabel: string | null =
+    focusTarget === "facts"
+      ? "Edit facts"
+      : focusTarget === "hints"
+        ? "Edit hints"
+        : focusTarget === "context"
+          ? "Edit context"
+          : null;
 
   return (
-    <li className="px-3 py-2 text-xs">
+    <div className="space-y-2 text-xs">
       <div className="flex items-start gap-2">
         <visual.Icon
-          className={cn("h-3.5 w-3.5 shrink-0 mt-0.5", visual.iconClass)}
+          className={cn("h-4 w-4 shrink-0 mt-0.5", visual.iconClass)}
         />
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-gray-900 dark:text-ink">
-            {diagnostic.message}
-          </p>
-          {diagnostic.recommendation && (
-            <p className="mt-0.5 text-gray-700 dark:text-ink-muted">
-              <Info className="inline h-3 w-3 mr-1 -mt-0.5" />
-              {diagnostic.recommendation}
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-gray-900 dark:text-ink">
+              {card.title}
             </p>
-          )}
-          <div className="mt-1 flex items-center gap-1 flex-wrap">
             <span
               className={cn(
                 "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
                 visual.chip,
               )}
             >
-              {severity}
+              {card.severity}
             </span>
             <span
-              className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
-              title={`Fix area: ${fixLabel}`}
+              className={cn(
+                "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                fixChip,
+              )}
+              title={`Fix area: ${card.fix_area_label}`}
             >
-              {fixLabel}
+              {card.fix_area_label}
             </span>
-            {diagnostic.column_name && (
+            {(card.column_name || card.column_id) && (
               <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
-                column: {diagnostic.column_name}
-              </span>
-            )}
-            {diagnostic.code && (
-              <span className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-gray-500 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
-                {diagnostic.code}
+                column: {card.column_name ?? card.column_id}
               </span>
             )}
           </div>
         </div>
       </div>
-    </li>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
+        <DiagnosticDetail label="What happened" body={card.what_happened} />
+        <DiagnosticDetail label="Why it matters" body={card.why_it_matters} />
+        <DiagnosticDetail label="Where to fix" body={card.where_to_fix} />
+        <DiagnosticDetail
+          label="Recommended next step"
+          body={card.recommended_action}
+        />
+      </div>
+
+      <div className="pl-6 flex items-center gap-2 flex-wrap">
+        {focusTarget && focusLabel && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => onFocusSection(focusTarget)}
+            title={`Scroll the ${focusLabel.toLowerCase()} section into view above.`}
+          >
+            {focusLabel}
+          </Button>
+        )}
+        {card.fix_area === "import_template" && (
+          <span className="text-[11px] text-gray-600 dark:text-ink-muted">
+            Open Import Builder column setup to adjust this template.
+          </span>
+        )}
+        {card.fix_area === "invoice_pattern" && (
+          <span className="text-[11px] text-gray-600 dark:text-ink-muted">
+            Open Invoice Builder to adjust this pattern's regions or
+            field definitions.
+          </span>
+        )}
+        {card.backend_code && (
+          <span className="ml-auto rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-gray-500 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+            {card.backend_code}
+          </span>
+        )}
+      </div>
+
+      {/* Show the backend message verbatim when our operator-friendly
+          template's "what_happened" doesn't already use it — keeps
+          the source of truth visible for support / debugging without
+          duplicating identical copy. */}
+      {card.raw_message && card.raw_message !== card.what_happened && (
+        <div className="pl-6">
+          <p className="text-[11px] text-gray-600 dark:text-ink-muted">
+            <span className="font-semibold text-gray-700 dark:text-ink">
+              Backend message:
+            </span>{" "}
+            {card.raw_message}
+          </p>
+        </div>
+      )}
+      {card.raw_recommendation &&
+        card.raw_recommendation !== card.recommended_action && (
+          <div className="pl-6">
+            <p className="text-[11px] text-gray-600 dark:text-ink-muted">
+              <span className="font-semibold text-gray-700 dark:text-ink">
+                Backend recommendation:
+              </span>{" "}
+              {card.raw_recommendation}
+            </p>
+          </div>
+        )}
+    </div>
+  );
+}
+
+function DiagnosticDetail({
+  label,
+  body,
+}: {
+  label: string;
+  body: string;
+}) {
+  return (
+    <div className="rounded border border-gray-100 px-2 py-1.5 dark:border-line/60">
+      <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+        {label}
+      </p>
+      <p className="mt-0.5 text-[11px] text-gray-800 dark:text-ink">
+        {body}
+      </p>
+    </div>
   );
 }
 
