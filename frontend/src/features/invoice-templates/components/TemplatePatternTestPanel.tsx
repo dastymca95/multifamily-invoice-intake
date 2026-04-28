@@ -66,6 +66,34 @@ import {
 } from "../lib/pattern-test-scenarios";
 
 /**
+ * Phase 2E — per-scenario state row in the multi-scenario QA matrix.
+ *
+ * Drives the comparison table and the inline details drawer. Each
+ * row starts as ``queued``, transitions to ``running`` while its
+ * Phase 2B request is in flight, then settles to one of
+ * ``success`` / ``failed`` / ``cancelled``. The full
+ * ``TemplatePatternTestResult`` is held in memory only — we do NOT
+ * persist results to localStorage to avoid blowing the storage cap
+ * on large templates.
+ */
+type ScenarioRunStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "failed"
+  | "cancelled";
+
+interface ScenarioRunState {
+  scenarioId: string;
+  scenarioName: string;
+  status: ScenarioRunStatus;
+  result?: TemplatePatternTestResult;
+  error?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+/**
  * Phase 2C — Template + Pattern Test Runner UI.
  *
  * Frontend window onto the Phase 2B endpoint:
@@ -319,6 +347,27 @@ export function TemplatePatternTestPanel({
   const [scenarioLoadedNote, setScenarioLoadedNote] = useState<string | null>(
     null,
   );
+
+  // ---- Phase 2E — multi-scenario QA ------------------------------
+  // Sequential batch runner. Each selected scenario is fired through
+  // the same ``invoiceTemplatesApi.testWithPattern`` endpoint as the
+  // single-scenario flow; results are accumulated into a per-row
+  // state list ``multiRuns`` that drives the comparison matrix.
+  // Continues on per-scenario failure so one bad scenario doesn't
+  // block the rest of the batch.
+  const [multiSelectedIds, setMultiSelectedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [multiRuns, setMultiRuns] = useState<ScenarioRunState[]>([]);
+  const [multiRunning, setMultiRunning] = useState(false);
+  const [multiSaveThenRunBusy, setMultiSaveThenRunBusy] = useState(false);
+  const [multiSaveError, setMultiSaveError] = useState<string | null>(null);
+  const [multiExpandedId, setMultiExpandedId] = useState<string | null>(null);
+  // Cancellation: fold the AbortController for HTTP-level abort with
+  // a synchronous cancel flag the loop checks between iterations.
+  // Keeps "user clicked Cancel after request settled" handled too.
+  const multiAbortRef = useRef<AbortController | null>(null);
+  const multiCancelledRef = useRef(false);
 
   // ---- Pattern fetch on open -------------------------------------
   useEffect(() => {
@@ -883,6 +932,291 @@ export function TemplatePatternTestPanel({
     );
   }, [scenarios, templateId, selectedPatternId, persistScenarios]);
 
+  // ---- Phase 2E — multi-scenario QA --------------------------------
+
+  // Reset multi-scenario selection + result matrix when the pattern
+  // changes (the previous results no longer make sense for the new
+  // pattern, and saved scenarios are scoped per pair).
+  useEffect(() => {
+    setMultiSelectedIds(new Set());
+    setMultiRuns([]);
+    setMultiExpandedId(null);
+    setMultiSaveError(null);
+    multiAbortRef.current?.abort();
+    multiCancelledRef.current = false;
+  }, [selectedPatternId]);
+
+  // Drop selection entries that point at deleted / unknown scenarios.
+  // Cheap diff — runs whenever the saved scenario list changes.
+  useEffect(() => {
+    setMultiSelectedIds((curr) => {
+      const ids = new Set(scenarios.map((s) => s.id));
+      let changed = false;
+      const next = new Set<string>();
+      // ``Array.from(set)`` works regardless of TS lib target;
+      // ``for...of set`` requires --downlevelIteration.
+      Array.from(curr).forEach((id) => {
+        if (ids.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : curr;
+    });
+  }, [scenarios]);
+
+  // Abort an in-flight batch when the panel closes — prevents the
+  // network request from settling onto an unmounted view.
+  useEffect(() => {
+    if (!isOpen) {
+      multiAbortRef.current?.abort();
+      multiCancelledRef.current = true;
+    }
+  }, [isOpen]);
+
+  const handleToggleMultiSelect = useCallback((id: string) => {
+    setMultiSelectedIds((curr) => {
+      const next = new Set(curr);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllMulti = useCallback(() => {
+    setMultiSelectedIds(new Set(scenarios.map((s) => s.id)));
+  }, [scenarios]);
+
+  const handleClearMultiSelection = useCallback(() => {
+    setMultiSelectedIds(new Set());
+  }, []);
+
+  const stampScenarioStatus = useCallback(
+    (scenarioId: string, status: string) => {
+      if (!templateId || !selectedPatternId) return;
+      setScenarios((curr) => {
+        const next = curr.map((s) =>
+          s.id === scenarioId ? stampLastRun(s, status) : s,
+        );
+        const write = saveScenarios(templateId, selectedPatternId, next);
+        if (!write.ok && write.error) setScenarioStorageError(write.error);
+        return next;
+      });
+    },
+    [templateId, selectedPatternId],
+  );
+
+  /**
+   * Run a list of scenarios sequentially through the existing
+   * single-scenario endpoint. Continues on per-scenario failure so
+   * one bad scenario doesn't block the rest of the batch.
+   *
+   * Cancellation: aborts the in-flight HTTP request AND sets a
+   * synchronous flag the loop checks between iterations. The
+   * remaining queued scenarios get marked ``cancelled`` and the
+   * loop exits cleanly.
+   *
+   * Each scenario's last_run metadata is stamped after settle —
+   * success → ``result.summary.status``, failure → ``"failed"``.
+   * The cancelled state does NOT stamp (the operator hadn't
+   * actually run those scenarios).
+   */
+  const handleRunMulti = useCallback(
+    async (ids: string[]) => {
+      if (!templateId || isDraft || !selectedPatternId) return;
+      if (ids.length === 0) return;
+      if (multiRunning) return;
+
+      // Snapshot the scenario lookup at the start so per-iteration
+      // payloads see a consistent view (stamping during the loop
+      // doesn't affect what we send for subsequent scenarios).
+      const idToScenario = new Map(scenarios.map((s) => [s.id, s]));
+      // Drop any ids that no longer exist (defensive — should
+      // already be filtered by the selection effect).
+      const safeIds = ids.filter((id) => idToScenario.has(id));
+      if (safeIds.length === 0) return;
+
+      const initial: ScenarioRunState[] = safeIds.map((id) => {
+        const s = idToScenario.get(id)!;
+        return {
+          scenarioId: id,
+          scenarioName: s.name,
+          status: "queued",
+        };
+      });
+      setMultiRuns(initial);
+      setMultiExpandedId(null);
+      setMultiRunning(true);
+      multiCancelledRef.current = false;
+      multiAbortRef.current?.abort();
+      multiAbortRef.current = new AbortController();
+      const signal = multiAbortRef.current.signal;
+
+      try {
+        for (let i = 0; i < safeIds.length; i++) {
+          if (multiCancelledRef.current) {
+            // Mark the rest as cancelled in one swoop and exit.
+            setMultiRuns((curr) =>
+              curr.map((r, idx) =>
+                idx >= i ? { ...r, status: "cancelled" } : r,
+              ),
+            );
+            break;
+          }
+          const scenario = idToScenario.get(safeIds[i])!;
+          const startedAt = new Date().toISOString();
+          setMultiRuns((curr) =>
+            curr.map((r, idx) =>
+              idx === i ? { ...r, status: "running", startedAt } : r,
+            ),
+          );
+
+          // Build payload from the scenario. Document_metadata gets
+          // an extra layer to mark this as a multi-scenario run —
+          // useful in trace / debugging downstream. Bridge / runner
+          // protected keys can't be overridden anyway (Phase 2B
+          // enforces that), so we just add identifying fields.
+          const payload: TemplatePatternTestRequest = {
+            include_empty_fields: scenario.include_empty_fields,
+          };
+          if (scenario.manual_fact_values) {
+            payload.manual_fact_values = scenario.manual_fact_values;
+          }
+          if (scenario.manual_catalog_hints) {
+            payload.manual_catalog_hints = scenario.manual_catalog_hints;
+          }
+          if (scenario.runtime_options) {
+            payload.runtime_options = scenario.runtime_options;
+          }
+          payload.document_metadata = {
+            ...(scenario.document_metadata ?? {}),
+            scenario_id: scenario.id,
+            scenario_name: scenario.name,
+            multi_scenario_run: true,
+          };
+
+          try {
+            const result = await invoiceTemplatesApi.testWithPattern(
+              templateId,
+              selectedPatternId,
+              payload,
+              { signal },
+            );
+            const finishedAt = new Date().toISOString();
+            setMultiRuns((curr) =>
+              curr.map((r, idx) =>
+                idx === i
+                  ? { ...r, status: "success", result, finishedAt }
+                  : r,
+              ),
+            );
+            stampScenarioStatus(
+              scenario.id,
+              result.summary?.status ?? "unknown",
+            );
+          } catch (err) {
+            // Cancellation manifests as an aborted fetch — treat as
+            // cancellation, not failure.
+            if (signal.aborted || multiCancelledRef.current) {
+              setMultiRuns((curr) =>
+                curr.map((r, idx) =>
+                  idx >= i ? { ...r, status: "cancelled" } : r,
+                ),
+              );
+              break;
+            }
+            const message = getApiErrorMessage(
+              err,
+              `Pattern test failed for scenario “${scenario.name}”.`,
+            );
+            const finishedAt = new Date().toISOString();
+            setMultiRuns((curr) =>
+              curr.map((r, idx) =>
+                idx === i
+                  ? { ...r, status: "failed", error: message, finishedAt }
+                  : r,
+              ),
+            );
+            stampScenarioStatus(scenario.id, "failed");
+            // Continue to the next scenario — per spec, one failure
+            // does not block the rest of the batch.
+          }
+        }
+      } finally {
+        setMultiRunning(false);
+      }
+    },
+    [
+      templateId,
+      isDraft,
+      selectedPatternId,
+      scenarios,
+      multiRunning,
+      stampScenarioStatus,
+    ],
+  );
+
+  /**
+   * Phase 2E — Save then run selected scenarios. Mirrors the
+   * Phase 1E save-then-run flow used by Dry Run / Pattern Test.
+   */
+  const handleSaveThenRunMulti = useCallback(async () => {
+    if (
+      !onSaveTemplate ||
+      isDraft ||
+      multiSaveThenRunBusy ||
+      saving ||
+      multiRunning
+    ) {
+      return;
+    }
+    if (multiSelectedIds.size === 0) return;
+    setMultiSaveError(null);
+    setMultiSaveThenRunBusy(true);
+    try {
+      const maybe = onSaveTemplate();
+      if (maybe && typeof (maybe as Promise<void>).then === "function") {
+        await maybe;
+      }
+      await handleRunMulti(Array.from(multiSelectedIds));
+    } catch (err) {
+      setMultiSaveError(
+        getApiErrorMessage(
+          err,
+          "Could not save the template before multi-scenario run.",
+        ),
+      );
+    } finally {
+      setMultiSaveThenRunBusy(false);
+    }
+  }, [
+    onSaveTemplate,
+    isDraft,
+    multiSaveThenRunBusy,
+    saving,
+    multiRunning,
+    multiSelectedIds,
+    handleRunMulti,
+  ]);
+
+  const handleCancelMulti = useCallback(() => {
+    multiCancelledRef.current = true;
+    multiAbortRef.current?.abort();
+  }, []);
+
+  /** Load a multi-scenario row's scenario into the single-run form. */
+  const handleLoadMultiIntoForm = useCallback(
+    (scenarioId: string) => {
+      const s = scenarios.find((sc) => sc.id === scenarioId);
+      if (!s) return;
+      // Reuse the single-run handler — populates form + selects in
+      // the scenario dropdown. Doesn't auto-run.
+      handleSelectScenario(scenarioId);
+      // Collapse the details drawer so the operator's eye lands on
+      // the form rather than the details panel.
+      setMultiExpandedId(null);
+    },
+    [scenarios, handleSelectScenario],
+  );
+
   return (
     <Modal
       open={isOpen}
@@ -1007,6 +1341,39 @@ export function TemplatePatternTestPanel({
             onDelete={handleDelete}
             onClearForm={handleClearForm}
             onAddStarters={handleAddStarters}
+          />
+        )}
+
+        {/* ---- Phase 2E — Multi-scenario QA -------------------- */}
+        {selectedPatternId && (
+          <MultiScenarioQASection
+            scenarios={scenarios}
+            multiSelectedIds={multiSelectedIds}
+            multiRuns={multiRuns}
+            multiRunning={multiRunning}
+            multiSaveThenRunBusy={multiSaveThenRunBusy}
+            multiSaveError={multiSaveError}
+            multiExpandedId={multiExpandedId}
+            templateId={templateId}
+            isDraft={isDraft}
+            hasUnsavedChanges={hasUnsavedChanges}
+            canSave={canSave}
+            saving={saving}
+            onSaveTemplate={onSaveTemplate}
+            onToggleSelect={handleToggleMultiSelect}
+            onSelectAll={handleSelectAllMulti}
+            onClearSelection={handleClearMultiSelection}
+            onRunSelected={() =>
+              handleRunMulti(Array.from(multiSelectedIds))
+            }
+            onRunAll={() => handleRunMulti(scenarios.map((s) => s.id))}
+            onSaveThenRunSelected={handleSaveThenRunMulti}
+            onCancelRun={handleCancelMulti}
+            onExpand={(id) =>
+              setMultiExpandedId((curr) => (curr === id ? null : id))
+            }
+            onLoadIntoForm={handleLoadMultiIntoForm}
+            onRunSingle={(id) => handleRunMulti([id])}
           />
         )}
 
@@ -1443,6 +1810,757 @@ function ScenariosSection({
       </div>
     </section>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2E — Multi-scenario QA section
+// ---------------------------------------------------------------------------
+
+function MultiScenarioQASection({
+  scenarios,
+  multiSelectedIds,
+  multiRuns,
+  multiRunning,
+  multiSaveThenRunBusy,
+  multiSaveError,
+  multiExpandedId,
+  templateId,
+  isDraft,
+  hasUnsavedChanges,
+  canSave,
+  saving,
+  onSaveTemplate,
+  onToggleSelect,
+  onSelectAll,
+  onClearSelection,
+  onRunSelected,
+  onRunAll,
+  onSaveThenRunSelected,
+  onCancelRun,
+  onExpand,
+  onLoadIntoForm,
+  onRunSingle,
+}: {
+  scenarios: PatternTestScenario[];
+  multiSelectedIds: Set<string>;
+  multiRuns: ScenarioRunState[];
+  multiRunning: boolean;
+  multiSaveThenRunBusy: boolean;
+  multiSaveError: string | null;
+  multiExpandedId: string | null;
+  templateId: string | null;
+  isDraft: boolean;
+  hasUnsavedChanges: boolean;
+  canSave: boolean;
+  saving: boolean;
+  onSaveTemplate?: () => Promise<void> | void;
+  onToggleSelect: (id: string) => void;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
+  onRunSelected: () => void;
+  onRunAll: () => void;
+  onSaveThenRunSelected: () => void;
+  onCancelRun: () => void;
+  onExpand: (id: string) => void;
+  onLoadIntoForm: (id: string) => void;
+  onRunSingle: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  // Render a flat alphabetical-ish list (re-uses scenarios order
+  // from the parent — most-recently-updated first). Keeps the UI
+  // small even with up to 50 scenarios.
+  const sorted = useMemo(
+    () =>
+      [...scenarios].sort((a, b) =>
+        (b.updated_at || "").localeCompare(a.updated_at || ""),
+      ),
+    [scenarios],
+  );
+
+  // Progress for the header count.
+  const inFlight = multiRuns.filter((r) => r.status === "running").length;
+  const completed = multiRuns.filter(
+    (r) =>
+      r.status === "success" ||
+      r.status === "failed" ||
+      r.status === "cancelled",
+  ).length;
+  const total = multiRuns.length;
+
+  const safeIds = useMemo(
+    () => new Set(scenarios.map((s) => s.id)),
+    [scenarios],
+  );
+  // Defensive — ignore stray ids that point to deleted scenarios.
+  const selectedCount = Array.from(multiSelectedIds).filter((id) =>
+    safeIds.has(id),
+  ).length;
+
+  // Disable rules
+  const noTemplate = !templateId;
+  const noScenarios = scenarios.length === 0;
+  const cannotRun =
+    multiRunning ||
+    multiSaveThenRunBusy ||
+    isDraft ||
+    noTemplate ||
+    noScenarios;
+  const showSaveThenRun =
+    !!onSaveTemplate && hasUnsavedChanges && !isDraft && canSave;
+
+  return (
+    <section className="rounded-md border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-line/60"
+      >
+        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-ink">
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5 text-gray-400 dark:text-ink-subtle" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 text-gray-400 dark:text-ink-subtle" />
+          )}
+          <FlaskConical className="h-4 w-4 text-brand-600 dark:text-brand-50" />
+          Multi-scenario QA
+        </div>
+        <span className="text-[11px] text-gray-500 dark:text-ink-muted">
+          {scenarios.length === 0
+            ? "No saved scenarios yet"
+            : multiRunning
+              ? `Running ${Math.min(completed + inFlight, total)} of ${total}…`
+              : total > 0
+                ? `Last batch: ${completed} of ${total} done`
+                : `${selectedCount} selected · ${scenarios.length} saved`}
+        </span>
+      </button>
+      {open && (
+        <div className="px-3 py-2 space-y-2">
+          {/* Empty / draft / unsaved-template warnings */}
+          {noScenarios && (
+            <p className="text-[11px] text-gray-500 dark:text-ink-muted">
+              Save scenarios first to run multi-scenario QA. Add a few
+              starter scenarios via the Scenarios card above.
+            </p>
+          )}
+          {isDraft && (
+            <InlineAlert tone="warning">
+              Save this template before running multi-scenario QA.
+              The runner reads the persisted version on the server.
+            </InlineAlert>
+          )}
+          {!isDraft && hasUnsavedChanges && !noScenarios && (
+            <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 dark:border-yellow-900 dark:bg-yellow-950/30">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-yellow-700 dark:text-yellow-300" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-yellow-900 dark:text-yellow-100">
+                    Unsaved template changes are not included in
+                    multi-scenario QA
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-yellow-800 dark:text-yellow-200">
+                    The runner reads the LAST SAVED template. To
+                    test your local edits, save first.
+                  </p>
+                  {showSaveThenRun && (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      className="mt-2"
+                      onClick={onSaveThenRunSelected}
+                      disabled={
+                        cannotRun ||
+                        selectedCount === 0 ||
+                        saving ||
+                        multiSaveThenRunBusy
+                      }
+                      loading={multiSaveThenRunBusy || saving}
+                    >
+                      Save then run selected
+                    </Button>
+                  )}
+                  {multiSaveError && (
+                    <p className="mt-2 text-[11px] text-red-700 dark:text-red-300">
+                      Save failed: {multiSaveError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Scenario picker — checkbox list */}
+          {!noScenarios && (
+            <div className="rounded border border-gray-200 dark:border-line">
+              <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-2 py-1 dark:border-line/60">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onSelectAll}
+                    className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+                  >
+                    Select all
+                  </button>
+                  <span className="text-[11px] text-gray-300 dark:text-ink-subtle">
+                    ·
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onClearSelection}
+                    className="text-[11px] font-medium text-gray-600 hover:underline dark:text-ink-muted"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <span className="text-[11px] text-gray-500 dark:text-ink-muted">
+                  {selectedCount} of {scenarios.length} selected
+                </span>
+              </div>
+              <ul className="max-h-48 overflow-y-auto divide-y divide-gray-100 dark:divide-line/60">
+                {sorted.map((s) => {
+                  const checked = multiSelectedIds.has(s.id);
+                  return (
+                    <li
+                      key={s.id}
+                      className="flex items-center gap-2 px-2 py-1 text-xs"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => onToggleSelect(s.id)}
+                        disabled={multiRunning}
+                        className="h-3.5 w-3.5"
+                      />
+                      <span className="flex-1 min-w-0 truncate text-gray-800 dark:text-ink">
+                        {s.name}
+                      </span>
+                      {s.last_result_status && (
+                        <span className="font-mono text-[10px] text-gray-500 dark:text-ink-muted">
+                          {s.last_result_status}
+                        </span>
+                      )}
+                      {s.last_run_at && (
+                        <span className="text-[10px] text-gray-400 dark:text-ink-subtle">
+                          {_formatRelativeTime(s.last_run_at)}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Run controls */}
+          {!noScenarios && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={cannotRun || selectedCount === 0}
+                loading={multiRunning && !multiSaveThenRunBusy}
+                onClick={onRunSelected}
+                title={
+                  isDraft
+                    ? "Save this template first."
+                    : selectedCount === 0
+                      ? "Pick at least one scenario."
+                      : "Run all selected scenarios sequentially."
+                }
+              >
+                <Play className="h-3.5 w-3.5" />
+                Run selected
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={cannotRun || scenarios.length === 0}
+                onClick={onRunAll}
+                title="Run every saved scenario for this template + pattern."
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Run all
+              </Button>
+              {multiRunning && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onCancelRun}
+                  title="Stop the batch after the current scenario settles."
+                >
+                  <CircleAlert className="h-3.5 w-3.5" />
+                  Cancel
+                </Button>
+              )}
+              <div className="flex-1" />
+              {scenarios.length >= 10 && selectedCount >= 10 && !multiRunning && (
+                <span className="text-[10px] text-yellow-700 dark:text-yellow-300">
+                  Running many scenarios may take a while.
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Progress + result matrix */}
+          {multiRuns.length > 0 && (
+            <ResultMatrix
+              runs={multiRuns}
+              expandedId={multiExpandedId}
+              onExpand={onExpand}
+              onLoadIntoForm={onLoadIntoForm}
+              onRunSingle={onRunSingle}
+              multiRunning={multiRunning}
+            />
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2E — Result matrix + per-row details drawer
+// ---------------------------------------------------------------------------
+
+function ResultMatrix({
+  runs,
+  expandedId,
+  onExpand,
+  onLoadIntoForm,
+  onRunSingle,
+  multiRunning,
+}: {
+  runs: ScenarioRunState[];
+  expandedId: string | null;
+  onExpand: (id: string) => void;
+  onLoadIntoForm: (id: string) => void;
+  onRunSingle: (id: string) => void;
+  multiRunning: boolean;
+}) {
+  return (
+    <div className="rounded border border-gray-200 dark:border-line overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50 dark:bg-surface-muted">
+          <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+            <th className="px-2 py-1.5">Scenario</th>
+            <th className="px-2 py-1.5">Run</th>
+            <th className="px-2 py-1.5">Status</th>
+            <th className="px-2 py-1.5">Rows</th>
+            <th className="px-2 py-1.5">Ready</th>
+            <th className="px-2 py-1.5">Warn</th>
+            <th className="px-2 py-1.5">Block</th>
+            <th className="px-2 py-1.5">Errors</th>
+            <th className="px-2 py-1.5">Missing</th>
+            <th className="px-2 py-1.5"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100 dark:divide-line/60">
+          {runs.map((r) => (
+            <ResultMatrixRow
+              key={r.scenarioId}
+              run={r}
+              expanded={expandedId === r.scenarioId}
+              onExpand={() => onExpand(r.scenarioId)}
+              onLoadIntoForm={() => onLoadIntoForm(r.scenarioId)}
+              onRunSingle={() => onRunSingle(r.scenarioId)}
+              multiRunning={multiRunning}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ResultMatrixRow({
+  run,
+  expanded,
+  onExpand,
+  onLoadIntoForm,
+  onRunSingle,
+  multiRunning,
+}: {
+  run: ScenarioRunState;
+  expanded: boolean;
+  onExpand: () => void;
+  onLoadIntoForm: () => void;
+  onRunSingle: () => void;
+  multiRunning: boolean;
+}) {
+  const metrics = run.result ? deriveScenarioMetrics(run.result) : null;
+  const summary = run.result?.summary;
+  const resolverStatus = summary?.status ?? "—";
+  const resolverMeta =
+    RESOLVER_STATUS_META[resolverStatus] ?? null;
+
+  // Row tone — distinct from resolver status because the request
+  // itself can succeed-but-need-review or outright fail.
+  const rowTone =
+    run.status === "failed"
+      ? "bg-red-50/60 dark:bg-red-950/20"
+      : run.status === "cancelled"
+        ? "bg-gray-50 dark:bg-surface-muted/40"
+        : run.status === "success"
+          ? resolverStatus === "blocked" || resolverStatus === "conflict"
+            ? "bg-red-50/40 dark:bg-red-950/10"
+            : resolverStatus === "needs_review"
+              ? "bg-yellow-50/40 dark:bg-yellow-950/10"
+              : "bg-white dark:bg-transparent"
+          : "bg-white dark:bg-transparent";
+
+  const missingCount = metrics
+    ? metrics.missingFacts.length +
+      metrics.missingHints.length +
+      metrics.blockedColumns.length
+    : 0;
+
+  return (
+    <>
+      <tr className={cn(rowTone)}>
+        <td className="px-2 py-1.5 align-top">
+          <button
+            type="button"
+            onClick={onExpand}
+            className="text-left text-xs font-medium text-gray-800 dark:text-ink hover:underline"
+            disabled={!run.result && run.status !== "failed"}
+            title={
+              run.result || run.status === "failed"
+                ? expanded
+                  ? "Hide details"
+                  : "Show details"
+                : "Result not yet available"
+            }
+          >
+            {expanded ? (
+              <ChevronDown className="inline h-3 w-3 mr-0.5 text-gray-400 dark:text-ink-subtle" />
+            ) : (
+              <ChevronRight className="inline h-3 w-3 mr-0.5 text-gray-400 dark:text-ink-subtle" />
+            )}
+            {run.scenarioName}
+          </button>
+        </td>
+        <td className="px-2 py-1.5 align-top">
+          <RunStatusPill status={run.status} />
+        </td>
+        <td className="px-2 py-1.5 align-top">
+          {resolverMeta ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold",
+                resolverMeta.badge,
+              )}
+            >
+              <resolverMeta.Icon className="h-3 w-3" />
+              {resolverMeta.label}
+            </span>
+          ) : (
+            <span className="text-gray-400 dark:text-ink-subtle">—</span>
+          )}
+        </td>
+        <td className="px-2 py-1.5 align-top text-gray-700 dark:text-ink">
+          {summary?.rows ?? "—"}
+        </td>
+        <td className="px-2 py-1.5 align-top text-green-700 dark:text-green-200">
+          {summary?.ready ?? "—"}
+        </td>
+        <td className="px-2 py-1.5 align-top text-yellow-700 dark:text-yellow-200">
+          {summary?.warnings ?? "—"}
+        </td>
+        <td className="px-2 py-1.5 align-top text-red-700 dark:text-red-200">
+          {summary?.blocked ?? "—"}
+        </td>
+        <td className="px-2 py-1.5 align-top text-red-700 dark:text-red-200">
+          {summary?.errors ?? "—"}
+        </td>
+        <td className="px-2 py-1.5 align-top text-gray-700 dark:text-ink">
+          {metrics ? (
+            <span title={`${metrics.missingFacts.length} fact(s), ${metrics.missingHints.length} hint(s), ${metrics.blockedColumns.length} blocked column(s)`}>
+              {missingCount}
+            </span>
+          ) : (
+            "—"
+          )}
+        </td>
+        <td className="px-2 py-1.5 align-top text-right">
+          <div className="inline-flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onLoadIntoForm}
+              disabled={multiRunning}
+              title="Load this scenario into the single-run form above"
+            >
+              Load
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onRunSingle}
+              disabled={multiRunning}
+              title="Re-run only this scenario"
+            >
+              Run
+            </Button>
+          </div>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className={cn(rowTone)}>
+          <td colSpan={10} className="px-3 py-2">
+            <ResultMatrixDetails run={run} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function RunStatusPill({ status }: { status: ScenarioRunStatus }) {
+  const meta: Record<
+    ScenarioRunStatus,
+    { label: string; classes: string; Icon: LucideIcon | null }
+  > = {
+    queued: {
+      label: "Queued",
+      classes:
+        "bg-gray-100 text-gray-700 border-gray-200 dark:bg-surface-muted dark:text-ink-muted dark:border-line",
+      Icon: null,
+    },
+    running: {
+      label: "Running",
+      classes:
+        "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900",
+      Icon: Loader2,
+    },
+    success: {
+      label: "Success",
+      classes:
+        "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900",
+      Icon: CheckCircle2,
+    },
+    failed: {
+      label: "Failed",
+      classes:
+        "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900",
+      Icon: CircleAlert,
+    },
+    cancelled: {
+      label: "Cancelled",
+      classes:
+        "bg-gray-100 text-gray-600 border-gray-200 dark:bg-surface-muted dark:text-ink-muted dark:border-line",
+      Icon: null,
+    },
+  };
+  const m = meta[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold",
+        m.classes,
+      )}
+    >
+      {m.Icon && (
+        <m.Icon
+          className={cn("h-3 w-3", status === "running" && "animate-spin")}
+        />
+      )}
+      {m.label}
+    </span>
+  );
+}
+
+function ResultMatrixDetails({ run }: { run: ScenarioRunState }) {
+  if (run.status === "failed") {
+    return (
+      <InlineAlert tone="error">
+        {run.error ?? "Pattern test request failed."}
+      </InlineAlert>
+    );
+  }
+  if (run.status === "cancelled") {
+    return (
+      <p className="text-xs text-gray-500 dark:text-ink-muted">
+        This scenario was cancelled before completion.
+      </p>
+    );
+  }
+  if (!run.result) {
+    return (
+      <p className="text-xs text-gray-500 dark:text-ink-muted">
+        No result available yet.
+      </p>
+    );
+  }
+  const result = run.result;
+  const metrics = deriveScenarioMetrics(result);
+  const summary = result.summary;
+  const status = summary?.status ?? "—";
+  const meta = RESOLVER_STATUS_META[status];
+
+  // Top issues — capped to keep the drawer compact. Operators
+  // who need the full view can use "Load into form" + Run.
+  const issues = (result.resolver_result.issues ?? []).slice(0, 5);
+
+  return (
+    <div className="space-y-2 text-xs">
+      <div className="flex items-center gap-2 flex-wrap">
+        {meta && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold",
+              meta.badge,
+            )}
+          >
+            <meta.Icon className="h-3 w-3" />
+            {meta.label}
+          </span>
+        )}
+        <span className="text-gray-500 dark:text-ink-muted">
+          Rows {summary?.rows ?? 0} · Ready {summary?.ready ?? 0} ·
+          Warnings {summary?.warnings ?? 0} · Errors{" "}
+          {summary?.errors ?? 0}
+        </span>
+      </div>
+
+      {metrics.blockedColumns.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase font-semibold text-gray-500 dark:text-ink-subtle">
+            Blocked required columns
+          </p>
+          <p className="text-gray-800 dark:text-ink">
+            {metrics.blockedColumns.join(", ")}
+          </p>
+        </div>
+      )}
+      {metrics.missingFacts.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase font-semibold text-gray-500 dark:text-ink-subtle">
+            Missing extracted facts
+          </p>
+          <p className="text-gray-800 dark:text-ink">
+            {metrics.missingFacts.join(", ")}
+          </p>
+        </div>
+      )}
+      {metrics.missingHints.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase font-semibold text-gray-500 dark:text-ink-subtle">
+            Missing catalog hints
+          </p>
+          <p className="text-gray-800 dark:text-ink">
+            {metrics.missingHints.join(", ")}
+          </p>
+        </div>
+      )}
+
+      {issues.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase font-semibold text-gray-500 dark:text-ink-subtle">
+            Top issues
+          </p>
+          <ul className="mt-1 space-y-1">
+            {issues.map((issue, idx) => (
+              <li
+                key={`${issue.code}-${idx}`}
+                className="rounded border border-gray-200 px-2 py-1 dark:border-line"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-gray-800 dark:text-ink">
+                    <span className="font-medium capitalize">
+                      {issue.severity}
+                    </span>
+                    {": "}
+                    {issue.message}
+                  </p>
+                  <span className="shrink-0 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] uppercase text-gray-500 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+                    {issue.code}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {(result.resolver_result.issues?.length ?? 0) > issues.length && (
+            <p className="mt-1 text-[11px] text-gray-500 dark:text-ink-muted">
+              + {(result.resolver_result.issues?.length ?? 0) - issues.length}{" "}
+              more — click Load + Run to see the full single-run detail.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2E — Pure metric derivation shared by the matrix + details drawer
+// ---------------------------------------------------------------------------
+
+interface ScenarioMetrics {
+  missingFacts: string[];
+  missingHints: string[];
+  blockedColumns: string[];
+}
+
+function deriveScenarioMetrics(
+  result: TemplatePatternTestResult,
+): ScenarioMetrics {
+  const missingFacts: string[] = [];
+  const missingHints: string[] = [];
+  const blockedColumns: string[] = [];
+
+  for (const issue of result.resolver_result.issues ?? []) {
+    if (issue.code === "INVOICE_FIELD_FACT_NOT_FOUND") {
+      const label =
+        issue.field_key ?? issue.column_label ?? issue.column_id ?? "(unknown)";
+      missingFacts.push(label);
+    } else if (
+      issue.code === "CATALOG_HINT_MISSING" ||
+      issue.code === "CATALOG_NOT_CONFIGURED" ||
+      issue.code === "CATALOG_ENTRY_NOT_FOUND" ||
+      issue.code === "CATALOG_NOT_FOUND"
+    ) {
+      missingHints.push(
+        issue.column_label ?? issue.column_id ?? "(unknown)",
+      );
+    } else if (issue.code === "REQUIRED_RUNTIME_VALUE_MISSING") {
+      blockedColumns.push(
+        issue.column_label ?? issue.column_id ?? "(unknown)",
+      );
+    }
+  }
+
+  // Cell-level codes — some resolver versions surface these on cells.
+  for (const row of result.resolver_result.rows ?? []) {
+    for (const cell of row.cells ?? []) {
+      const codes = cell.issue_codes ?? [];
+      if (codes.includes("INVOICE_FIELD_FACT_NOT_FOUND")) {
+        missingFacts.push(cell.column_label ?? cell.column_id);
+      }
+      if (codes.includes("REQUIRED_RUNTIME_VALUE_MISSING")) {
+        blockedColumns.push(cell.column_label ?? cell.column_id);
+      }
+    }
+  }
+
+  // Bridge-side: pattern declares fields the operator didn't fill.
+  const unfilled =
+    (result.bridge_input.document_metadata?.unfilled_pattern_fields as
+      | string[]
+      | undefined) ?? [];
+  for (const f of unfilled) missingFacts.push(f);
+
+  return {
+    missingFacts: Array.from(new Set(missingFacts)),
+    missingHints: Array.from(new Set(missingHints)),
+    blockedColumns: Array.from(new Set(blockedColumns)),
+  };
 }
 
 // ---------------------------------------------------------------------------
