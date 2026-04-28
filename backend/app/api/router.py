@@ -9,6 +9,7 @@ from app.api.v1 import (
     import_configs,
     invoice_patterns,
     invoice_templates,
+    operational_resolution,
     property_catalogs,
     reference_data,
     review,
@@ -31,3 +32,6 @@ api_router.include_router(invoice_patterns.router)
 api_router.include_router(gl_catalogs.router)
 api_router.include_router(property_catalogs.router)
 api_router.include_router(vendor_catalogs.router)
+# Phase 3A — Operational Resolution Pipeline. Diagnostic-only
+# composer over the existing dry-run resolver + Phase 2A bridge.
+api_router.include_router(operational_resolution.router)
