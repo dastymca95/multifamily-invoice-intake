@@ -8,6 +8,7 @@ import {
   Copy,
   CornerDownRight,
   FileSpreadsheet,
+  FlaskConical,
   GripVertical,
   Hash,
   ListChecks,
@@ -81,6 +82,7 @@ import { ColumnInspector, type WizardStepKey } from "./ColumnInspector";
 import { ImportTemplateHealthMapPanel } from "./ImportTemplateHealthMapPanel";
 import { ImportTemplateResolverPreviewPanel } from "./ImportTemplateResolverPreviewPanel";
 import { ImportTemplateValidationPanel } from "./ImportTemplateValidationPanel";
+import { TemplatePatternTestPanel } from "./TemplatePatternTestPanel";
 import {
   type BuilderLayoutMode,
   LayoutToggle,
@@ -376,6 +378,11 @@ export function TemplateEditor({
   // panel, the Health Map owns its own readiness fetch + loading
   // state internally; this boolean only tracks open/closed.
   const [healthMapOpen, setHealthMapOpen] = useState(false);
+  // Phase 2C — Template + Pattern Test Runner panel. Lets the operator
+  // pick a saved invoice pattern, supply manual extraction values,
+  // and inspect what the resolver would do. Self-fetching panel —
+  // this boolean only tracks open/closed.
+  const [patternTestOpen, setPatternTestOpen] = useState(false);
   const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
   const [deleteDependencyReport, setDeleteDependencyReport] =
     useState<UsedByReport | null>(null);
@@ -991,6 +998,35 @@ export function TemplateEditor({
           >
             <Map className="h-3.5 w-3.5" />
             Health Map
+          </Button>
+          {/* Phase 2C — Test with Pattern. Reads SAVED template; UI
+              warns about unsaved edits and offers Save then test.
+              Disabled for drafts (the endpoint requires a persisted
+              template id). */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={isDraft}
+            onClick={() => setPatternTestOpen(true)}
+            title={
+              isDraft
+                ? "Save this template before testing it with a pattern."
+                : dirty
+                  ? "Test with Pattern uses the SAVED template. Save first to test current edits."
+                  : "Test this template against a saved invoice pattern with manual extraction values."
+            }
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+            Test with Pattern
+            {/* Same yellow-dot dirty signal Dry Run uses (Phase 1E). */}
+            {!isDraft && dirty && (
+              <span
+                aria-hidden="true"
+                className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-yellow-500"
+                title="Unsaved changes exist — Test with Pattern uses the saved version"
+              />
+            )}
           </Button>
           <Button
             type="button"
@@ -1626,7 +1662,24 @@ export function TemplateEditor({
         saving={saving}
         onSave={handleSave}
         onOpenDryRun={() => setResolverPreviewOpen(true)}
+        onTestWithPattern={() => setPatternTestOpen(true)}
         onFixColumn={openInspectorAt}
+      />
+      {/* Phase 2C — Template + Pattern Test Runner. Lets the operator
+          select a saved invoice pattern, enter manual extracted-fact
+          values + catalog hints, and inspect the resolver output.
+          Diagnostic-only — backend uses SAVED template; the panel
+          warns about local edits and offers Save then test. */}
+      <TemplatePatternTestPanel
+        isOpen={patternTestOpen}
+        onClose={() => setPatternTestOpen(false)}
+        templateId={isDraft ? null : templateKey}
+        templateName={name || initial.name}
+        hasUnsavedChanges={dirty && !isDraft}
+        isDraft={isDraft}
+        canSave={canSave}
+        saving={saving}
+        onSaveTemplate={handleSave}
       />
     </div>
   );

@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  FlaskConical,
   Hash,
   Info,
   ListChecks,
@@ -158,6 +159,13 @@ interface ImportTemplateHealthMapPanelProps {
    */
   onOpenDryRun: () => void;
   /**
+   * Phase 2C — open the Template + Pattern Test Runner panel. Same
+   * stacking rule as Dry Run: the Health Map closes itself first
+   * so the two modals never overlap. Optional — when omitted the
+   * action bar simply doesn't render the button.
+   */
+  onTestWithPattern?: () => void;
+  /**
    * Phase 1F handler — open the Column Inspector for ``columnId``
    * at the wizard ``step``. The Health Map's per-column "Fix" CTAs
    * close the Health Map and call this.
@@ -178,6 +186,7 @@ export function ImportTemplateHealthMapPanel({
   saving,
   onSave,
   onOpenDryRun,
+  onTestWithPattern,
   onFixColumn,
 }: ImportTemplateHealthMapPanelProps) {
   // ---- Self-fetched readiness state ---------------------------------
@@ -329,6 +338,14 @@ export function ImportTemplateHealthMapPanel({
     onOpenDryRun();
   }, [onClose, onOpenDryRun]);
 
+  // Phase 2C — close Health Map first so the test panel doesn't
+  // stack on top. The test runner reads its own data on open.
+  const handleOpenTestWithPattern = useCallback(() => {
+    if (!onTestWithPattern) return;
+    onClose();
+    onTestWithPattern();
+  }, [onClose, onTestWithPattern]);
+
   const handleFix = useCallback(
     (columnId: string, step?: WizardStepKey) => {
       onClose();
@@ -476,6 +493,9 @@ export function ImportTemplateHealthMapPanel({
           onSave={handleSaveOnly}
           onDryRun={handleOpenDryRun}
           onSaveThenDryRun={handleSaveThenDryRun}
+          onTestWithPattern={
+            onTestWithPattern ? handleOpenTestWithPattern : undefined
+          }
           onClose={onClose}
         />
       </div>
@@ -1226,6 +1246,7 @@ function ActionBar({
   onSave,
   onDryRun,
   onSaveThenDryRun,
+  onTestWithPattern,
   onClose,
 }: {
   loading: boolean;
@@ -1238,6 +1259,8 @@ function ActionBar({
   onSave: () => void;
   onDryRun: () => void;
   onSaveThenDryRun: () => void;
+  /** Phase 2C — optional pass-through to the test runner panel. */
+  onTestWithPattern?: () => void;
   onClose: () => void;
 }) {
   // The "Save then Dry Run" flow only appears when the operator has
@@ -1264,6 +1287,27 @@ function ActionBar({
           />
           Validate setup
         </Button>
+        {/* Phase 2C — Test with Pattern. Disabled for drafts (the
+            backend test runner needs a saved template id); the
+            test panel itself surfaces a clearer warning when
+            opened with unsaved local edits. */}
+        {onTestWithPattern && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onTestWithPattern}
+            disabled={isDraft}
+            title={
+              isDraft
+                ? "Save this template before testing with a pattern."
+                : "Test this template against a saved invoice pattern."
+            }
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+            Test with Pattern
+          </Button>
+        )}
         <div className="flex-1" />
         {canSave && (
           <Button

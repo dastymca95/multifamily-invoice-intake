@@ -12,6 +12,10 @@ import type {
   ImportTemplateReadinessPreviewRequest,
   ImportTemplateReadinessPreviewResponse,
 } from "@/types/import-readiness";
+import type {
+  TemplatePatternTestRequest,
+  TemplatePatternTestResult,
+} from "@/types/template-pattern-test-runner";
 
 import { apiClient } from "./client";
 
@@ -68,6 +72,37 @@ export const invoiceTemplatesApi = {
       .post<ResolverResult>(
         `/invoice-templates/${id}/resolve-dry-run`,
         payload ?? {},
+      )
+      .then((r) => r.data),
+
+  /**
+   * Phase 2B — Template + Pattern Test Runner.
+   *
+   * Chains the Phase 2A bridge (invoice pattern → ResolverInput)
+   * with the existing dry-run resolver into a single round-trip.
+   * Returns ``bridge_input`` + ``resolver_result`` + a coarse
+   * ``summary`` so the UI can render both halves without a
+   * separate bridge-preview round-trip.
+   *
+   * Diagnostic-only — never mutates anything, never exports, never
+   * touches Review Queue. The endpoint requires SAVED template +
+   * SAVED pattern; the panel surfaces unsaved-changes warnings
+   * before calling this method.
+   *
+   * The ``signal`` option lets callers abort in-flight requests
+   * when their inputs change (Run-clicked-twice race, etc).
+   */
+  testWithPattern: (
+    templateId: string,
+    patternId: string,
+    payload?: TemplatePatternTestRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<TemplatePatternTestResult> =>
+    apiClient
+      .post<TemplatePatternTestResult>(
+        `/invoice-templates/${templateId}/test-with-pattern/${patternId}`,
+        payload ?? {},
+        options?.signal ? { signal: options.signal } : undefined,
       )
       .then((r) => r.data),
 
