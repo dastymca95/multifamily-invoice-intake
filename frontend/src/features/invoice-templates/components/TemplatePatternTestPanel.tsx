@@ -64,6 +64,16 @@ import {
   updateScenarioFromPayload,
   type PatternTestScenario,
 } from "../lib/pattern-test-scenarios";
+import {
+  FIX_AREA_LABEL,
+  derivePatternTestDiagnostics,
+  deriveMultiScenarioDiagnostics,
+  type DiagnosticFixArea,
+  type DiagnosticSeverity,
+  type MultiScenarioDiagnosticSummary,
+  type PatternTestDiagnostic,
+  type PatternTestDiagnosticSummary,
+} from "../lib/pattern-test-diagnostics";
 
 /**
  * Phase 2E — per-scenario state row in the multi-scenario QA matrix.
@@ -1505,6 +1515,12 @@ export function TemplatePatternTestPanel({
               result={result}
               scenarioName={selectedScenario?.name ?? null}
             />
+            {/* Phase 2G — Review-style diagnostics. Sits between
+                the summary card and the raw bridge / resolver
+                preview so the operator sees operational language
+                first ("Rivera needs invoice_number to resolve…")
+                and the technical detail second. */}
+            <DiagnosticReviewCard result={result} />
             <BridgeInputCard result={result} />
             <ResolvedRowsCard rows={result.resolver_result.rows ?? []} />
             <IssuesCard issues={result.resolver_result.issues ?? []} />
@@ -2106,6 +2122,23 @@ function MultiScenarioQASection({
             </div>
           )}
 
+          {/* Phase 2G — Aggregate diagnostic summary above the matrix.
+              Shown only after a batch has at least one settled
+              scenario so the operator doesn't see a half-baked
+              rollup mid-run. */}
+          {multiRuns.length > 0 &&
+            multiRuns.some(
+              (r) =>
+                r.status === "success" ||
+                r.status === "failed" ||
+                r.status === "cancelled",
+            ) && (
+              <MultiScenarioDiagnosticSummaryCard
+                runs={multiRuns}
+                running={multiRunning}
+              />
+            )}
+
           {/* Progress + result matrix */}
           {multiRuns.length > 0 && (
             <ResultMatrix
@@ -2429,6 +2462,11 @@ function ResultMatrixDetails({ run }: { run: ScenarioRunState }) {
         </span>
       </div>
 
+      {/* Phase 2G — compact diagnostic review per row. Sits above
+          the legacy quick-list so the operator sees operational
+          guidance before the raw lists. */}
+      <DiagnosticReviewCard result={result} compact />
+
       {metrics.blockedColumns.length > 0 && (
         <div>
           <p className="text-[10px] uppercase font-semibold text-gray-500 dark:text-ink-subtle">
@@ -2561,6 +2599,349 @@ function deriveScenarioMetrics(
     missingHints: Array.from(new Set(missingHints)),
     blockedColumns: Array.from(new Set(blockedColumns)),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2G — Diagnostic review card (single-run + per-row in matrix)
+// ---------------------------------------------------------------------------
+
+const SEVERITY_VISUAL: Record<
+  DiagnosticSeverity,
+  { Icon: LucideIcon; banner: string; chip: string; iconClass: string }
+> = {
+  ready: {
+    Icon: CheckCircle2,
+    banner:
+      "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/40",
+    chip:
+      "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900",
+    iconClass: "text-green-600 dark:text-green-400",
+  },
+  info: {
+    Icon: Info,
+    banner:
+      "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/40",
+    chip:
+      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900",
+    iconClass: "text-blue-600 dark:text-blue-300",
+  },
+  warning: {
+    Icon: AlertTriangle,
+    banner:
+      "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/40",
+    chip:
+      "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900",
+    iconClass: "text-yellow-600 dark:text-yellow-300",
+  },
+  blocked: {
+    Icon: CircleAlert,
+    banner: "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40",
+    chip:
+      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900",
+    iconClass: "text-red-600 dark:text-red-300",
+  },
+};
+
+const FIX_AREA_CHIP: Record<DiagnosticFixArea, string> = {
+  scenario_input:
+    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900",
+  invoice_pattern:
+    "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-950/30 dark:text-cyan-200 dark:border-cyan-900",
+  import_template:
+    "bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/30 dark:text-purple-200 dark:border-purple-900",
+  reference_data:
+    "bg-orange-50 text-orange-800 border-orange-200 dark:bg-orange-950/30 dark:text-orange-200 dark:border-orange-900",
+  runtime_context:
+    "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-200 dark:border-yellow-900",
+  unknown:
+    "bg-gray-100 text-gray-700 border-gray-200 dark:bg-surface-muted dark:text-ink-muted dark:border-line",
+};
+
+function DiagnosticReviewCard({
+  result,
+  compact = false,
+}: {
+  result: TemplatePatternTestResult;
+  /** ``true`` when rendered inside the multi-scenario row drawer —
+   *  trims the headline + caps the diagnostic list. */
+  compact?: boolean;
+}) {
+  const summary = useMemo(
+    () => derivePatternTestDiagnostics(result),
+    [result],
+  );
+  const visual = SEVERITY_VISUAL[summary.status];
+  const visibleDiagnostics = compact
+    ? summary.diagnostics.slice(0, 4)
+    : summary.diagnostics;
+  const overflow = Math.max(
+    0,
+    summary.diagnostics.length - visibleDiagnostics.length,
+  );
+
+  return (
+    <section
+      className={cn(
+        "rounded-md border space-y-2",
+        visual.banner,
+        compact ? "p-2" : "p-3",
+      )}
+      aria-label="Diagnostic review"
+    >
+      <header className="flex items-start gap-2">
+        <visual.Icon
+          className={cn("h-4 w-4 shrink-0 mt-0.5", visual.iconClass)}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p
+              className={cn(
+                "font-semibold text-gray-900 dark:text-ink",
+                compact ? "text-xs" : "text-sm",
+              )}
+            >
+              {summary.headline}
+            </p>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                visual.chip,
+              )}
+            >
+              {summary.status}
+            </span>
+          </div>
+          {!compact && (
+            <p className="mt-0.5 text-xs text-gray-700 dark:text-ink-muted">
+              {summary.detail}
+            </p>
+          )}
+          <p
+            className={cn(
+              "mt-1 text-gray-800 dark:text-ink",
+              compact ? "text-[11px]" : "text-xs",
+            )}
+          >
+            <span className="font-medium">Next:</span>{" "}
+            {summary.suggestedNextAction}
+          </p>
+        </div>
+      </header>
+
+      {visibleDiagnostics.length > 0 && (
+        <ul className="space-y-1.5">
+          {visibleDiagnostics.map((d) => (
+            <li key={d.id}>
+              <DiagnosticItem diagnostic={d} compact={compact} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {overflow > 0 && (
+        <p className="text-[11px] text-gray-600 dark:text-ink-muted">
+          + {overflow} more diagnostic{overflow === 1 ? "" : "s"} —
+          re-run the single-scenario flow to see the full list.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DiagnosticItem({
+  diagnostic,
+  compact = false,
+}: {
+  diagnostic: PatternTestDiagnostic;
+  compact?: boolean;
+}) {
+  const visual = SEVERITY_VISUAL[diagnostic.severity];
+  return (
+    <div
+      className={cn(
+        "rounded border bg-white px-2.5 py-2 dark:bg-surface-subtle",
+        visual.banner.replace(/bg-[a-z]+-50\b/g, "").replace(
+          /dark:bg-[a-z]+-950\/40\b/g,
+          "",
+        ),
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <visual.Icon
+          className={cn("h-3.5 w-3.5 shrink-0 mt-0.5", visual.iconClass)}
+        />
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              "font-semibold text-gray-900 dark:text-ink",
+              compact ? "text-[11px]" : "text-xs",
+            )}
+          >
+            {diagnostic.title}
+          </p>
+          <p
+            className={cn(
+              "mt-0.5 text-gray-700 dark:text-ink",
+              compact ? "text-[11px]" : "text-xs",
+            )}
+          >
+            {diagnostic.message}
+          </p>
+          <p
+            className={cn(
+              "mt-0.5 text-gray-700 dark:text-ink-muted",
+              compact ? "text-[11px]" : "text-xs",
+            )}
+          >
+            <Info className="inline h-3 w-3 mr-1 -mt-0.5" />
+            {diagnostic.recommendation}
+          </p>
+          <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                FIX_AREA_CHIP[diagnostic.fixArea],
+              )}
+              title={`Fix area: ${FIX_AREA_LABEL[diagnostic.fixArea]}`}
+            >
+              {FIX_AREA_LABEL[diagnostic.fixArea]}
+            </span>
+            {diagnostic.relatedColumn && (
+              <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+                column: {diagnostic.relatedColumn}
+              </span>
+            )}
+            {diagnostic.relatedField && (
+              <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+                field: {diagnostic.relatedField}
+              </span>
+            )}
+            {diagnostic.relatedHint && (
+              <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+                hint: {diagnostic.relatedHint}
+              </span>
+            )}
+            {diagnostic.issueCodes.map((code) => (
+              <span
+                key={code}
+                className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-gray-500 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+              >
+                {code}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2G — Aggregate diagnostic summary above the multi-scenario matrix
+// ---------------------------------------------------------------------------
+
+function MultiScenarioDiagnosticSummaryCard({
+  runs,
+  running,
+}: {
+  runs: ScenarioRunState[];
+  running: boolean;
+}) {
+  const aggregate: MultiScenarioDiagnosticSummary = useMemo(
+    () => deriveMultiScenarioDiagnostics(runs),
+    [runs],
+  );
+
+  // Pick the dominant severity for the banner tone — blocked > warning > ready.
+  const tone: DiagnosticSeverity =
+    aggregate.blocked > 0 || aggregate.failed > 0
+      ? "blocked"
+      : aggregate.needsReview > 0
+        ? "warning"
+        : aggregate.ready > 0
+          ? "ready"
+          : "info";
+  const visual = SEVERITY_VISUAL[tone];
+
+  return (
+    <section
+      className={cn("rounded-md border p-3 space-y-2", visual.banner)}
+      aria-label="Multi-scenario diagnostic summary"
+    >
+      <header className="flex items-start gap-2">
+        <visual.Icon
+          className={cn("h-4 w-4 shrink-0 mt-0.5", visual.iconClass)}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-gray-900 dark:text-ink">
+            {running ? "Batch in progress · " : ""}
+            {aggregate.totalRuns} scenario
+            {aggregate.totalRuns === 1 ? "" : "s"} run · {aggregate.ready}{" "}
+            ready · {aggregate.needsReview} needs review ·{" "}
+            {aggregate.blocked} blocked
+            {aggregate.failed > 0 ? ` · ${aggregate.failed} failed` : ""}
+            {aggregate.cancelled > 0
+              ? ` · ${aggregate.cancelled} cancelled`
+              : ""}
+          </p>
+          <p className="mt-0.5 text-xs text-gray-800 dark:text-ink">
+            <span className="font-medium">Next:</span>{" "}
+            {aggregate.suggestedNextAction}
+          </p>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <AggregateList
+          label="Most common missing facts"
+          items={aggregate.topMissingFacts}
+        />
+        <AggregateList
+          label="Most common missing hints"
+          items={aggregate.topMissingHints}
+        />
+        <AggregateList
+          label="Most common blocked columns"
+          items={aggregate.topBlockedColumns}
+        />
+      </div>
+    </section>
+  );
+}
+
+function AggregateList({
+  label,
+  items,
+}: {
+  label: string;
+  items: Array<{ value: string; count: number; scenarios: string[] }>;
+}) {
+  return (
+    <div className="rounded border border-gray-200 bg-white/70 px-2 py-1.5 dark:border-line dark:bg-surface-subtle/70">
+      <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle font-semibold">
+        {label}
+      </p>
+      {items.length === 0 ? (
+        <p className="mt-0.5 text-[11px] text-gray-500 dark:text-ink-muted">
+          —
+        </p>
+      ) : (
+        <ul className="mt-0.5 space-y-0.5">
+          {items.map((item) => (
+            <li
+              key={item.value}
+              className="text-[11px] text-gray-800 dark:text-ink"
+              title={`Scenarios: ${item.scenarios.join(", ")}`}
+            >
+              <span className="font-medium">{item.value}</span>{" "}
+              <span className="text-gray-500 dark:text-ink-muted">
+                · {item.count} scenario{item.count === 1 ? "" : "s"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
