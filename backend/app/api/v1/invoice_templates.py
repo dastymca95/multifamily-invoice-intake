@@ -54,12 +54,20 @@ from app.schemas.import_readiness import (
     ImportTemplateReadinessPreviewResponse,
 )
 from app.schemas.dependencies import UsedByReport
+from app.schemas.template_pattern_test_runner import (
+    TemplatePatternTestRequest,
+    TemplatePatternTestResult,
+)
 from app.services.dependency_usage import get_invoice_template_usage
 from app.services.import_template_readiness import (
     preview_import_template_readiness,
 )
 from app.services.import_template_validation import validate_import_template
 from app.services.import_template_resolver import dry_run_resolve_import_template
+from app.services.template_pattern_test_runner import (
+    TemplatePatternTestNotFound,
+    run_template_pattern_test,
+)
 
 router = APIRouter(prefix="/invoice-templates", tags=["invoice-templates"])
 
@@ -266,6 +274,62 @@ async def resolve_invoice_template_dry_run(
         )
     payload = body or ResolverInput(template_id=str(template_id))
     return await dry_run_resolve_import_template(row, payload, db)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2B — Template + Pattern Test Runner.
+#
+# Diagnostic endpoint that chains the Phase 2A bridge with the existing
+# dry-run resolver into one round-trip:
+#
+#     load template + load pattern
+#         ↓
+#     bridge → ResolverInput
+#         ↓
+#     dry_run_resolve_import_template
+#         ↓
+#     TemplatePatternTestResult (bridge_input + resolver_result + summary)
+#
+# Read-only — no mutations, no export, no Review Queue, no OCR / AI.
+# Returns 404 if the template OR pattern doesn't exist (the service
+# distinguishes which via TemplatePatternTestNotFound.kind).
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{template_id}/test-with-pattern/{pattern_id}",
+    response_model=TemplatePatternTestResult,
+)
+async def test_invoice_template_with_pattern(
+    template_id: uuid.UUID,
+    pattern_id: uuid.UUID,
+    body: TemplatePatternTestRequest | None,
+    db: DB,
+    user: CurrentUser,
+) -> TemplatePatternTestResult:
+    """Run a diagnostic dry-run for one template against one pattern.
+
+    Returns the bridge-built ``ResolverInput`` alongside the resolver
+    dry-run result + a coarse summary. Both bodies (request +
+    response) are tightly scoped to the diagnostic contract — no
+    side effects of any kind.
+    """
+    request = body or TemplatePatternTestRequest()
+    try:
+        return await run_template_pattern_test(
+            db,
+            template_id=template_id,
+            pattern_id=pattern_id,
+            manual_fact_values=request.manual_fact_values,
+            manual_catalog_hints=request.manual_catalog_hints,
+            include_empty_fields=request.include_empty_fields,
+            runtime_options=request.runtime_options,
+            document_metadata=request.document_metadata,
+        )
+    except TemplatePatternTestNotFound as exc:
+        # Both kinds (template / pattern) map to 404; the message
+        # tells the caller which side was missing.
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/{template_id}/used-by", response_model=UsedByReport)
