@@ -59,6 +59,14 @@ import {
   buildOperationalDiagnosticsMarkdownReport,
   copyTextToClipboard,
 } from "../lib/operational-review-reports";
+import {
+  buildOperationalExportPreview,
+  type ExportPreviewRowStatus,
+  type OperationalExportPreview,
+  type OperationalExportPreviewCell,
+  type OperationalExportPreviewRow,
+} from "../lib/operational-export-preview";
+import { buildOperationalExportPreviewMarkdownReport } from "../lib/operational-export-preview-reports";
 
 /**
  * Phase 3B — Operational Resolution Preview UI.
@@ -391,6 +399,20 @@ export function OperationalResolutionPreviewPanel({
   const diagnosticsCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+
+  // ---- Phase 3E — copy-export-preview transient toast ---------
+  // Separate from diagnosticsCopyStatus so the two surfaces never
+  // overwrite each other's confirmation ("Diagnostics copied" vs
+  // "Preview copied").
+  const [exportCopyStatus, setExportCopyStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const exportCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  // ---- Phase 3E — "Show only issues" filter toggle ------------
+  const [exportShowOnlyIssues, setExportShowOnlyIssues] = useState(false);
 
   // ---- Phase 3C — apply launch context on open transition -----
   // Re-applies whenever the panel transitions from closed → open OR
@@ -756,13 +778,35 @@ export function OperationalResolutionPreviewPanel({
     [],
   );
 
-  // Clear the toast on panel close so it doesn't settle onto an
+  // Phase 3E — separate transient toast for the export preview's
+  // "Copy preview" action. Same auto-clear semantics as the
+  // diagnostics toast.
+  const showExportCopyStatus = useCallback(
+    (type: "success" | "error", message: string) => {
+      setExportCopyStatus({ type, message });
+      if (exportCopyTimerRef.current) {
+        clearTimeout(exportCopyTimerRef.current);
+      }
+      exportCopyTimerRef.current = setTimeout(() => {
+        setExportCopyStatus(null);
+        exportCopyTimerRef.current = null;
+      }, 4000);
+    },
+    [],
+  );
+
+  // Clear the toasts on panel close so they don't settle onto an
   // unmounted view.
   useEffect(() => {
     if (!isOpen && diagnosticsCopyTimerRef.current) {
       clearTimeout(diagnosticsCopyTimerRef.current);
       diagnosticsCopyTimerRef.current = null;
       setDiagnosticsCopyStatus(null);
+    }
+    if (!isOpen && exportCopyTimerRef.current) {
+      clearTimeout(exportCopyTimerRef.current);
+      exportCopyTimerRef.current = null;
+      setExportCopyStatus(null);
     }
   }, [isOpen]);
 
@@ -1041,6 +1085,21 @@ export function OperationalResolutionPreviewPanel({
               copyStatus={diagnosticsCopyStatus}
               onCopyStatus={showDiagnosticsCopyStatus}
               onFocusSection={handleFocusSection}
+            />
+            {/* Phase 3E — Export-style Rows Preview. Diagnostic-only
+                visualisation of how the resolver_result rows would
+                look as future export rows. Sits ABOVE the technical
+                Resolver Result section so operators see the cleaner
+                layout first; the technical view stays for debugging. */}
+            <ExportPreviewSection
+              result={result}
+              contextLabel={launchContextLabel ?? null}
+              copyStatus={exportCopyStatus}
+              onCopyStatus={showExportCopyStatus}
+              showOnlyIssues={exportShowOnlyIssues}
+              onToggleShowOnlyIssues={() =>
+                setExportShowOnlyIssues((v) => !v)
+              }
             />
             <ResolverInputCard result={result} />
             <ResolverResultCard result={result} />
@@ -2045,6 +2104,377 @@ function DiagnosticDetail({
         {body}
       </p>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3E — Export-style Rows Preview section
+// ---------------------------------------------------------------------------
+//
+// Renders the resolver_result rows in a table that resembles the
+// future export/import spreadsheet layout. Diagnostic-only —
+// every label and copy avoids "production / export ready" wording
+// per spec. Status chips and missing-value markers come from the
+// pure ``operational-export-preview`` utility; this component is
+// pure presentation.
+
+const EXPORT_ROW_STATUS_LABEL: Record<ExportPreviewRowStatus, string> = {
+  clear: "Clear",
+  needs_review: "Needs review",
+  blocked: "Blocked",
+  conflict: "Conflict",
+};
+
+const EXPORT_ROW_STATUS_CHIP: Record<ExportPreviewRowStatus, string> = {
+  clear:
+    "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900",
+  needs_review:
+    "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-900",
+  blocked:
+    "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900",
+  conflict:
+    "bg-orange-50 text-orange-800 border-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:border-orange-900",
+};
+
+const EXPORT_ROW_TONE: Record<ExportPreviewRowStatus, string> = {
+  clear: "",
+  needs_review:
+    "bg-yellow-50/40 dark:bg-yellow-950/10",
+  blocked: "bg-red-50/40 dark:bg-red-950/10",
+  conflict: "bg-orange-50/40 dark:bg-orange-950/10",
+};
+
+function ExportPreviewSection({
+  result,
+  contextLabel,
+  copyStatus,
+  onCopyStatus,
+  showOnlyIssues,
+  onToggleShowOnlyIssues,
+}: {
+  result: OperationalResolutionResult;
+  contextLabel: string | null;
+  copyStatus: { type: "success" | "error"; message: string } | null;
+  onCopyStatus: (type: "success" | "error", message: string) => void;
+  showOnlyIssues: boolean;
+  onToggleShowOnlyIssues: () => void;
+}) {
+  const preview = useMemo(
+    () => buildOperationalExportPreview(result),
+    [result],
+  );
+
+  const visibleRows = useMemo(
+    () =>
+      showOnlyIssues
+        ? preview.rows.filter((r) => r.issue_count > 0 || r.blocked || r.warning)
+        : preview.rows,
+    [preview.rows, showOnlyIssues],
+  );
+
+  const handleCopy = useCallback(async () => {
+    try {
+      const text = buildOperationalExportPreviewMarkdownReport({
+        result,
+        preview,
+        contextLabel,
+      });
+      await copyTextToClipboard(text);
+      onCopyStatus("success", "Preview copied.");
+    } catch (err) {
+      onCopyStatus(
+        "error",
+        `Could not copy preview: ${(err as Error).message}`,
+      );
+    }
+  }, [result, preview, contextLabel, onCopyStatus]);
+
+  // Empty state — no rows OR no columns. Careful copy: do NOT
+  // claim production-ready, just describe the diagnostic state.
+  if (!preview.can_preview_export) {
+    return (
+      <section
+        className="rounded-md border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle"
+        aria-label="Export-style rows preview"
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-line/60">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-ink">
+              Export-style Rows Preview
+            </p>
+            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-ink-muted">
+              Diagnostic preview only — no export file is generated.
+            </p>
+          </div>
+        </header>
+        <div className="px-3 py-3 text-xs text-gray-600 dark:text-ink-muted">
+          <p className="font-medium text-gray-800 dark:text-ink">
+            No resolved rows to preview yet.
+          </p>
+          <p className="mt-0.5">
+            Run a preview with enough invoice facts and template
+            rules to see export-style rows.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  // Section banner tone — drives a thin coloured top stripe so
+  // the worst severity is visible at a glance even before the
+  // operator scrolls the table.
+  const worst = preview.summary.worst_status ?? "clear";
+  const sectionBorder =
+    worst === "blocked"
+      ? "border-red-200 dark:border-red-900"
+      : worst === "conflict"
+        ? "border-orange-200 dark:border-orange-900"
+        : worst === "needs_review"
+          ? "border-yellow-200 dark:border-yellow-900"
+          : "border-green-200 dark:border-green-900";
+
+  return (
+    <section
+      className={cn("rounded-md border bg-white dark:bg-surface-subtle", sectionBorder)}
+      aria-label="Export-style rows preview"
+    >
+      <header className="flex items-start justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-line/60">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-800 dark:text-ink">
+            Export-style Rows Preview
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-ink-muted">
+            Diagnostic preview only — no export file is generated.
+            Future export depends on export profiles and final
+            validation.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {copyStatus && (
+            <span
+              className={cn(
+                "text-[11px] font-medium",
+                copyStatus.type === "success"
+                  ? "text-green-700 dark:text-green-300"
+                  : "text-red-700 dark:text-red-300",
+              )}
+              role={copyStatus.type === "error" ? "alert" : "status"}
+              aria-live="polite"
+            >
+              {copyStatus.message}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCopy}
+            title="Copy a Markdown summary of these preview rows to the clipboard. No file is generated."
+          >
+            <ClipboardCopy className="h-3.5 w-3.5" />
+            Copy preview
+          </Button>
+        </div>
+      </header>
+
+      <div className="px-3 py-2 space-y-3">
+        <ExportPreviewSummary preview={preview} />
+
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-[11px] text-gray-600 dark:text-ink-muted">
+            {visibleRows.length === preview.rows.length
+              ? `Showing all ${preview.rows.length} preview row${preview.rows.length === 1 ? "" : "s"}.`
+              : `Showing ${visibleRows.length} of ${preview.rows.length} preview rows.`}
+          </p>
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-700 dark:text-ink-muted cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showOnlyIssues}
+              onChange={onToggleShowOnlyIssues}
+              className="h-3 w-3"
+            />
+            Show only rows with issues
+          </label>
+        </div>
+
+        {visibleRows.length === 0 ? (
+          <p className="text-xs text-gray-500 dark:text-ink-muted px-2 py-3">
+            {showOnlyIssues
+              ? "No issue rows in this diagnostic preview."
+              : "No resolved rows to preview yet."}
+          </p>
+        ) : (
+          <ExportPreviewTable
+            preview={preview}
+            visibleRows={visibleRows}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ExportPreviewSummary({
+  preview,
+}: {
+  preview: OperationalExportPreview;
+}) {
+  const cards = [
+    { label: "Rows", value: preview.row_count, tone: "text-gray-800 dark:text-ink" },
+    { label: "Clear", value: preview.ready_row_count, tone: "text-green-700 dark:text-green-200" },
+    { label: "Needs review", value: preview.warning_row_count, tone: "text-yellow-700 dark:text-yellow-200" },
+    { label: "Blocked", value: preview.blocked_row_count, tone: "text-red-700 dark:text-red-200" },
+    { label: "Conflict", value: preview.conflict_row_count, tone: "text-orange-700 dark:text-orange-200" },
+    { label: "Columns", value: preview.summary.column_count, tone: "text-gray-800 dark:text-ink" },
+    { label: "Cells with issues", value: preview.summary.cells_with_issues, tone: "text-yellow-700 dark:text-yellow-200" },
+  ];
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+      {cards.map((card) => (
+        <div
+          key={card.label}
+          className="rounded border border-gray-200 bg-white px-2 py-1 dark:border-line dark:bg-surface-subtle"
+        >
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+            {card.label}
+          </p>
+          <p className={cn("text-base font-semibold", card.tone)}>{card.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExportPreviewTable({
+  preview,
+  visibleRows,
+}: {
+  preview: OperationalExportPreview;
+  visibleRows: OperationalExportPreviewRow[];
+}) {
+  return (
+    <div className="overflow-x-auto rounded border border-gray-200 dark:border-line">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50 dark:bg-surface-muted">
+          <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-ink-subtle">
+            <th className="px-2 py-1.5">Row</th>
+            <th className="px-2 py-1.5">Status</th>
+            {preview.columns.map((col) => (
+              <th key={col.key} className="px-2 py-1.5">
+                <div className="flex items-center gap-1">
+                  <span>{col.label}</span>
+                  {col.has_issues && (
+                    <span
+                      className="inline-flex items-center justify-center rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-200 px-1 text-[10px] font-semibold"
+                      title={`${col.issue_count} issue${col.issue_count === 1 ? "" : "s"} in this column`}
+                    >
+                      {col.issue_count}
+                    </span>
+                  )}
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100 dark:divide-line/60">
+          {visibleRows.map((row) => (
+            <tr key={row.row_index} className={cn(EXPORT_ROW_TONE[row.status])}>
+              <td className="px-2 py-1.5 align-top font-medium text-gray-700 dark:text-ink-muted">
+                {row.row_index + 1}
+              </td>
+              <td className="px-2 py-1.5 align-top">
+                <ExportPreviewStatusBadge status={row.status} />
+                {row.issue_count > 0 && (
+                  <span className="ml-1 text-[10px] text-gray-500 dark:text-ink-muted">
+                    · {row.issue_count} issue{row.issue_count === 1 ? "" : "s"}
+                  </span>
+                )}
+              </td>
+              {preview.columns.map((col) => {
+                const cell = row.cells.find((c) => c.column_key === col.key);
+                return (
+                  <td
+                    key={col.key}
+                    className="px-2 py-1.5 align-top"
+                    title={cell?.issues.map((i) => `${i.text} (${i.source})`).join("; ")}
+                  >
+                    <ExportPreviewCell cell={cell} />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ExportPreviewCell({
+  cell,
+}: {
+  cell: OperationalExportPreviewCell | undefined;
+}) {
+  if (!cell) {
+    return (
+      <span className="text-gray-300 dark:text-ink-subtle">—</span>
+    );
+  }
+  // Missing — render an explicit pill so the operator can scan for
+  // gaps without reading values.
+  if (cell.status === "missing") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 dark:border-line dark:bg-surface-muted dark:text-ink-muted">
+        Missing
+      </span>
+    );
+  }
+  // Blocked / conflict / warning — render the value in tone-appropriate
+  // text so the table column still reads as a value (not a chip), but
+  // visibly marked.
+  const valueText = cell.display_value ?? "—";
+  const tone =
+    cell.status === "blocked" || cell.status === "conflict"
+      ? "text-red-700 dark:text-red-200"
+      : cell.status === "warning"
+        ? "text-yellow-700 dark:text-yellow-200"
+        : cell.status === "ignored"
+          ? "text-gray-500 dark:text-ink-muted line-through"
+          : "text-gray-800 dark:text-ink";
+  return (
+    <div className="flex items-start gap-1 min-w-0">
+      <span className={cn("break-all", tone)}>{valueText}</span>
+      {(cell.status === "blocked" ||
+        cell.status === "conflict" ||
+        cell.status === "warning") && (
+        <AlertTriangle
+          className={cn(
+            "h-3 w-3 shrink-0 mt-0.5",
+            cell.status === "blocked" || cell.status === "conflict"
+              ? "text-red-500 dark:text-red-300"
+              : "text-yellow-600 dark:text-yellow-300",
+          )}
+          aria-hidden
+        />
+      )}
+    </div>
+  );
+}
+
+function ExportPreviewStatusBadge({
+  status,
+}: {
+  status: ExportPreviewRowStatus;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+        EXPORT_ROW_STATUS_CHIP[status],
+      )}
+    >
+      {EXPORT_ROW_STATUS_LABEL[status]}
+    </span>
   );
 }
 
