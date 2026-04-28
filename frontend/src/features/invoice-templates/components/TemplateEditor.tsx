@@ -29,6 +29,7 @@ import {
   Type,
   Undo2,
   Users,
+  Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -82,6 +83,7 @@ import { ColumnInspector, type WizardStepKey } from "./ColumnInspector";
 import { ImportTemplateHealthMapPanel } from "./ImportTemplateHealthMapPanel";
 import { ImportTemplateResolverPreviewPanel } from "./ImportTemplateResolverPreviewPanel";
 import { ImportTemplateValidationPanel } from "./ImportTemplateValidationPanel";
+import { OperationalResolutionPreviewPanel } from "./OperationalResolutionPreviewPanel";
 import { TemplatePatternTestPanel } from "./TemplatePatternTestPanel";
 import {
   type BuilderLayoutMode,
@@ -383,6 +385,11 @@ export function TemplateEditor({
   // and inspect what the resolver would do. Self-fetching panel —
   // this boolean only tracks open/closed.
   const [patternTestOpen, setPatternTestOpen] = useState(false);
+  // Phase 3B — Operational Resolution Preview panel. Self-fetching
+  // surface for the production-shaped operational pipeline (Phase
+  // 3A endpoint). Distinct from the Pattern Test panel — same
+  // resolver underneath, operational envelope on top.
+  const [operationalPreviewOpen, setOperationalPreviewOpen] = useState(false);
   const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
   const [deleteDependencyReport, setDeleteDependencyReport] =
     useState<UsedByReport | null>(null);
@@ -1028,6 +1035,34 @@ export function TemplateEditor({
               />
             )}
           </Button>
+          {/* Phase 3B — Operational Preview. Production-shaped
+              envelope (document_id / batch_id / extracted_facts) on
+              top of the same resolver. Disabled for drafts — the
+              Phase 3A endpoint requires a persisted template id. */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={isDraft}
+            onClick={() => setOperationalPreviewOpen(true)}
+            title={
+              isDraft
+                ? "Save this template before running Operational Preview."
+                : dirty
+                  ? "Operational Preview uses the SAVED template. Save first to preview current edits."
+                  : "Run the operational resolution pipeline against this template (diagnostic only)."
+            }
+          >
+            <Workflow className="h-3.5 w-3.5" />
+            Operational Preview
+            {!isDraft && dirty && (
+              <span
+                aria-hidden="true"
+                className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-yellow-500"
+                title="Unsaved changes exist — Operational Preview uses the saved version"
+              />
+            )}
+          </Button>
           <Button
             type="button"
             variant="secondary"
@@ -1663,6 +1698,7 @@ export function TemplateEditor({
         onSave={handleSave}
         onOpenDryRun={() => setResolverPreviewOpen(true)}
         onTestWithPattern={() => setPatternTestOpen(true)}
+        onOperationalPreview={() => setOperationalPreviewOpen(true)}
         onFixColumn={openInspectorAt}
       />
       {/* Phase 2C — Template + Pattern Test Runner. Lets the operator
@@ -1673,6 +1709,22 @@ export function TemplateEditor({
       <TemplatePatternTestPanel
         isOpen={patternTestOpen}
         onClose={() => setPatternTestOpen(false)}
+        templateId={isDraft ? null : templateKey}
+        templateName={name || initial.name}
+        hasUnsavedChanges={dirty && !isDraft}
+        isDraft={isDraft}
+        canSave={canSave}
+        saving={saving}
+        onSaveTemplate={handleSave}
+      />
+      {/* Phase 3B — Operational Resolution Preview. Self-fetching
+          panel that consumes the Phase 3A endpoint. Mirrors the
+          Pattern Test panel's unsaved-change UX (warning + Save
+          then preview) so operators don't have to learn a new
+          interaction. */}
+      <OperationalResolutionPreviewPanel
+        isOpen={operationalPreviewOpen}
+        onClose={() => setOperationalPreviewOpen(false)}
         templateId={isDraft ? null : templateKey}
         templateName={name || initial.name}
         hasUnsavedChanges={dirty && !isDraft}

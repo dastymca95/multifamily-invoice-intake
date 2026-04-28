@@ -21,3 +21,5 @@ export { invoicePatternsApi } from "./invoice-patterns";
 export { glCatalogsApi } from "./gl-catalogs";
 export { propertyCatalogsApi } from "./property-catalogs";
 export { vendorCatalogsApi } from "./vendor-catalogs";
+// Phase 3A — Operational Resolution Pipeline.
+export { operationalResolutionApi } from "./operational-resolution";

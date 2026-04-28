@@ -14,6 +14,7 @@ import {
   Play,
   RefreshCw,
   Save,
+  Workflow,
   Wrench,
   X,
   type LucideIcon,
@@ -166,6 +167,12 @@ interface ImportTemplateHealthMapPanelProps {
    */
   onTestWithPattern?: () => void;
   /**
+   * Phase 3B — open the Operational Resolution Preview panel.
+   * Same stacking rule as the others. Optional — when omitted the
+   * action bar simply doesn't render the button.
+   */
+  onOperationalPreview?: () => void;
+  /**
    * Phase 1F handler — open the Column Inspector for ``columnId``
    * at the wizard ``step``. The Health Map's per-column "Fix" CTAs
    * close the Health Map and call this.
@@ -187,6 +194,7 @@ export function ImportTemplateHealthMapPanel({
   onSave,
   onOpenDryRun,
   onTestWithPattern,
+  onOperationalPreview,
   onFixColumn,
 }: ImportTemplateHealthMapPanelProps) {
   // ---- Self-fetched readiness state ---------------------------------
@@ -346,6 +354,13 @@ export function ImportTemplateHealthMapPanel({
     onTestWithPattern();
   }, [onClose, onTestWithPattern]);
 
+  // Phase 3B — same stacking rule as Test with Pattern.
+  const handleOpenOperationalPreview = useCallback(() => {
+    if (!onOperationalPreview) return;
+    onClose();
+    onOperationalPreview();
+  }, [onClose, onOperationalPreview]);
+
   const handleFix = useCallback(
     (columnId: string, step?: WizardStepKey) => {
       onClose();
@@ -495,6 +510,9 @@ export function ImportTemplateHealthMapPanel({
           onSaveThenDryRun={handleSaveThenDryRun}
           onTestWithPattern={
             onTestWithPattern ? handleOpenTestWithPattern : undefined
+          }
+          onOperationalPreview={
+            onOperationalPreview ? handleOpenOperationalPreview : undefined
           }
           onClose={onClose}
         />
@@ -1247,6 +1265,7 @@ function ActionBar({
   onDryRun,
   onSaveThenDryRun,
   onTestWithPattern,
+  onOperationalPreview,
   onClose,
 }: {
   loading: boolean;
@@ -1261,6 +1280,8 @@ function ActionBar({
   onSaveThenDryRun: () => void;
   /** Phase 2C — optional pass-through to the test runner panel. */
   onTestWithPattern?: () => void;
+  /** Phase 3B — optional pass-through to the operational preview panel. */
+  onOperationalPreview?: () => void;
   onClose: () => void;
 }) {
   // The "Save then Dry Run" flow only appears when the operator has
@@ -1306,6 +1327,26 @@ function ActionBar({
           >
             <FlaskConical className="h-3.5 w-3.5" />
             Test with Pattern
+          </Button>
+        )}
+        {/* Phase 3B — Operational Preview. Same draft-disabled rule
+            as Test with Pattern; the panel itself surfaces unsaved-
+            change warnings + a Save then preview action. */}
+        {onOperationalPreview && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onOperationalPreview}
+            disabled={isDraft}
+            title={
+              isDraft
+                ? "Save this template before running Operational Preview."
+                : "Run the operational resolution pipeline (diagnostic only)."
+            }
+          >
+            <Workflow className="h-3.5 w-3.5" />
+            Operational Preview
           </Button>
         )}
         <div className="flex-1" />

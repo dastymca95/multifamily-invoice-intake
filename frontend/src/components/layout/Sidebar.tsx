@@ -142,22 +142,24 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    // Sidebar palette stays inverted in BOTH themes — brand-900 in
-    // light mode, slate-950 in dark — so the brand square + nav still
-    // read as the "chrome" of the app rather than blending into the
-    // page surface. Border + text muting tokens swap.
-    <aside className="w-60 shrink-0 bg-brand-900 text-white dark:bg-surface-inverted flex flex-col min-h-screen border-r border-brand-700/70 dark:border-line/70">
-      {/* Brand mark — Rivera logo (full lockup PNG: icon + "Rivera"
-          wordmark). The PNG already includes the wordmark so we
-          intentionally do NOT render a separate "Rivera" <span> next
-          to it (would duplicate the brand name). The "Property
-          Accounting" subtitle sits beneath the lockup as muted text
-          to preserve the existing positioning line.
-
-          Replace `public/brand/rivera-logo.png` to refresh the mark. */}
-      <div className="px-5 py-5 border-b border-brand-700/80 dark:border-line/70 flex flex-col gap-1.5">
-        <RiveraLogo variant="fullLockup" className="h-auto w-[150px]" />
-        <p className="text-[11px] text-brand-50/60 leading-none">
+    // Sidebar uses the requested light gray shell while active
+    // destinations keep Rivera Blue for orientation.
+    <aside className="w-60 shrink-0 bg-[#dfe4e1] text-[#1f2933] flex flex-col min-h-screen border-r border-[#c7d0ca]">
+      {/* The PNG wordmark is white for dark chrome; crop the mark and
+          render the text live so the brand stays readable on gray. */}
+      <div className="px-5 py-5 border-b border-[#c7d0ca] flex flex-col gap-1.5">
+        <div className="flex items-center gap-2.5">
+          <div className="h-11 w-11 overflow-hidden rounded-xl">
+            <RiveraLogo
+              variant="fullLockup"
+              className="h-11 w-[145px] max-w-none object-contain object-left"
+            />
+          </div>
+          <span className="text-[30px] font-extrabold leading-none tracking-normal text-[#111827]">
+            Rivera
+          </span>
+        </div>
+        <p className="text-[11px] text-[#3f4d57] leading-none">
           Property Accounting
         </p>
       </div>
@@ -178,7 +180,7 @@ export function Sidebar() {
             `mt-auto` does the pinning; if the sidebar ever gets short
             on vertical space the workspace list scrolls and this tray
             stays glued to the bottom. */}
-        <div className="mt-auto pt-3 border-t border-brand-700/60 dark:border-line/60 space-y-1">
+        <div className="mt-auto pt-3 border-t border-[#c7d0ca] space-y-1">
           {utilityNavItems.map((item) => (
             <SidebarLink key={item.href} item={item} pathname={pathname} />
           ))}
@@ -206,13 +208,7 @@ function SidebarLink({ item, pathname }: { item: NavLeaf; pathname: string }) {
         active
           ? // Active: Real Estate Blue body + brighter foreground.
             "bg-brand-700 text-white"
-          : // Idle: muted brand text. Hover stays in the Real
-            // Estate Blue family (`brand-700/50`) instead of a
-            // cyan tint — over the deep-navy sidebar bg, cyan/20
-            // mixes into a slightly greenish wash that reads off-
-            // brand. Cyan keeps its presence on tabs / segmented
-            // controls + the nested rail accent below.
-            "text-brand-50/70 hover:bg-brand-700/50 hover:text-white",
+          : "text-[#334155] hover:bg-white/55 hover:text-[#111827]",
       )}
       aria-current={active ? "page" : undefined}
     >
@@ -232,7 +228,7 @@ function SidebarLink({ item, pathname }: { item: NavLeaf; pathname: string }) {
           // Active icon brightens to pure white; idle uses softer
           // brand tone but slightly lifted from the label so it
           // reads as scannable iconography.
-          active ? "text-white" : "text-brand-50/80",
+          active ? "text-white" : "text-[#475569]",
         )}
       />
       {item.label}
@@ -274,22 +270,16 @@ function SidebarSection({
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
         className={cn(
-        "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150",
-          // Use a softer tint for "section active" so the contrast
-          // with the explicitly-active child link below stays clear:
-          // child = solid brand-700, parent = brand-700 at 40%. Idle
-          // hover stays in the brand-700 family (cyan/20 over the
-          // deep-navy sidebar bg blends into a greenish wash that
-          // reads off-brand).
+          "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150",
           sectionActive
-            ? "bg-brand-700/40 text-white"
-            : "text-brand-50/70 hover:bg-brand-700/50 hover:text-white",
+            ? "bg-white/55 text-[#111827]"
+            : "text-[#334155] hover:bg-white/55 hover:text-[#111827]",
         )}
       >
         <Icon
           className={cn(
             "h-4 w-4 shrink-0",
-            sectionActive ? "text-white" : "text-brand-50/80",
+            sectionActive ? "text-[#111827]" : "text-[#475569]",
           )}
         />
         <span className="flex-1 text-left">{item.label}</span>
@@ -302,11 +292,7 @@ function SidebarSection({
       </button>
 
       {expanded && (
-        // Nested children rail. The left vertical guideline is now
-        // tinted Sky Cyan (instead of plain brand-700/60) so the
-        // submenu reads as a deliberate Rivera surface — cyan finally
-        // shows up in the nested navigation.
-        <div className="mt-1 ml-3 pl-3 border-l border-rivera-cyan/30 space-y-0.5">
+        <div className="mt-1 ml-3 pl-3 border-l border-[#9aa8a1] space-y-0.5">
           {item.children.map((child) => {
             const childActive =
               pathname === child.href ||
@@ -317,23 +303,17 @@ function SidebarSection({
                 key={child.href}
                 href={child.href}
                 className={cn(
-                  // `relative` so the active lime dot can absolute-
-                  // position to the right edge of the row. Hover
-                  // stays in the brand-700 family (cyan/20 mixed
-                  // into the deep-navy bg reads as a greenish wash
-                  // that's off-brand). The cyan accent already
-                  // shows up via the rail's left guide border below.
                   "relative flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors duration-150",
                   childActive
                     ? "bg-brand-700 text-white font-medium"
-                    : "text-brand-50/60 hover:bg-brand-700/50 hover:text-white",
+                    : "text-[#46545f] hover:bg-white/55 hover:text-[#111827]",
                 )}
                 aria-current={childActive ? "page" : undefined}
               >
                 <ChildIcon
                   className={cn(
                     "h-3.5 w-3.5 shrink-0",
-                    childActive ? "text-white" : "text-brand-50/70",
+                    childActive ? "text-white" : "text-[#5b6770]",
                   )}
                 />
                 {child.label}
