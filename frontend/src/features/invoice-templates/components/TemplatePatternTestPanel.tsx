@@ -7,9 +7,12 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  ClipboardCopy,
   Copy,
+  Download,
   Eraser,
   FilePlus,
+  FileText,
   FlaskConical,
   Info,
   Loader2,
@@ -17,6 +20,7 @@ import {
   RefreshCw,
   Save,
   Sparkles,
+  Table,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -74,6 +78,14 @@ import {
   type PatternTestDiagnostic,
   type PatternTestDiagnosticSummary,
 } from "../lib/pattern-test-diagnostics";
+import {
+  buildMultiScenarioCsvReport,
+  buildMultiScenarioMarkdownReport,
+  buildReportFilename,
+  buildSinglePatternTestMarkdownReport,
+  copyTextToClipboard,
+  downloadTextFile,
+} from "../lib/pattern-test-reports";
 
 /**
  * Phase 2E — per-scenario state row in the multi-scenario QA matrix.
@@ -1227,6 +1239,224 @@ export function TemplatePatternTestPanel({
     [scenarios, handleSelectScenario],
   );
 
+  // ---- Phase 2H — QA report copy / download ---------------------
+  // Single transient toast surface for both single-run and
+  // multi-scenario report actions. Auto-clears after a few seconds
+  // so the operator doesn't have to dismiss it manually. Errors
+  // (clipboard blocked, download blocked) surface in the same lane.
+  const [reportStatus, setReportStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const reportStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const showReportStatus = useCallback(
+    (type: "success" | "error", message: string) => {
+      setReportStatus({ type, message });
+      if (reportStatusTimerRef.current) {
+        clearTimeout(reportStatusTimerRef.current);
+      }
+      reportStatusTimerRef.current = setTimeout(() => {
+        setReportStatus(null);
+        reportStatusTimerRef.current = null;
+      }, 4000);
+    },
+    [],
+  );
+
+  // Make sure the timer is cleared when the panel closes — keeps
+  // the toast from settling onto an unmounted view.
+  useEffect(() => {
+    if (!isOpen && reportStatusTimerRef.current) {
+      clearTimeout(reportStatusTimerRef.current);
+      reportStatusTimerRef.current = null;
+      setReportStatus(null);
+    }
+  }, [isOpen]);
+
+  const handleCopySingleReport = useCallback(async () => {
+    if (!result) return;
+    try {
+      const text = buildSinglePatternTestMarkdownReport({
+        result,
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+        scenarioName: selectedScenario?.name ?? null,
+      });
+      await copyTextToClipboard(text);
+      showReportStatus("success", "Report copied.");
+    } catch (err) {
+      showReportStatus(
+        "error",
+        `Could not copy report: ${(err as Error).message}`,
+      );
+    }
+  }, [
+    result,
+    templateName,
+    selectedPattern,
+    selectedScenario,
+    showReportStatus,
+  ]);
+
+  const handleDownloadSingleReport = useCallback(() => {
+    if (!result) return;
+    try {
+      const text = buildSinglePatternTestMarkdownReport({
+        result,
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+        scenarioName: selectedScenario?.name ?? null,
+      });
+      const filename = buildReportFilename({
+        kind: "pattern-test",
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+        extension: "md",
+      });
+      downloadTextFile(filename, text, "text/markdown;charset=utf-8");
+      showReportStatus("success", "Report downloaded.");
+    } catch (err) {
+      showReportStatus(
+        "error",
+        `Could not download report: ${(err as Error).message}`,
+      );
+    }
+  }, [
+    result,
+    templateName,
+    selectedPattern,
+    selectedScenario,
+    showReportStatus,
+  ]);
+
+  // Multi-scenario "settled" check — needed both for enabling the
+  // buttons and (later) for showing partial-data warnings.
+  const multiHasSettledRun = useMemo(
+    () =>
+      multiRuns.some(
+        (r) =>
+          r.status === "success" ||
+          r.status === "failed" ||
+          r.status === "cancelled",
+      ),
+    [multiRuns],
+  );
+
+  const handleCopyMultiReport = useCallback(async () => {
+    if (!multiHasSettledRun || multiRunning) return;
+    try {
+      const text = buildMultiScenarioMarkdownReport({
+        runs: multiRuns,
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+      });
+      await copyTextToClipboard(text);
+      showReportStatus("success", "QA report copied.");
+    } catch (err) {
+      showReportStatus(
+        "error",
+        `Could not copy QA report: ${(err as Error).message}`,
+      );
+    }
+  }, [
+    multiRuns,
+    multiHasSettledRun,
+    multiRunning,
+    templateName,
+    selectedPattern,
+    showReportStatus,
+  ]);
+
+  const handleDownloadMultiReport = useCallback(() => {
+    if (!multiHasSettledRun || multiRunning) return;
+    try {
+      const text = buildMultiScenarioMarkdownReport({
+        runs: multiRuns,
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+      });
+      const filename = buildReportFilename({
+        kind: "multi-scenario-qa",
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+        extension: "md",
+      });
+      downloadTextFile(filename, text, "text/markdown;charset=utf-8");
+      showReportStatus("success", "QA report downloaded.");
+    } catch (err) {
+      showReportStatus(
+        "error",
+        `Could not download QA report: ${(err as Error).message}`,
+      );
+    }
+  }, [
+    multiRuns,
+    multiHasSettledRun,
+    multiRunning,
+    templateName,
+    selectedPattern,
+    showReportStatus,
+  ]);
+
+  const handleCopyMultiCsv = useCallback(async () => {
+    if (!multiHasSettledRun || multiRunning) return;
+    try {
+      const text = buildMultiScenarioCsvReport({
+        runs: multiRuns,
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+      });
+      await copyTextToClipboard(text);
+      showReportStatus("success", "Matrix CSV copied.");
+    } catch (err) {
+      showReportStatus(
+        "error",
+        `Could not copy matrix CSV: ${(err as Error).message}`,
+      );
+    }
+  }, [
+    multiRuns,
+    multiHasSettledRun,
+    multiRunning,
+    templateName,
+    selectedPattern,
+    showReportStatus,
+  ]);
+
+  const handleDownloadMultiCsv = useCallback(() => {
+    if (!multiHasSettledRun || multiRunning) return;
+    try {
+      const text = buildMultiScenarioCsvReport({
+        runs: multiRuns,
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+      });
+      const filename = buildReportFilename({
+        kind: "multi-scenario-qa",
+        templateName: templateName ?? null,
+        patternName: selectedPattern?.name ?? null,
+        extension: "csv",
+      });
+      downloadTextFile(filename, text, "text/csv;charset=utf-8");
+      showReportStatus("success", "Matrix CSV downloaded.");
+    } catch (err) {
+      showReportStatus(
+        "error",
+        `Could not download matrix CSV: ${(err as Error).message}`,
+      );
+    }
+  }, [
+    multiRuns,
+    multiHasSettledRun,
+    multiRunning,
+    templateName,
+    selectedPattern,
+    showReportStatus,
+  ]);
+
   return (
     <Modal
       open={isOpen}
@@ -1364,6 +1594,7 @@ export function TemplatePatternTestPanel({
             multiSaveThenRunBusy={multiSaveThenRunBusy}
             multiSaveError={multiSaveError}
             multiExpandedId={multiExpandedId}
+            multiHasSettledRun={multiHasSettledRun}
             templateId={templateId}
             isDraft={isDraft}
             hasUnsavedChanges={hasUnsavedChanges}
@@ -1384,6 +1615,14 @@ export function TemplatePatternTestPanel({
             }
             onLoadIntoForm={handleLoadMultiIntoForm}
             onRunSingle={(id) => handleRunMulti([id])}
+            // Phase 2H — report actions threaded through the
+            // sub-component; status toast lives at the panel level
+            // so it renders above the modal scroll area.
+            reportStatus={reportStatus}
+            onCopyMultiReport={handleCopyMultiReport}
+            onDownloadMultiReport={handleDownloadMultiReport}
+            onCopyMultiCsv={handleCopyMultiCsv}
+            onDownloadMultiCsv={handleDownloadMultiCsv}
           />
         )}
 
@@ -1514,6 +1753,15 @@ export function TemplatePatternTestPanel({
             <SummaryCard
               result={result}
               scenarioName={selectedScenario?.name ?? null}
+            />
+            {/* Phase 2H — Single-run report actions. Diagnostic-only
+                Markdown report; intentionally separate from the
+                production export engine. */}
+            <ReportActionRow
+              kind="single"
+              status={reportStatus}
+              onCopy={handleCopySingleReport}
+              onDownload={handleDownloadSingleReport}
             />
             {/* Phase 2G — Review-style diagnostics. Sits between
                 the summary card and the raw bridge / resolver
@@ -1840,6 +2088,7 @@ function MultiScenarioQASection({
   multiSaveThenRunBusy,
   multiSaveError,
   multiExpandedId,
+  multiHasSettledRun,
   templateId,
   isDraft,
   hasUnsavedChanges,
@@ -1856,6 +2105,11 @@ function MultiScenarioQASection({
   onExpand,
   onLoadIntoForm,
   onRunSingle,
+  reportStatus,
+  onCopyMultiReport,
+  onDownloadMultiReport,
+  onCopyMultiCsv,
+  onDownloadMultiCsv,
 }: {
   scenarios: PatternTestScenario[];
   multiSelectedIds: Set<string>;
@@ -1864,6 +2118,7 @@ function MultiScenarioQASection({
   multiSaveThenRunBusy: boolean;
   multiSaveError: string | null;
   multiExpandedId: string | null;
+  multiHasSettledRun: boolean;
   templateId: string | null;
   isDraft: boolean;
   hasUnsavedChanges: boolean;
@@ -1880,6 +2135,12 @@ function MultiScenarioQASection({
   onExpand: (id: string) => void;
   onLoadIntoForm: (id: string) => void;
   onRunSingle: (id: string) => void;
+  // Phase 2H — report-action plumbing.
+  reportStatus: { type: "success" | "error"; message: string } | null;
+  onCopyMultiReport: () => void;
+  onDownloadMultiReport: () => void;
+  onCopyMultiCsv: () => void;
+  onDownloadMultiCsv: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -2138,6 +2399,21 @@ function MultiScenarioQASection({
                 running={multiRunning}
               />
             )}
+
+          {/* Phase 2H — Multi-scenario report actions. Disabled
+              while the batch is mid-run to avoid ambiguous
+              "did this include the running scenarios?" reports. */}
+          {multiRuns.length > 0 && (
+            <ReportActionRow
+              kind="multi"
+              status={reportStatus}
+              disabled={!multiHasSettledRun || multiRunning}
+              onCopy={onCopyMultiReport}
+              onDownload={onDownloadMultiReport}
+              onCopyCsv={onCopyMultiCsv}
+              onDownloadCsv={onDownloadMultiCsv}
+            />
+          )}
 
           {/* Progress + result matrix */}
           {multiRuns.length > 0 && (
@@ -2941,6 +3217,123 @@ function AggregateList({
         </ul>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2H — QA report action row (single + multi shared component)
+// ---------------------------------------------------------------------------
+
+function ReportActionRow({
+  kind,
+  status,
+  disabled = false,
+  onCopy,
+  onDownload,
+  onCopyCsv,
+  onDownloadCsv,
+}: {
+  /** Drives label copy + which action set is rendered. */
+  kind: "single" | "multi";
+  status: { type: "success" | "error"; message: string } | null;
+  disabled?: boolean;
+  onCopy: () => void;
+  onDownload: () => void;
+  /** Multi-only — the matrix CSV actions. */
+  onCopyCsv?: () => void;
+  onDownloadCsv?: () => void;
+}) {
+  const isMulti = kind === "multi";
+  return (
+    <section
+      className="rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-line dark:bg-surface-subtle"
+      aria-label={
+        isMulti
+          ? "Multi-scenario QA report actions"
+          : "Pattern test report actions"
+      }
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gray-700 dark:text-ink-muted">
+          <FileText className="h-3.5 w-3.5 text-brand-600 dark:text-brand-50" />
+          {isMulti ? "QA report" : "Report"}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onCopy}
+          disabled={disabled}
+          title={
+            isMulti
+              ? "Copy a Markdown summary of every settled scenario to the clipboard"
+              : "Copy a Markdown summary of this run to the clipboard"
+          }
+        >
+          <ClipboardCopy className="h-3.5 w-3.5" />
+          Copy {isMulti ? "QA report" : "report"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onDownload}
+          disabled={disabled}
+          title={
+            isMulti
+              ? "Download a Markdown summary of every settled scenario"
+              : "Download a Markdown summary of this run"
+          }
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download {isMulti ? "QA report" : "report"}
+        </Button>
+        {isMulti && onCopyCsv && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onCopyCsv}
+            disabled={disabled}
+            title="Copy the QA matrix as CSV (Excel / Google Sheets ready)"
+          >
+            <Table className="h-3.5 w-3.5" />
+            Copy matrix CSV
+          </Button>
+        )}
+        {isMulti && onDownloadCsv && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onDownloadCsv}
+            disabled={disabled}
+            title="Download the QA matrix as a .csv file"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download CSV
+          </Button>
+        )}
+        <div className="flex-1" />
+        {status && (
+          <span
+            className={cn(
+              "text-[11px] font-medium",
+              status.type === "success"
+                ? "text-green-700 dark:text-green-300"
+                : "text-red-700 dark:text-red-300",
+            )}
+            role={status.type === "error" ? "alert" : "status"}
+            aria-live="polite"
+          >
+            {status.message}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-[11px] text-gray-500 dark:text-ink-muted">
+        Diagnostic only — the report doesn't export accounting data.
+      </p>
+    </section>
   );
 }
 
