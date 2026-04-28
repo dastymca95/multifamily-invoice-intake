@@ -48,6 +48,7 @@ from app.dependencies import DB, CurrentUser
 from app.models.invoice_pattern import InvoicePattern
 from app.repositories.invoice_pattern_repo import InvoicePatternRepository
 from app.repositories.invoice_template_repo import InvoiceTemplateRepository
+from app.schemas.import_resolver import ResolverInput
 from app.schemas.invoice_pattern import (
     InvoiceExtractedFieldsResponse,
     InvoicePatternCreate,
@@ -63,11 +64,17 @@ from app.schemas.invoice_pattern import (
     build_canonical_field_descriptors,
     build_pattern_field_options,
 )
+from app.schemas.invoice_pattern_resolver_bridge import (
+    ResolverInputPreviewRequest,
+)
 from app.schemas.dependencies import UsedByReport
 from app.schemas.invoice_pattern_coverage import InvoicePatternImportCoverage
 from app.services.dependency_usage import get_invoice_pattern_usage
 from app.services.invoice_pattern_coverage import (
     compute_pattern_import_coverage,
+)
+from app.services.invoice_pattern_resolver_bridge import (
+    build_resolver_input_from_invoice_pattern,
 )
 
 router = APIRouter(prefix="/invoice-patterns", tags=["invoice-patterns"])
@@ -330,6 +337,59 @@ async def get_invoice_pattern_import_coverage(
         # bumping the cap later is a one-liner if it ever bites.
         templates = await template_repo.list_recent(limit=500, offset=0)
     return compute_pattern_import_coverage(pattern, templates)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2A — Invoice Pattern → ResolverInput bridge.
+#
+# Diagnostic preview surface that converts a saved invoice pattern +
+# operator-supplied test inputs (manual fact values, catalog hints)
+# into a ``ResolverInput`` payload the import-template resolver can
+# consume. The endpoint NEVER runs the resolver itself — it only
+# returns the would-be input, so a Phase 2B "test template with this
+# pattern" surface can:
+#
+#   1. POST here to see the bridge output.
+#   2. POST that body straight to
+#      ``/invoice-templates/{template_id}/resolve-dry-run``.
+#
+# Splitting the two steps keeps the bridge testable in isolation and
+# lets the frontend show the operator EXACTLY what gets sent to the
+# resolver before any dry-run side effects (none today, but the
+# separation of concerns is cheap insurance against future drift).
+#
+# Read-only — no DB mutation, no resolver invocation, no OCR / AI.
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{pattern_id}/resolver-input-preview",
+    response_model=ResolverInput,
+)
+async def preview_resolver_input_for_invoice_pattern(
+    pattern_id: uuid.UUID,
+    body: ResolverInputPreviewRequest,
+    db: DB,
+    user: CurrentUser,
+) -> ResolverInput:
+    """Build the ResolverInput payload for one saved invoice pattern.
+
+    Returns the would-be ``ResolverInput`` for the given pattern +
+    operator-supplied test inputs. Does NOT run the resolver.
+    """
+    repo = InvoicePatternRepository(db)
+    row = await repo.get(pattern_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Invoice pattern not found"
+        )
+    return build_resolver_input_from_invoice_pattern(
+        row,
+        template_id=body.template_id,
+        manual_fact_values=body.manual_fact_values,
+        manual_catalog_hints=body.manual_catalog_hints,
+        include_empty_fields=body.include_empty_fields,
+    )
 
 
 @router.patch("/{pattern_id}", response_model=InvoicePatternOut)
