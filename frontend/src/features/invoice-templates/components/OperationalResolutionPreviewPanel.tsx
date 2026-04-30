@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleAlert,
   ClipboardCopy,
+  ExternalLink,
   Hash,
   Info,
   Loader2,
@@ -72,11 +73,66 @@ import {
   type ExportProfile,
 } from "../lib/export-profile-contract";
 import {
+  buildExportProfileSelectionOptions,
+  defaultExportProfileOptionId,
+  exportProfileSourceMarker,
+  isStaleSavedSelection,
+  resolveSelectedExportProfileContract,
+  resolveSelectedOption,
+  type ExportProfileSelectionOption,
+} from "../lib/export-profile-selection";
+import { usePersistedExportProfiles } from "../hooks/usePersistedExportProfiles";
+import { usePersistedExportProfileContract } from "../hooks/usePersistedExportProfileContract";
+import { useTransientCopyStatus } from "../hooks/useTransientCopyStatus";
+import {
+  BACKEND_VALIDATION_SOURCE_COPY,
+  backendValidationSourceMarker,
+  backendValidationToLocalShape,
+  type ExportProfileValidationSource,
+} from "../lib/export-profile-backend-adapter";
+import { useBackendExportProfileValidation } from "../hooks/useBackendExportProfileValidation";
+import {
+  compareExportValidationResults,
+  summarizeExportValidationParity,
+  type ExportValidationParityResult,
+} from "../lib/export-validation-parity";
+import {
+  EXPORT_DIAGNOSTIC_STATUS_LABEL,
+  EXPORT_READINESS_BOUNDARY_REASON_LABEL,
+  PRODUCTION_EXPORT_STATUS_LABEL,
+  buildExportReadinessBoundary,
+  type ExportReadinessBoundary,
+} from "../lib/export-readiness-boundary";
+import {
+  buildBackendExportRunDraftRequest,
+  exportRunDraftSourceMarker,
+  pickExportRunDraftSourceCopy,
+} from "../lib/export-run-draft-adapter";
+import { useBackendExportRunDraft } from "../hooks/useBackendExportRunDraft";
+import type { BackendExportRunDraftResult } from "@/types/export-run-draft";
+// Phase 5B — Persisted Export Run draft / audit wiring.
+import type { PersistedExportRunRead } from "@/types/export-run-persistence";
+import {
+  PERSISTED_DRAFT_RECORD_DISCLAIMERS,
+  buildPersistedExportRunDraftCreatePayload,
+  exportRunDraftSaveFingerprint,
+  persistedDraftRecordSourceMarker,
+} from "../lib/export-run-persistence-adapter";
+import { usePersistExportRunDraft } from "../hooks/usePersistExportRunDraft";
+import {
+  BACKEND_BOUNDARY_SOURCE_COPY,
+  backendBoundarySourceMarker,
+  backendBoundaryToLocalShape,
+  type ExportReadinessBoundarySource,
+} from "../lib/export-readiness-boundary-backend-adapter";
+import { useBackendExportReadinessBoundary } from "../hooks/useBackendExportReadinessBoundary";
+import {
   validateExportPreviewAgainstProfile,
   type ExportProfileIssueSeverity,
   type ExportProfileValidationResult,
 } from "../lib/export-profile-validation";
 import { buildExportProfileValidationMarkdownReport } from "../lib/export-profile-reports";
+import { buildOperationalFullMarkdownReport } from "../lib/operational-full-report";
 
 /**
  * Phase 3B — Operational Resolution Preview UI.
@@ -401,40 +457,29 @@ export function OperationalResolutionPreviewPanel({
   const hintsSectionRef = useRef<HTMLDivElement | null>(null);
   const contextSectionRef = useRef<HTMLDivElement | null>(null);
 
-  // ---- Phase 3D — copy-diagnostics transient toast ------------
-  const [diagnosticsCopyStatus, setDiagnosticsCopyStatus] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
-  const diagnosticsCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  // ---- Phase 3D / 3E / 3F / 3G — copy toast surfaces ----------
+  // Each surface owns its own transient toast so messages never
+  // overwrite each other ("Diagnostics copied" vs "Preview copied"
+  // vs "Profile check copied" vs "Full report copied"). The shared
+  // ``useTransientCopyStatus`` hook (Phase 3H) replaces what used
+  // to be four hand-rolled state + ref + show + close-cleanup
+  // patterns. The ``isOpen`` arg flushes any pending toast on close
+  // AND on component unmount.
+  const diagnosticsCopy = useTransientCopyStatus(isOpen);
+  const exportCopy = useTransientCopyStatus(isOpen);
+  const profileCopy = useTransientCopyStatus(isOpen);
+  const fullReportCopy = useTransientCopyStatus(isOpen);
 
-  // ---- Phase 3E — copy-export-preview transient toast ---------
-  // Separate from diagnosticsCopyStatus so the two surfaces never
-  // overwrite each other's confirmation ("Diagnostics copied" vs
-  // "Preview copied").
-  const [exportCopyStatus, setExportCopyStatus] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
-  const exportCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   // ---- Phase 3E — "Show only issues" filter toggle ------------
   const [exportShowOnlyIssues, setExportShowOnlyIssues] = useState(false);
 
-  // ---- Phase 3F — Export Profile selection + copy toast --------
-  // Stored separately from the preview-copy toast so the two
-  // surfaces never overwrite each other's confirmation.
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
-    null,
-  );
-  const [profileCopyStatus, setProfileCopyStatus] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
-  const profileCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+  // ---- Phase 3F + Phase 4B — Export Profile selection ---------
+  // ``selectedOptionId`` is the namespaced selector id from
+  // ``export-profile-selection.ts`` — ``saved:<uuid>`` for a
+  // persisted profile, ``builtin:<id>`` for a built-in starter.
+  // The namespace prevents saved + built-in collisions and lets a
+  // previous selection survive saved-profile-list refreshes.
+  const [selectedOptionId, setSelectedOptionId] = useState<string | null>(
     null,
   );
 
@@ -552,6 +597,16 @@ export function OperationalResolutionPreviewPanel({
       runAbortRef.current?.abort();
     }
   }, [isOpen]);
+
+  // Phase 3H — also abort on real unmount (host route change /
+  // parent re-key / tree teardown). The ``isOpen`` effect alone
+  // doesn't fire if the component is removed without first
+  // toggling ``isOpen`` to false.
+  useEffect(() => {
+    return () => {
+      runAbortRef.current?.abort();
+    };
+  }, []);
 
   // ---- Payload construction -----------------------------------
   // Returns ``null`` (and sets jsonErrors) when any JSON textarea
@@ -786,74 +841,493 @@ export function OperationalResolutionPreviewPanel({
     handleRun,
   ]);
 
-  // ---- Phase 3D — focus / scroll helpers + copy diagnostics ---
+  // ---- Phase 3D — focus / scroll helpers ----------------------
+  // The four copy-status surfaces moved to ``useTransientCopyStatus``
+  // (Phase 3H). The hook handles auto-clear, close-cleanup, and
+  // unmount-safety internally so we don't repeat that here.
 
-  const showDiagnosticsCopyStatus = useCallback(
-    (type: "success" | "error", message: string) => {
-      setDiagnosticsCopyStatus({ type, message });
-      if (diagnosticsCopyTimerRef.current) {
-        clearTimeout(diagnosticsCopyTimerRef.current);
-      }
-      diagnosticsCopyTimerRef.current = setTimeout(() => {
-        setDiagnosticsCopyStatus(null);
-        diagnosticsCopyTimerRef.current = null;
-      }, 4000);
-    },
-    [],
+  // Phase 3J — Lift export-preview / profile / validation derivation
+  // to the panel level so:
+  //   (a) the inline ExportPreviewSection AND the consolidated
+  //       full-report use the SAME activeValidation, and
+  //   (b) the backend validator hook (which needs profile + preview
+  //       + result) lives at one stable site.
+  // ExportPreviewSection now consumes these via props instead of
+  // recomputing them locally. The memo dep arrays are stable —
+  // every helper here is deterministic and pure.
+  const exportPreview = useMemo(
+    () => (result ? buildOperationalExportPreview(result) : null),
+    [result],
+  );
+  // Phase 3F — Built-in profile bundle (always available, even
+  // when the saved-profile catalog can't be reached).
+  const builtInExportProfiles = useMemo(
+    () => (exportPreview ? getBuiltInExportProfiles(exportPreview) : []),
+    [exportPreview],
   );
 
-  // Phase 3E — separate transient toast for the export preview's
-  // "Copy preview" action. Same auto-clear semantics as the
-  // diagnostics toast.
-  const showExportCopyStatus = useCallback(
-    (type: "success" | "error", message: string) => {
-      setExportCopyStatus({ type, message });
-      if (exportCopyTimerRef.current) {
-        clearTimeout(exportCopyTimerRef.current);
-      }
-      exportCopyTimerRef.current = setTimeout(() => {
-        setExportCopyStatus(null);
-        exportCopyTimerRef.current = null;
-      }, 4000);
-    },
-    [],
+  // ---- Phase 4B — Persisted export profile catalog -------------
+  // Loads on panel open (gated by ``isOpen``). Failure is
+  // non-blocking — the picker continues to surface built-ins. The
+  // hook owns its own loading + abort + retry semantics.
+  const persistedProfiles = usePersistedExportProfiles({
+    enabled: isOpen,
+  });
+
+  // Phase 4B — Combine saved + built-in into one option model.
+  const profileSelectionOptions = useMemo(
+    () =>
+      buildExportProfileSelectionOptions({
+        savedSummaries: persistedProfiles.profiles,
+        builtInProfiles: builtInExportProfiles,
+      }),
+    [persistedProfiles.profiles, builtInExportProfiles],
   );
 
-  // Phase 3F — separate transient toast for the export-profile
-  // "Copy profile check" action.
-  const showProfileCopyStatus = useCallback(
-    (type: "success" | "error", message: string) => {
-      setProfileCopyStatus({ type, message });
-      if (profileCopyTimerRef.current) {
-        clearTimeout(profileCopyTimerRef.current);
-      }
-      profileCopyTimerRef.current = setTimeout(() => {
-        setProfileCopyStatus(null);
-        profileCopyTimerRef.current = null;
-      }, 4000);
-    },
-    [],
+  // Phase 4B — Resolve the selected option, falling back to the
+  // default (saved-default → first saved → custom-csv-mirror →
+  // first built-in → null) when the operator hasn't picked or the
+  // previous pick is no longer present.
+  const selectedExportOption: ExportProfileSelectionOption | null = useMemo(
+    () => resolveSelectedOption(profileSelectionOptions, selectedOptionId),
+    [profileSelectionOptions, selectedOptionId],
   );
 
-  // Clear the toasts on panel close so they don't settle onto an
-  // unmounted view.
+  // Phase 4E — Detect when a previously-selected SAVED profile
+  // disappeared after a refresh (e.g. deactivated in another tab).
+  // Drives a one-line warning in the picker. The dismiss flag lets
+  // the operator clear the warning without the next refresh
+  // re-triggering it; the dismiss is keyed on the missing id, so
+  // a NEW disappearance still warns.
+  const staleSavedSelection = useMemo(
+    () => isStaleSavedSelection(selectedOptionId, selectedExportOption),
+    [selectedOptionId, selectedExportOption],
+  );
+  const [dismissedStaleSavedId, setDismissedStaleSavedId] = useState<
+    string | null
+  >(null);
+  const showStaleSavedWarning =
+    staleSavedSelection && dismissedStaleSavedId !== selectedOptionId;
+  const handleDismissStaleSavedWarning = useCallback(() => {
+    setDismissedStaleSavedId(selectedOptionId);
+  }, [selectedOptionId]);
+
+  // Phase 4B — Saved profile contracts arrive via a per-id fetch
+  // because the LIST endpoint returns summaries only. Built-in
+  // options carry their contract eagerly; the hook stays idle for
+  // those cases.
+  const savedProfileContractFetch = usePersistedExportProfileContract({
+    profileId:
+      selectedExportOption?.source === "saved"
+        ? selectedExportOption.persisted_profile_id
+        : null,
+    enabled: isOpen,
+  });
+
+  // Phase 4B — The active ``ExportProfile`` contract that flows
+  // into validation / parity / boundary / reports. Null when a
+  // saved option is selected and its contract hasn't loaded yet
+  // (or failed) — the panel surfaces that explicitly via the
+  // saved-contract status notice instead of validating against a
+  // mismatched fallback.
+  const selectedExportProfile = useMemo(
+    () =>
+      resolveSelectedExportProfileContract(
+        selectedExportOption,
+        savedProfileContractFetch.data,
+      ),
+    [selectedExportOption, savedProfileContractFetch.data],
+  );
+  const localProfileValidation = useMemo(
+    () =>
+      exportPreview && selectedExportProfile
+        ? validateExportPreviewAgainstProfile(exportPreview, selectedExportProfile)
+        : null,
+    [exportPreview, selectedExportProfile],
+  );
+
+  // Phase 3J — Backend profile validation hook (Phase 3I endpoint).
+  // Fires whenever the lifted preview / profile / result identity
+  // changes. The hook handles debounce + abort + race + unmount
+  // safety internally; here we just feed it the same inputs the
+  // local validator uses so the backend verdict and local estimate
+  // describe the same diagnostic state.
+  const backendValidation = useBackendExportProfileValidation({
+    profile: selectedExportProfile,
+    preview: exportPreview,
+    result,
+    enabled: !!result && !!selectedExportProfile && !!exportPreview,
+    contextLabel: launchContextLabel ?? null,
+  });
+
+  // Phase 3J — When the backend has data, project it into the local
+  // ``ExportProfileValidationResult`` shape so the existing UI
+  // components + Markdown report helpers stay untouched.
+  const backendAdaptedValidation = useMemo(
+    () =>
+      backendValidation.data && selectedExportProfile
+        ? backendValidationToLocalShape(
+            backendValidation.data,
+            selectedExportProfile,
+          )
+        : null,
+    [backendValidation.data, selectedExportProfile],
+  );
+
+  // Phase 3J — Active validation: backend-verified when we have a
+  // verified response, otherwise the local estimate. The panel
+  // banner narrates which source is showing so the operator never
+  // confuses an unverified estimate with backend truth.
+  const activeProfileValidation = backendAdaptedValidation ?? localProfileValidation;
+  const activeValidationSource: ExportProfileValidationSource =
+    backendValidation.source;
+
+  // Phase 3K — Parity diagnostics. ONLY runs when we have BOTH a
+  // verified backend response AND a local estimate for the SAME
+  // selected profile. Diagnostic only — never overrides backend
+  // truth, never blocks the operator. Surfaces drift so support /
+  // developers can see when local fallback is diverging.
+  const parityResult: ExportValidationParityResult | null = useMemo(() => {
+    if (!backendAdaptedValidation || !localProfileValidation) return null;
+    return compareExportValidationResults({
+      localValidation: localProfileValidation,
+      backendValidation: backendAdaptedValidation,
+      profile: selectedExportProfile,
+      preview: exportPreview,
+    });
+  }, [
+    backendAdaptedValidation,
+    localProfileValidation,
+    selectedExportProfile,
+    exportPreview,
+  ]);
+
+  // Phase 4B — Saved-profile selection drives ``has_persisted_profile``
+  // on both the local and backend boundary. Built-in starters keep
+  // the flag false so the boundary correctly retains the
+  // ``no_export_profile_persistence`` reason for those.
+  const hasPersistedProfileSelected =
+    selectedExportOption?.source === "saved";
+
+  // Phase 3L — Local Export Readiness Boundary fallback. Pure /
+  // cheap; routes the current diagnostic state through one helper
+  // that computes the explicit gap to a future production export.
+  // ALSO computed when the run is unsuccessful so the panel +
+  // reports always have a boundary to render.
+  const localReadinessBoundary: ExportReadinessBoundary = useMemo(
+    () =>
+      buildExportReadinessBoundary({
+        operationalResult: result,
+        exportPreview,
+        activeProfileValidation,
+        parityResult,
+        validationSource: activeValidationSource,
+        selectedProfile: selectedExportProfile,
+        hasPersistedProfile: hasPersistedProfileSelected,
+      }),
+    [
+      result,
+      exportPreview,
+      activeProfileValidation,
+      parityResult,
+      activeValidationSource,
+      selectedExportProfile,
+      hasPersistedProfileSelected,
+    ],
+  );
+
+  // Phase 3N — Backend boundary mirror. Same diagnostic-state
+  // snapshot routed through the canonical Phase 3M endpoint. The
+  // hook handles debounce + abort + race + unmount safety
+  // internally; here we just feed it the same inputs the local
+  // boundary uses so backend and local describe the same state.
+  const backendBoundary = useBackendExportReadinessBoundary({
+    result,
+    exportPreview,
+    activeProfileValidation,
+    parityResult,
+    validationSource: activeValidationSource,
+    selectedProfile: selectedExportProfile,
+    hasPersistedProfile: hasPersistedProfileSelected,
+    enabled: !!result,
+  });
+
+  // Phase 3N — When the backend has data, project it into the
+  // local boundary shape so the existing Phase 3L UI panel +
+  // Markdown report helpers stay untouched.
+  const backendAdaptedBoundary = useMemo(
+    () =>
+      backendBoundary.data
+        ? backendBoundaryToLocalShape(backendBoundary.data)
+        : null,
+    [backendBoundary.data],
+  );
+
+  // Phase 3N — Active boundary: backend-verified when we have a
+  // verified response, otherwise the local estimate. The boundary
+  // panel banner narrates which source is showing so the operator
+  // never misreads a verified backend pill as "ready to export".
+  const activeReadinessBoundary: ExportReadinessBoundary =
+    backendAdaptedBoundary ?? localReadinessBoundary;
+  const activeBoundarySource: ExportReadinessBoundarySource =
+    backendBoundary.source;
+
+  // Phase 4G — Backend Export Run Draft hook. Same diagnostic
+  // snapshot threaded through the Phase 4F endpoint. The hook
+  // handles debounce + abort + race + unmount safety internally;
+  // here we just feed it the panel's current state so the draft
+  // verdict re-fires whenever any input the classifier reads from
+  // changes (selected profile, validation status, boundary status,
+  // row counts, etc.).
+  const exportRunDraft = useBackendExportRunDraft({
+    result,
+    exportPreview,
+    selectedExportOption,
+    selectedExportProfile,
+    activeProfileValidation,
+    activeReadinessBoundary,
+    activeValidationSource,
+    activeBoundarySource,
+    parityStatus: parityResult?.status ?? null,
+    enabled: !!result,
+  });
+
+  // Phase 5B — Manual save of the current diagnostic draft as a
+  // persisted draft / audit record. The hook is manual-click only;
+  // no useEffect fires the request. The fingerprint we stamp on the
+  // saved record (alongside the backend ``id``) lets the panel
+  // detect "preview changed since save" without re-fetching.
+  const persistDraft = usePersistExportRunDraft();
+  const [draftNotes, setDraftNotes] = useState("");
+  const [savedDraftFingerprint, setSavedDraftFingerprint] = useState<
+    string | null
+  >(null);
+  // ``currentDraftFingerprint`` is recomputed every render from the
+  // SAME inputs the Phase 4G hook uses to drive the evaluator; the
+  // panel compares it against ``savedDraftFingerprint`` to surface
+  // a "preview changed after save" notice. Cheap join — no memo
+  // needed for a 15-segment string.
+  const currentDraftRequest = result
+    ? buildBackendExportRunDraftRequest({
+        result,
+        exportPreview,
+        selectedExportOption,
+        selectedExportProfile,
+        activeProfileValidation,
+        activeReadinessBoundary,
+        activeValidationSource,
+        activeBoundarySource,
+        parityStatus: parityResult?.status ?? null,
+      })
+    : null;
+  const currentDraftFingerprint =
+    currentDraftRequest && selectedExportOption
+      ? exportRunDraftSaveFingerprint({
+          draftRequest: currentDraftRequest,
+          selectedExportOption,
+        })
+      : null;
+
+  const handleSaveDraftAuditRecord = useCallback(async () => {
+    if (!result || !currentDraftRequest || !selectedExportOption) {
+      // Defensive — the Save button is disabled when any of these
+      // is missing, but a stale onClick could still fire briefly.
+      return;
+    }
+    const payload = buildPersistedExportRunDraftCreatePayload({
+      draftRequest: currentDraftRequest,
+      draftResult: exportRunDraft.data,
+      staleDraftResult: exportRunDraft.stale,
+      result,
+      selectedExportOption,
+      selectedExportProfile,
+      activeProfileValidation,
+      activeReadinessBoundary,
+      exportPreview,
+      notes: draftNotes,
+    });
+    try {
+      await persistDraft.createDraftRecord(payload);
+      // Stamp the fingerprint that produced the saved record. The
+      // panel's stale-after-save notice compares this against
+      // ``currentDraftFingerprint`` on every render.
+      setSavedDraftFingerprint(
+        exportRunDraftSaveFingerprint({
+          draftRequest: currentDraftRequest,
+          selectedExportOption,
+        }),
+      );
+      // Clear the notes textarea on success — the saved record
+      // already carries the notes; leaving the textarea filled
+      // would tempt the operator into re-saving the same text.
+      setDraftNotes("");
+    } catch {
+      // The hook stores the error message on its own state; the
+      // panel reads ``persistDraft.error`` to render the inline
+      // banner. Nothing to do here.
+    }
+  }, [
+    result,
+    currentDraftRequest,
+    selectedExportOption,
+    selectedExportProfile,
+    activeProfileValidation,
+    activeReadinessBoundary,
+    exportPreview,
+    exportRunDraft.data,
+    exportRunDraft.stale,
+    draftNotes,
+    persistDraft,
+  ]);
+
+  // Phase 3K — Dev-only console.debug on major drift so engineers
+  // notice quickly without forcing a telemetry service. Silent in
+  // production; never triggered for ``aligned`` / ``minor_drift`` /
+  // ``not_checked``.
   useEffect(() => {
-    if (!isOpen && diagnosticsCopyTimerRef.current) {
-      clearTimeout(diagnosticsCopyTimerRef.current);
-      diagnosticsCopyTimerRef.current = null;
-      setDiagnosticsCopyStatus(null);
+    if (
+      process.env.NODE_ENV !== "production" &&
+      parityResult?.status === "major_drift"
+    ) {
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[ExportValidationParity] major drift detected",
+        {
+          profile_id: selectedExportProfile?.id,
+          local_status: parityResult.local_status,
+          backend_status: parityResult.backend_status,
+          differences: parityResult.differences,
+        },
+      );
     }
-    if (!isOpen && exportCopyTimerRef.current) {
-      clearTimeout(exportCopyTimerRef.current);
-      exportCopyTimerRef.current = null;
-      setExportCopyStatus(null);
+  }, [parityResult, selectedExportProfile]);
+
+  /**
+   * Phase 3G — Build the consolidated Markdown report from the
+   * current result + the same derived state the per-section
+   * surfaces use (review cards, export preview, selected profile,
+   * profile validation). Phase 3J — pulls activeValidation +
+   * source label so the full report reflects what's visible.
+   *
+   * Pure rebuild on every click — keeps the panel from holding a
+   * memoised report that could go stale if the operator changed
+   * inputs but hasn't re-run.
+   */
+  const handleCopyFullReport = useCallback(async () => {
+    if (!result) return;
+    try {
+      const reviewCards = buildOperationalDiagnosticCards(
+        result.review_diagnostics ?? [],
+      );
+      // Rebuild defensively so the report never depends on the
+      // panel's memoised state being current — picks up edits
+      // mid-render too.
+      const previewForReport =
+        exportPreview ?? buildOperationalExportPreview(result);
+      // Reuse the panel-resolved profile contract. If a saved
+      // option is selected and its contract hasn't loaded yet, the
+      // active selectedExportProfile is null — we don't fabricate
+      // a fallback contract here because the report would otherwise
+      // mis-attribute its verdicts to the saved profile.
+      const selectedProfile = selectedExportProfile;
+      // Reuse the same active validation the panel is showing —
+      // backend verdict when we have one, local estimate otherwise.
+      // Falls back to a fresh local compute if no memo is available
+      // yet (e.g. report copy fired immediately after Run).
+      const validationForReport =
+        activeProfileValidation ??
+        (selectedProfile
+          ? validateExportPreviewAgainstProfile(
+              previewForReport,
+              selectedProfile,
+            )
+          : null);
+      // Phase 4B — single-line marker that the report's profile
+      // section is honest about whether it's reading a saved
+      // profile or a built-in starter, AND about a still-loading
+      // saved-profile contract.
+      const profileSourceLine = exportProfileSourceMarker({
+        option: selectedExportOption,
+        contractAvailable: selectedProfile !== null,
+      });
+      const text = buildOperationalFullMarkdownReport({
+        result,
+        reviewCards,
+        exportPreview: previewForReport,
+        selectedProfile,
+        profileValidation: validationForReport,
+        contextLabel: launchContextLabel ?? null,
+        validationSourceMarker: backendValidationSourceMarker(
+          activeValidationSource,
+        ),
+        // Phase 3K — only attach when actually checked. The report
+        // builder gates on ``parityResult.checked`` so a "not checked"
+        // result still suppresses the audit section cleanly.
+        parityResult: parityResult ?? null,
+        // Phase 3L — explicit boundary block; always present so the
+        // consolidated report carries the contract regardless of
+        // diagnostic state.
+        // Phase 3N — uses the active (backend-verified-when-available)
+        // boundary so the consolidated report matches the panel.
+        readinessBoundary: activeReadinessBoundary,
+        boundarySourceMarker: backendBoundarySourceMarker(activeBoundarySource),
+        // Phase 4B — Profile source marker (saved vs built-in).
+        profileSourceMarker: profileSourceLine,
+        // Phase 4G — Backend-evaluated draft (when available) +
+        // its source marker. Falls back gracefully when the draft
+        // hook is in any non-backend state.
+        // Phase 4H — also thread the stale flag + last-updated
+        // timestamp so the report header is honest about
+        // last-known-good rendering.
+        exportRunDraft: exportRunDraft.data,
+        exportRunDraftSourceMarker: exportRunDraftSourceMarker(
+          exportRunDraft.source,
+          exportRunDraft.stale,
+        ),
+        exportRunDraftStale: exportRunDraft.stale,
+        exportRunDraftLastUpdatedAt: exportRunDraft.lastUpdatedAt,
+        // Phase 5B — persisted draft / audit record (when the
+        // operator clicked "Save draft audit record"). Always
+        // honest about being a draft / audit row; the marker
+        // explicitly denies finalisation / file generation.
+        persistedExportRun: persistDraft.lastSavedRecord,
+        persistedExportRunSourceMarker: persistedDraftRecordSourceMarker(
+          persistDraft.lastSavedRecord,
+        ),
+        persistedExportRunStaleAfterSave:
+          persistDraft.lastSavedRecord !== null &&
+          savedDraftFingerprint !== null &&
+          currentDraftFingerprint !== null &&
+          savedDraftFingerprint !== currentDraftFingerprint,
+      });
+      await copyTextToClipboard(text);
+      fullReportCopy.show("success", "Full report copied.");
+    } catch (err) {
+      fullReportCopy.show(
+        "error",
+        `Could not copy full report: ${(err as Error).message}`,
+      );
     }
-    if (!isOpen && profileCopyTimerRef.current) {
-      clearTimeout(profileCopyTimerRef.current);
-      profileCopyTimerRef.current = null;
-      setProfileCopyStatus(null);
-    }
-  }, [isOpen]);
+  }, [
+    result,
+    launchContextLabel,
+    fullReportCopy,
+    exportPreview,
+    selectedExportProfile,
+    selectedExportOption,
+    activeProfileValidation,
+    activeValidationSource,
+    parityResult,
+    activeReadinessBoundary,
+    activeBoundarySource,
+    exportRunDraft.data,
+    exportRunDraft.source,
+    exportRunDraft.stale,
+    exportRunDraft.lastUpdatedAt,
+    persistDraft.lastSavedRecord,
+    savedDraftFingerprint,
+    currentDraftFingerprint,
+  ]);
 
   const handleFocusSection = useCallback(
     (target: "facts" | "hints" | "context") => {
@@ -866,6 +1340,48 @@ export function OperationalResolutionPreviewPanel({
       ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     },
     [],
+  );
+
+  // Phase 3H — wrap the four JSON setters so editing a textarea
+  // also clears that field's error pill. Without this the error
+  // sticks until the next Run, which makes operators think they
+  // haven't fixed the JSON even after they have. The other fields'
+  // errors are preserved so each pill is independent.
+  const clearJsonError = useCallback((key: keyof typeof jsonErrors) => {
+    setJsonErrors((curr) => {
+      if (!curr[key]) return curr;
+      const { [key]: _omit, ...rest } = curr;
+      void _omit;
+      return rest;
+    });
+  }, []);
+  const handleChangeFactsJson = useCallback(
+    (v: string) => {
+      setFactsJson(v);
+      clearJsonError("facts");
+    },
+    [clearJsonError],
+  );
+  const handleChangeHintsJson = useCallback(
+    (v: string) => {
+      setHintsJson(v);
+      clearJsonError("hints");
+    },
+    [clearJsonError],
+  );
+  const handleChangeDocMetadataJson = useCallback(
+    (v: string) => {
+      setDocMetadataJson(v);
+      clearJsonError("document_metadata");
+    },
+    [clearJsonError],
+  );
+  const handleChangeRuntimeOptionsJson = useCallback(
+    (v: string) => {
+      setRuntimeOptionsJson(v);
+      clearJsonError("runtime_options");
+    },
+    [clearJsonError],
   );
 
   // ---- Derived ------------------------------------------------
@@ -1031,10 +1547,10 @@ export function OperationalResolutionPreviewPanel({
           docMetadataJson={docMetadataJson}
           runtimeOptionsJson={runtimeOptionsJson}
           jsonErrors={jsonErrors}
-          onChangeFacts={setFactsJson}
-          onChangeHints={setHintsJson}
-          onChangeDocMetadata={setDocMetadataJson}
-          onChangeRuntimeOptions={setRuntimeOptionsJson}
+          onChangeFacts={handleChangeFactsJson}
+          onChangeHints={handleChangeHintsJson}
+          onChangeDocMetadata={handleChangeDocMetadataJson}
+          onChangeRuntimeOptions={handleChangeRuntimeOptionsJson}
         />
 
         {/* ---- Run controls ----------------------------------- */}
@@ -1120,6 +1636,16 @@ export function OperationalResolutionPreviewPanel({
             )}
 
             <OperationalSummaryCard result={result} />
+            {/* Phase 3G — Consolidated Markdown report covering
+                all four diagnostic surfaces (summary + review
+                diagnostics + export-style preview + profile check).
+                Sits directly under the summary card so the
+                operator's first action after seeing the verdict
+                is one-click "share this with QA / support". */}
+            <FullReportCopyRow
+              copyStatus={fullReportCopy.status}
+              onCopy={handleCopyFullReport}
+            />
             {/* Phase 3D — replaced the old simple list with the
                 review-style grouped cards + summary + copy. The
                 section preserves backend code/message/recommendation
@@ -1127,8 +1653,8 @@ export function OperationalResolutionPreviewPanel({
             <OperationalReviewSection
               result={result}
               contextLabel={launchContextLabel ?? null}
-              copyStatus={diagnosticsCopyStatus}
-              onCopyStatus={showDiagnosticsCopyStatus}
+              copyStatus={diagnosticsCopy.status}
+              onCopyStatus={diagnosticsCopy.show}
               onFocusSection={handleFocusSection}
             />
             {/* Phase 3E — Export-style Rows Preview. Diagnostic-only
@@ -1139,20 +1665,107 @@ export function OperationalResolutionPreviewPanel({
             <ExportPreviewSection
               result={result}
               contextLabel={launchContextLabel ?? null}
-              copyStatus={exportCopyStatus}
-              onCopyStatus={showExportCopyStatus}
+              copyStatus={exportCopy.status}
+              onCopyStatus={exportCopy.show}
               showOnlyIssues={exportShowOnlyIssues}
               onToggleShowOnlyIssues={() =>
                 setExportShowOnlyIssues((v) => !v)
               }
-              // Phase 3F — Export Profile selector + validation
+              // Phase 3F + 4B — Export Profile selector + validation
               // sit inside the same section so the operator
               // mental-models them as part of the export-style
-              // preview rather than a separate surface.
-              selectedProfileId={selectedProfileId}
-              onSelectProfileId={setSelectedProfileId}
-              profileCopyStatus={profileCopyStatus}
-              onProfileCopyStatus={showProfileCopyStatus}
+              // preview rather than a separate surface. The
+              // selector now lists Saved profiles + Built-in
+              // starters via ``selectionOptions``.
+              selectedOptionId={selectedOptionId}
+              onSelectOptionId={setSelectedOptionId}
+              selectionOptions={profileSelectionOptions}
+              selectedOption={selectedExportOption}
+              persistedProfilesLoading={persistedProfiles.loading}
+              persistedProfilesError={persistedProfiles.error}
+              onRetryPersistedProfiles={persistedProfiles.retry}
+              savedContractLoading={savedProfileContractFetch.loading}
+              savedContractError={savedProfileContractFetch.error}
+              onRetrySavedContract={savedProfileContractFetch.retry}
+              // Phase 4E — stale-saved-selection warning + dismiss.
+              staleSavedSelectionWarning={showStaleSavedWarning}
+              onDismissStaleSavedSelectionWarning={
+                handleDismissStaleSavedWarning
+              }
+              profileCopyStatus={profileCopy.status}
+              onProfileCopyStatus={profileCopy.show}
+              // Phase 3J — lifted derived state + backend validation.
+              preview={exportPreview}
+              selectedProfile={selectedExportProfile}
+              activeValidation={activeProfileValidation}
+              validationSource={activeValidationSource}
+              validationLoading={backendValidation.loading}
+              validationError={backendValidation.error}
+              onRetryBackendValidation={backendValidation.retry}
+              // Phase 3K — diagnostic-only parity audit.
+              parityResult={parityResult}
+              // Phase 3N — boundary + source marker so the
+              // per-section Copy profile check report carries the
+              // active boundary and its provenance.
+              readinessBoundary={activeReadinessBoundary}
+              boundarySourceMarker={backendBoundarySourceMarker(
+                activeBoundarySource,
+              )}
+            />
+            {/* Phase 3L — Explicit boundary contract. Sits directly
+                under the Export-style Rows Preview / Export Profile
+                Check area so the operator reads it after the verdict.
+                ALWAYS rendered while a result exists (even when the
+                preview shows the empty-state) so the boundary is
+                on screen whenever the panel has anything diagnostic.
+                Phase 3N — uses the active boundary (backend-verified
+                when available) and surfaces the source through a
+                small banner inside the panel. */}
+            <ExportReadinessBoundaryPanel
+              boundary={activeReadinessBoundary}
+              source={activeBoundarySource}
+              loading={backendBoundary.loading}
+              error={backendBoundary.error}
+              onRetry={backendBoundary.retry}
+            />
+            {/* Phase 4G — Export Run Draft. Sits AFTER the readiness
+                boundary panel and BEFORE the technical Resolver
+                Input / Resolver Result so the operator sees the
+                draft verdict in context with the boundary it builds
+                on. Diagnostic only — backend evaluator never
+                generates a file or finalises a run. */}
+            <ExportRunDraftPanel
+              data={exportRunDraft.data}
+              source={exportRunDraft.source}
+              loading={exportRunDraft.loading}
+              error={exportRunDraft.error}
+              onRetry={exportRunDraft.retry}
+              // Phase 4H — stale + last-updated timestamp.
+              stale={exportRunDraft.stale}
+              lastUpdatedAt={exportRunDraft.lastUpdatedAt}
+              // Phase 5B — manual save action + saved-record card +
+              // optional notes input + stale-after-save notice.
+              // The persistence hook is manual-click only; no
+              // useEffect auto-save.
+              persistBusy={persistDraft.busy}
+              persistError={persistDraft.error}
+              persistedRecord={persistDraft.lastSavedRecord}
+              persistedAt={persistDraft.lastSavedAt}
+              draftNotes={draftNotes}
+              onChangeDraftNotes={setDraftNotes}
+              onSaveDraftAuditRecord={handleSaveDraftAuditRecord}
+              onClearPersistStatus={persistDraft.clearStatus}
+              persistDisabled={
+                !result ||
+                !selectedExportOption ||
+                !selectedExportProfile
+              }
+              staleAfterSave={
+                persistDraft.lastSavedRecord !== null &&
+                savedDraftFingerprint !== null &&
+                currentDraftFingerprint !== null &&
+                savedDraftFingerprint !== currentDraftFingerprint
+              }
             />
             <ResolverInputCard result={result} />
             <ResolverResultCard result={result} />
@@ -1668,24 +2281,40 @@ function OperationalSummaryCard({
   result: OperationalResolutionResult;
 }) {
   const summary = result.operational_summary;
+  // Phase 3H — defensive nullguard. Phase 3A guarantees a summary
+  // block on every successful response, but if a future backend
+  // revision ever returned ``null`` we'd rather render an empty
+  // placeholder than crash the panel.
+  if (!summary) {
+    return (
+      <section className="rounded-md border border-gray-200 bg-white px-3 py-3 text-xs text-gray-500 dark:border-line dark:bg-surface-subtle dark:text-ink-muted">
+        Operational summary not available for this run.
+      </section>
+    );
+  }
   const status = String(summary.status);
   const meta =
     RESOLVER_STATUS_META[status] ?? RESOLVER_STATUS_META.needs_review;
   const Icon = meta.Icon;
+  // Phase 3H — coerce missing numeric counts to 0 so the cards
+  // always render a number even if the backend ever omitted a
+  // field. This is the same defensive pattern the resolver-result
+  // section already uses for its row/issue counts.
+  const n = (v: number | null | undefined): number => v ?? 0;
   const cards = [
-    { label: "Rows", value: summary.row_count },
-    { label: "Ready", value: summary.ready_rows },
-    { label: "Needs review", value: summary.needs_review_rows },
-    { label: "Blocked", value: summary.blocked_rows },
-    { label: "Conflict", value: summary.conflict_rows },
-    { label: "Errors", value: summary.error_count },
-    { label: "Warnings", value: summary.warning_count },
-    { label: "Info", value: summary.info_count },
-    { label: "Facts", value: summary.extracted_fact_count },
-    { label: "Hints", value: summary.catalog_hint_count },
-    { label: "Missing required", value: summary.missing_required_count },
-    { label: "Missing facts", value: summary.missing_fact_count },
-    { label: "Missing hints", value: summary.missing_catalog_hint_count },
+    { label: "Rows", value: n(summary.row_count) },
+    { label: "Ready", value: n(summary.ready_rows) },
+    { label: "Needs review", value: n(summary.needs_review_rows) },
+    { label: "Blocked", value: n(summary.blocked_rows) },
+    { label: "Conflict", value: n(summary.conflict_rows) },
+    { label: "Errors", value: n(summary.error_count) },
+    { label: "Warnings", value: n(summary.warning_count) },
+    { label: "Info", value: n(summary.info_count) },
+    { label: "Facts", value: n(summary.extracted_fact_count) },
+    { label: "Hints", value: n(summary.catalog_hint_count) },
+    { label: "Missing required", value: n(summary.missing_required_count) },
+    { label: "Missing facts", value: n(summary.missing_fact_count) },
+    { label: "Missing hints", value: n(summary.missing_catalog_hint_count) },
   ];
 
   return (
@@ -2204,10 +2833,30 @@ function ExportPreviewSection({
   onCopyStatus,
   showOnlyIssues,
   onToggleShowOnlyIssues,
-  selectedProfileId,
-  onSelectProfileId,
+  selectedOptionId,
+  onSelectOptionId,
+  selectionOptions,
+  selectedOption,
+  persistedProfilesLoading,
+  persistedProfilesError,
+  onRetryPersistedProfiles,
+  savedContractLoading,
+  savedContractError,
+  onRetrySavedContract,
+  staleSavedSelectionWarning,
+  onDismissStaleSavedSelectionWarning,
   profileCopyStatus,
   onProfileCopyStatus,
+  preview: previewProp,
+  selectedProfile,
+  activeValidation,
+  validationSource,
+  validationLoading,
+  validationError,
+  onRetryBackendValidation,
+  parityResult,
+  readinessBoundary,
+  boundarySourceMarker,
 }: {
   result: OperationalResolutionResult;
   contextLabel: string | null;
@@ -2215,48 +2864,52 @@ function ExportPreviewSection({
   onCopyStatus: (type: "success" | "error", message: string) => void;
   showOnlyIssues: boolean;
   onToggleShowOnlyIssues: () => void;
-  // Phase 3F — profile-check plumbing.
-  selectedProfileId: string | null;
-  onSelectProfileId: (id: string | null) => void;
+  // Phase 3F + 4B — profile-check plumbing (saved + built-in
+  // selection model).
+  selectedOptionId: string | null;
+  onSelectOptionId: (id: string | null) => void;
+  selectionOptions: ReturnType<typeof buildExportProfileSelectionOptions>;
+  selectedOption: ExportProfileSelectionOption | null;
+  persistedProfilesLoading: boolean;
+  persistedProfilesError: string | null;
+  onRetryPersistedProfiles: () => void;
+  savedContractLoading: boolean;
+  savedContractError: string | null;
+  onRetrySavedContract: () => void;
+  // Phase 4E — stale-saved-selection warning + dismiss.
+  staleSavedSelectionWarning: boolean;
+  onDismissStaleSavedSelectionWarning: () => void;
   profileCopyStatus: { type: "success" | "error"; message: string } | null;
   onProfileCopyStatus: (type: "success" | "error", message: string) => void;
+  // Phase 3J — lifted derived state + backend validation source.
+  preview: OperationalExportPreview | null;
+  selectedProfile: ExportProfile | null;
+  activeValidation: ExportProfileValidationResult | null;
+  validationSource: ExportProfileValidationSource;
+  validationLoading: boolean;
+  validationError: string | null;
+  onRetryBackendValidation: () => void;
+  // Phase 3K — diagnostic-only parity audit.
+  parityResult: ExportValidationParityResult | null;
+  // Phase 3N — active boundary + boundary source marker. Threaded
+  // here only so the per-section Copy profile check report can
+  // include the boundary block + provenance.
+  readinessBoundary: ExportReadinessBoundary;
+  boundarySourceMarker: string;
 }) {
+  // Phase 3J — derived state lifted to the panel. Fall back to a
+  // local rebuild when the panel hasn't memoised yet (e.g. initial
+  // render race) so the section never crashes on a missing prop.
   const preview = useMemo(
-    () => buildOperationalExportPreview(result),
-    [result],
+    () => previewProp ?? buildOperationalExportPreview(result),
+    [previewProp, result],
   );
-
-  // Phase 3F — built-in profile bundle, refreshed when the preview
-  // changes (column inference flows through ``buildCustomCsvMirrorProfile``).
-  const profiles = useMemo(
-    () => getBuiltInExportProfiles(preview),
-    [preview],
-  );
-
-  // Default to the first profile (Custom CSV mirror) on mount, and
-  // fall back to it whenever the previously-selected profile is no
-  // longer present in the rebuilt list.
-  const effectiveProfileId = useMemo(() => {
-    if (selectedProfileId && profiles.some((p) => p.id === selectedProfileId)) {
-      return selectedProfileId;
-    }
-    return profiles[0]?.id ?? null;
-  }, [selectedProfileId, profiles]);
-
-  const selectedProfile = useMemo(
-    () => profiles.find((p) => p.id === effectiveProfileId) ?? null,
-    [profiles, effectiveProfileId],
-  );
-
-  // Validation runs in a pure useMemo so it stays cheap on
-  // re-renders that don't change the preview / profile.
-  const validation = useMemo(
-    () =>
-      selectedProfile
-        ? validateExportPreviewAgainstProfile(preview, selectedProfile)
-        : null,
-    [preview, selectedProfile],
-  );
+  // Phase 4B — selector-namespaced ID echoed back to the picker so
+  // the controlled <select> stays anchored to the actual selection
+  // even when the saved-default fallback kicks in.
+  const effectiveOptionId =
+    selectedOption?.option_id
+    ?? defaultExportProfileOptionId(selectionOptions);
 
   const visibleRows = useMemo(
     () =>
@@ -2404,20 +3057,44 @@ function ExportPreviewSection({
           />
         )}
 
-        {/* Phase 3F — Export Profile check. Lives inside the same
-            section so the operator sees it as part of the same
-            export-style preview rather than a separate surface. */}
+        {/* Phase 3F + 4B — Export Profile check. The picker now
+            lists Saved profiles (Phase 4A backend catalog) +
+            Built-in starters (Phase 3F factories). Backend-
+            verified validation when available; local estimate as
+            fallback (banner explains source). */}
         <ExportProfileCheckBlock
           result={result}
           preview={preview}
           contextLabel={contextLabel}
-          profiles={profiles}
-          selectedProfileId={effectiveProfileId}
-          onSelectProfileId={onSelectProfileId}
+          selectionOptions={selectionOptions}
+          selectedOptionId={effectiveOptionId}
+          onSelectOptionId={onSelectOptionId}
+          selectedOption={selectedOption}
+          persistedProfilesLoading={persistedProfilesLoading}
+          persistedProfilesError={persistedProfilesError}
+          onRetryPersistedProfiles={onRetryPersistedProfiles}
+          savedContractLoading={savedContractLoading}
+          savedContractError={savedContractError}
+          onRetrySavedContract={onRetrySavedContract}
+          // Phase 4E — stale-saved warning + dismiss + sync actions.
+          staleSavedSelectionWarning={staleSavedSelectionWarning}
+          onDismissStaleSavedSelectionWarning={
+            onDismissStaleSavedSelectionWarning
+          }
           selectedProfile={selectedProfile}
-          validation={validation}
+          validation={activeValidation}
           copyStatus={profileCopyStatus}
           onCopyStatus={onProfileCopyStatus}
+          validationSource={validationSource}
+          validationLoading={validationLoading}
+          validationError={validationError}
+          onRetryBackendValidation={onRetryBackendValidation}
+          // Phase 3K — diagnostic-only parity audit.
+          parityResult={parityResult}
+          // Phase 3N — readiness boundary + source marker for the
+          // per-section profile-check Markdown report.
+          readinessBoundary={readinessBoundary}
+          boundarySourceMarker={boundarySourceMarker}
         />
       </div>
     </section>
@@ -2462,6 +3139,19 @@ function ExportPreviewTable({
   preview: OperationalExportPreview;
   visibleRows: OperationalExportPreviewRow[];
 }) {
+  // Phase 3H — pre-index each row's cells by column_key once so the
+  // table render is O(rows × cols) lookups, not O(rows × cols ×
+  // cells). With 100 visible rows × 12 columns × ~12 cells per row
+  // the previous .find() loop did ~14k linear scans per render.
+  const cellMaps = useMemo(
+    () =>
+      visibleRows.map((row) => {
+        const map = new Map<string, OperationalExportPreviewCell>();
+        for (const c of row.cells) map.set(c.column_key, c);
+        return map;
+      }),
+    [visibleRows],
+  );
   return (
     <div className="overflow-x-auto rounded border border-gray-200 dark:border-line">
       <table className="w-full text-xs">
@@ -2487,33 +3177,42 @@ function ExportPreviewTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-line/60">
-          {visibleRows.map((row) => (
-            <tr key={row.row_index} className={cn(EXPORT_ROW_TONE[row.status])}>
-              <td className="px-2 py-1.5 align-top font-medium text-gray-700 dark:text-ink-muted">
-                {row.row_index + 1}
-              </td>
-              <td className="px-2 py-1.5 align-top">
-                <ExportPreviewStatusBadge status={row.status} />
-                {row.issue_count > 0 && (
-                  <span className="ml-1 text-[10px] text-gray-500 dark:text-ink-muted">
-                    · {row.issue_count} issue{row.issue_count === 1 ? "" : "s"}
-                  </span>
-                )}
-              </td>
-              {preview.columns.map((col) => {
-                const cell = row.cells.find((c) => c.column_key === col.key);
-                return (
-                  <td
-                    key={col.key}
-                    className="px-2 py-1.5 align-top"
-                    title={cell?.issues.map((i) => `${i.text} (${i.source})`).join("; ")}
-                  >
-                    <ExportPreviewCell cell={cell} />
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {visibleRows.map((row, rowIdx) => {
+            const cellMap = cellMaps[rowIdx];
+            return (
+              <tr
+                key={row.row_index}
+                className={cn(EXPORT_ROW_TONE[row.status])}
+              >
+                <td className="px-2 py-1.5 align-top font-medium text-gray-700 dark:text-ink-muted">
+                  {row.row_index + 1}
+                </td>
+                <td className="px-2 py-1.5 align-top">
+                  <ExportPreviewStatusBadge status={row.status} />
+                  {row.issue_count > 0 && (
+                    <span className="ml-1 text-[10px] text-gray-500 dark:text-ink-muted">
+                      · {row.issue_count} issue
+                      {row.issue_count === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </td>
+                {preview.columns.map((col) => {
+                  const cell = cellMap?.get(col.key);
+                  return (
+                    <td
+                      key={col.key}
+                      className="px-2 py-1.5 align-top"
+                      title={cell?.issues
+                        .map((i) => `${i.text} (${i.source})`)
+                        .join("; ")}
+                    >
+                      <ExportPreviewCell cell={cell} />
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -2637,34 +3336,93 @@ function ExportProfileCheckBlock({
   result,
   preview,
   contextLabel,
-  profiles,
-  selectedProfileId,
-  onSelectProfileId,
+  selectionOptions,
+  selectedOptionId,
+  onSelectOptionId,
+  selectedOption,
+  persistedProfilesLoading,
+  persistedProfilesError,
+  onRetryPersistedProfiles,
+  savedContractLoading,
+  savedContractError,
+  onRetrySavedContract,
+  staleSavedSelectionWarning,
+  onDismissStaleSavedSelectionWarning,
   selectedProfile,
   validation,
   copyStatus,
   onCopyStatus,
+  validationSource,
+  validationLoading,
+  validationError,
+  onRetryBackendValidation,
+  parityResult,
+  readinessBoundary,
+  boundarySourceMarker,
 }: {
   result: OperationalResolutionResult;
   preview: OperationalExportPreview;
   contextLabel: string | null;
-  profiles: ExportProfile[];
-  selectedProfileId: string | null;
-  onSelectProfileId: (id: string | null) => void;
+  // Phase 3F + 4B — saved + built-in selection model.
+  selectionOptions: ReturnType<typeof buildExportProfileSelectionOptions>;
+  selectedOptionId: string | null;
+  onSelectOptionId: (id: string | null) => void;
+  selectedOption: ExportProfileSelectionOption | null;
+  persistedProfilesLoading: boolean;
+  persistedProfilesError: string | null;
+  onRetryPersistedProfiles: () => void;
+  savedContractLoading: boolean;
+  savedContractError: string | null;
+  onRetrySavedContract: () => void;
+  // Phase 4E — stale-saved-selection warning + dismiss + sync actions.
+  staleSavedSelectionWarning: boolean;
+  onDismissStaleSavedSelectionWarning: () => void;
   selectedProfile: ExportProfile | null;
   validation: ExportProfileValidationResult | null;
   copyStatus: { type: "success" | "error"; message: string } | null;
   onCopyStatus: (type: "success" | "error", message: string) => void;
+  // Phase 3J — backend validation source plumbing.
+  validationSource: ExportProfileValidationSource;
+  validationLoading: boolean;
+  validationError: string | null;
+  onRetryBackendValidation: () => void;
+  // Phase 3K — diagnostic-only parity audit.
+  parityResult: ExportValidationParityResult | null;
+  // Phase 3N — boundary + boundary-source marker for the report.
+  readinessBoundary: ExportReadinessBoundary;
+  boundarySourceMarker: string;
 }) {
+  // Phase 4B — single-line marker that the per-section profile-check
+  // report is honest about whether it's reading a saved profile or a
+  // built-in starter, AND about a still-loading saved-profile contract.
+  const profileSourceMarkerLine = exportProfileSourceMarker({
+    option: selectedOption,
+    contractAvailable: selectedProfile !== null,
+  });
+
   const handleCopy = useCallback(async () => {
     if (!selectedProfile || !validation) return;
     try {
+      // Phase 3J — embed the active validation source so a paste-
+      // into-Slack workflow makes the verdict's provenance visible.
+      // Phase 3K — also embed the parity audit so the recipient
+      // sees backend↔local drift alongside the verdict.
+      // Phase 3N — also embed the active boundary + boundary
+      // source marker so the per-section report carries the
+      // production-export-unavailable contract verbatim.
+      // Phase 4B — also embed the profile source marker so the
+      // recipient knows whether the profile is saved or built-in.
       const text = buildExportProfileValidationMarkdownReport({
         result,
         preview,
         profile: selectedProfile,
         validation,
         contextLabel,
+        validationSourceMarker: backendValidationSourceMarker(validationSource),
+        parityResult: parityResult ?? null,
+        readinessBoundary,
+        boundarySourceMarker,
+        profileSourceMarker: profileSourceMarkerLine,
       });
       await copyTextToClipboard(text);
       onCopyStatus("success", "Profile check copied.");
@@ -2681,14 +3439,24 @@ function ExportProfileCheckBlock({
     validation,
     contextLabel,
     onCopyStatus,
+    validationSource,
+    parityResult,
+    readinessBoundary,
+    boundarySourceMarker,
+    profileSourceMarkerLine,
   ]);
 
-  // No profile available (preview empty + getBuiltInExportProfiles
-  // returned []). Render nothing — the host section's empty state
-  // already explains the situation.
-  if (profiles.length === 0 || !selectedProfile || !validation) {
+  // No selection options at all (preview empty AND saved catalog
+  // empty). Render nothing — the host section's empty state already
+  // explains the situation.
+  if (selectionOptions.combined.length === 0) {
     return null;
   }
+  // No selected profile contract (saved-contract loading or
+  // failed). Render the picker + a status notice instead of
+  // bailing — the operator should still be able to switch to a
+  // built-in starter without re-opening the panel.
+  // (Handled inline below — we don't early-return.)
 
   return (
     <section
@@ -2733,62 +3501,1657 @@ function ExportProfileCheckBlock({
       </header>
 
       <div className="px-3 py-2 space-y-3">
-        {/* Selector + status badge */}
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-[11px] font-semibold text-gray-700 dark:text-ink-muted">
-            Profile
-          </label>
-          <select
-            value={selectedProfileId ?? ""}
-            onChange={(e) => onSelectProfileId(e.target.value || null)}
-            className={cn(
-              "min-w-[14rem] rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-800 outline-none",
-              "focus:ring-2 focus:ring-brand-500",
-              "dark:bg-surface dark:text-ink dark:border-line",
-            )}
-          >
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
+        {/* Phase 4B — Saved/built-in selector with grouped options
+            and source badge. */}
+        <ProfileSelectorRow
+          selectionOptions={selectionOptions}
+          selectedOptionId={selectedOptionId}
+          selectedOption={selectedOption}
+          onSelectOptionId={onSelectOptionId}
+          persistedProfilesLoading={persistedProfilesLoading}
+          persistedProfilesError={persistedProfilesError}
+          onRetryPersistedProfiles={onRetryPersistedProfiles}
+          validationStatus={validation?.status ?? null}
+          // Phase 4E — sync actions + stale-saved-selection warning.
+          savedContractLoading={savedContractLoading}
+          onRefreshSavedContract={onRetrySavedContract}
+          staleSavedSelectionWarning={staleSavedSelectionWarning}
+          onDismissStaleSavedSelectionWarning={
+            onDismissStaleSavedSelectionWarning
+          }
+        />
+
+        {/* Phase 4B — saved-profile contract loading / failure
+            notice. Shows ONLY when the operator picked a saved
+            option whose contract is mid-fetch or failed. */}
+        <SavedProfileContractStatus
+          selectedOption={selectedOption}
+          loading={savedContractLoading}
+          error={savedContractError}
+          onRetry={onRetrySavedContract}
+        />
+
+        {/* Phase 3J — Validation source banner. Sits between the
+            selector and the description/settings strip so the
+            operator sees provenance before reading the verdict. */}
+        <ValidationSourceBanner
+          source={validationSource}
+          loading={validationLoading}
+          error={validationError}
+          onRetry={onRetryBackendValidation}
+        />
+
+        {/* Phase 3K — Diagnostic-only source audit. Secondary line
+            under the source banner. Only renders when parity has
+            actually been checked (backend + local both available
+            for the same profile). NEVER overrides backend truth
+            and never blocks the operator. */}
+        <ValidationSourceAudit parityResult={parityResult} />
+
+        {/* Profile detail + verdict — only rendered when the
+            selected profile contract IS available AND the
+            validator returned a verdict. Otherwise the picker +
+            status notices above explain the missing state. */}
+        {selectedProfile && validation && (
+          <>
+            {/* Description + settings strip */}
+            <p className="text-[11px] text-gray-700 dark:text-ink-muted">
+              {selectedProfile.description}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <ProfileMetaCell label="Target system" value={selectedProfile.target_system} />
+              <ProfileMetaCell label="Delimiter" value={selectedProfile.settings.delimiter} />
+              <ProfileMetaCell
+                label="Header"
+                value={selectedProfile.settings.include_header ? "Included" : "Omitted"}
+              />
+              <ProfileMetaCell label="Date format" value={selectedProfile.settings.date_format} />
+              <ProfileMetaCell label="Amount format" value={selectedProfile.settings.amount_format} />
+              <ProfileMetaCell label="Quote strategy" value={selectedProfile.settings.quote_strategy} />
+              <ProfileMetaCell label="Newline" value={selectedProfile.settings.newline} />
+              <ProfileMetaCell label="Encoding" value={selectedProfile.settings.encoding} />
+            </div>
+
+            {/* Validation summary counts */}
+            <ProfileValidationCounts validation={validation} profile={selectedProfile} />
+
+            {/* Issues + column mapping */}
+            <ProfileIssuesList issues={validation.issues} />
+            <ProfileColumnMappingTable validation={validation} />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4B — Profile selector with grouped saved + built-in options
+// ---------------------------------------------------------------------------
+
+function ProfileSelectorRow({
+  selectionOptions,
+  selectedOptionId,
+  selectedOption,
+  onSelectOptionId,
+  persistedProfilesLoading,
+  persistedProfilesError,
+  onRetryPersistedProfiles,
+  validationStatus,
+  savedContractLoading,
+  onRefreshSavedContract,
+  staleSavedSelectionWarning,
+  onDismissStaleSavedSelectionWarning,
+}: {
+  selectionOptions: ReturnType<typeof buildExportProfileSelectionOptions>;
+  selectedOptionId: string | null;
+  selectedOption: ExportProfileSelectionOption | null;
+  onSelectOptionId: (id: string | null) => void;
+  persistedProfilesLoading: boolean;
+  persistedProfilesError: string | null;
+  onRetryPersistedProfiles: () => void;
+  validationStatus: ExportProfileValidationResult["status"] | null;
+  // Phase 4E — sync actions + stale-saved-selection warning.
+  savedContractLoading: boolean;
+  onRefreshSavedContract: () => void;
+  staleSavedSelectionWarning: boolean;
+  onDismissStaleSavedSelectionWarning: () => void;
+}) {
+  const hasSaved = selectionOptions.saved.length > 0;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[11px] font-semibold text-gray-700 dark:text-ink-muted">
+          Profile
+        </label>
+        <select
+          value={selectedOptionId ?? ""}
+          onChange={(e) => onSelectOptionId(e.target.value || null)}
+          className={cn(
+            "min-w-[16rem] rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-800 outline-none",
+            "focus:ring-2 focus:ring-brand-500",
+            "dark:bg-surface dark:text-ink dark:border-line",
+          )}
+        >
+          {/* Grouped — saved first, built-in second. Optgroups
+              degrade gracefully on every browser. */}
+          {hasSaved && (
+            <optgroup label="Saved profiles">
+              {selectionOptions.saved.map((opt) => (
+                <option key={opt.option_id} value={opt.option_id}>
+                  {opt.label}
+                  {opt.is_default ? " · default" : ""}
+                  {` · v${opt.version}`}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Built-in starter profiles">
+            {selectionOptions.builtIn.map((opt) => (
+              <option key={opt.option_id} value={opt.option_id}>
+                {opt.label}
               </option>
             ))}
-          </select>
+          </optgroup>
+        </select>
+        {/* Source badge — Saved vs Built-in */}
+        {selectedOption && (
           <span
             className={cn(
               "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-              PROFILE_STATUS_CHIP[validation.status],
+              selectedOption.source === "saved"
+                ? "border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-cyan-200"
+                : "border-gray-200 bg-gray-50 text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted",
+            )}
+            title={
+              selectedOption.source === "saved"
+                ? "Selected profile is a saved catalog row."
+                : "Selected profile is a built-in starter."
+            }
+          >
+            {selectedOption.source === "saved" ? "Saved profile" : "Built-in starter"}
+          </span>
+        )}
+        {selectedOption?.source === "saved" && selectedOption.is_default && (
+          <span className="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
+            default
+          </span>
+        )}
+        {validationStatus && (
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              PROFILE_STATUS_CHIP[validationStatus],
             )}
           >
-            {PROFILE_STATUS_LABEL[validation.status]}
+            {PROFILE_STATUS_LABEL[validationStatus]}
           </span>
-        </div>
-
-        {/* Description + settings strip */}
-        <p className="text-[11px] text-gray-700 dark:text-ink-muted">
-          {selectedProfile.description}
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-          <ProfileMetaCell label="Target system" value={selectedProfile.target_system} />
-          <ProfileMetaCell label="Delimiter" value={selectedProfile.settings.delimiter} />
-          <ProfileMetaCell
-            label="Header"
-            value={selectedProfile.settings.include_header ? "Included" : "Omitted"}
-          />
-          <ProfileMetaCell label="Date format" value={selectedProfile.settings.date_format} />
-          <ProfileMetaCell label="Amount format" value={selectedProfile.settings.amount_format} />
-          <ProfileMetaCell label="Quote strategy" value={selectedProfile.settings.quote_strategy} />
-          <ProfileMetaCell label="Newline" value={selectedProfile.settings.newline} />
-          <ProfileMetaCell label="Encoding" value={selectedProfile.settings.encoding} />
-        </div>
-
-        {/* Validation summary counts */}
-        <ProfileValidationCounts validation={validation} profile={selectedProfile} />
-
-        {/* Issues + column mapping */}
-        <ProfileIssuesList issues={validation.issues} />
-        <ProfileColumnMappingTable validation={validation} />
+        )}
       </div>
+
+      {/* Phase 4E — Sync action row. Compact secondary controls
+          for refreshing the saved-profile catalog, refreshing the
+          selected saved profile contract, and opening the
+          Settings → Export Profiles management page in a new tab
+          (so the operator's preview state survives). */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600 dark:text-ink-muted">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onRetryPersistedProfiles}
+          disabled={persistedProfilesLoading}
+          title="Reload the saved profile catalog from the backend."
+        >
+          <RefreshCw
+            className={cn(
+              "h-3.5 w-3.5",
+              persistedProfilesLoading && "animate-spin",
+            )}
+          />
+          Refresh saved profiles
+        </Button>
+        {selectedOption?.source === "saved" && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRefreshSavedContract}
+            disabled={savedContractLoading}
+            title="Reload the selected saved profile's contract."
+          >
+            <RefreshCw
+              className={cn(
+                "h-3.5 w-3.5",
+                savedContractLoading && "animate-spin",
+              )}
+            />
+            Refresh contract
+          </Button>
+        )}
+        <a
+          href="/settings/export-profiles"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+            "text-gray-700 hover:bg-gray-100 dark:text-ink-muted dark:hover:bg-surface-muted",
+          )}
+          title="Open Settings → Export Profiles in a new tab. Operational Preview state stays open here."
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Open Export Profiles
+        </a>
+      </div>
+
+      {/* Phase 4E — Stale-saved-selection warning. Surfaced when
+          the operator-requested saved profile is no longer in the
+          refreshed catalog (e.g. deactivated in another tab) and
+          the resolver fell back to a different option. Dismissible
+          per-id so the next disappearance still warns. */}
+      {staleSavedSelectionWarning && (
+        <div className="flex items-start gap-2 rounded border border-yellow-200 bg-yellow-50/60 px-2 py-1 text-[11px] text-yellow-900 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-100">
+          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p>
+              The selected saved profile is no longer active. Rivera
+              selected the next available profile.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onDismissStaleSavedSelectionWarning}
+            title="Dismiss this notice."
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
+
+      {/* Saved-profile load loading + error notices. Non-blocking —
+          built-in starters remain in the picker either way. */}
+      {persistedProfilesLoading && !hasSaved && (
+        <p className="text-[11px] text-gray-600 dark:text-ink-muted">
+          <Loader2 className="inline h-3 w-3 mr-1 -mt-0.5 animate-spin text-brand-600 dark:text-brand-50" />
+          Loading saved profiles…
+        </p>
+      )}
+      {persistedProfilesError && (
+        <div className="flex items-start gap-2 rounded border border-yellow-200 bg-yellow-50/60 px-2 py-1 text-[11px] text-yellow-900 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-100">
+          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p>
+              Could not load saved profiles. Built-in starter profiles
+              are still available.
+            </p>
+            <p className="mt-0.5 font-mono text-[10px] text-yellow-800 dark:text-yellow-200 break-words">
+              {persistedProfilesError}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRetryPersistedProfiles}
+            title="Retry loading the saved profile catalog."
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        </div>
+      )}
+      {!persistedProfilesLoading &&
+        !persistedProfilesError &&
+        !hasSaved && (
+          <p className="text-[11px] text-gray-500 dark:text-ink-muted">
+            No saved profiles yet. Built-in starter profiles are
+            available.
+          </p>
+        )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4B — Saved profile contract loading / failure status
+// ---------------------------------------------------------------------------
+
+function SavedProfileContractStatus({
+  selectedOption,
+  loading,
+  error,
+  onRetry,
+}: {
+  selectedOption: ExportProfileSelectionOption | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  // Only render when a SAVED option is selected and either the
+  // contract is mid-fetch or the fetch errored. Built-in selections
+  // carry their contract eagerly so this status notice is irrelevant.
+  if (!selectedOption || selectedOption.source !== "saved") return null;
+  if (loading) {
+    return (
+      <p className="text-[11px] text-blue-800 dark:text-blue-200">
+        <Loader2 className="inline h-3 w-3 mr-1 -mt-0.5 animate-spin" />
+        Loading saved profile contract…
+      </p>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex items-start gap-2 rounded border border-yellow-300 bg-yellow-50/70 px-2 py-1 text-[11px] text-yellow-900 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-100">
+        <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p>
+            Could not load this saved profile&rsquo;s contract. Pick a
+            built-in starter or retry.
+          </p>
+          <p className="mt-0.5 font-mono text-[10px] text-yellow-800 dark:text-yellow-200 break-words">
+            {error}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onRetry}
+          title="Retry loading the saved profile contract."
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3J — Backend validation source banner
+// ---------------------------------------------------------------------------
+//
+// Sits inside the Export Profile Check block. Tells the operator
+// whether the verdict they're seeing is backend-verified or a
+// local estimate, with a retry control on backend failure.
+
+function ValidationSourceBanner({
+  source,
+  loading,
+  error,
+  onRetry,
+}: {
+  source: ExportProfileValidationSource;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  // While the request is in flight after a previous success, prefer
+  // the "backend" copy (we still show the previously-verified data)
+  // so operators don't see Backend verified flicker to Loading on
+  // every input nudge. The hook's ``source`` already reflects this
+  // — only "loading" when no prior data is available.
+  const copy = BACKEND_VALIDATION_SOURCE_COPY[source];
+  const tone = copy.tone;
+  const wrapClass =
+    tone === "success"
+      ? "border-green-200 bg-green-50/60 dark:border-green-900 dark:bg-green-950/20"
+      : tone === "warning"
+        ? "border-yellow-300 bg-yellow-50/70 dark:border-yellow-900 dark:bg-yellow-950/20"
+        : tone === "info"
+          ? "border-blue-200 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/20"
+          : "border-gray-200 bg-gray-50/70 dark:border-line dark:bg-surface-muted";
+  const titleClass =
+    tone === "success"
+      ? "text-green-800 dark:text-green-200"
+      : tone === "warning"
+        ? "text-yellow-900 dark:text-yellow-100"
+        : tone === "info"
+          ? "text-blue-900 dark:text-blue-100"
+          : "text-gray-800 dark:text-ink";
+  const detailClass =
+    tone === "success"
+      ? "text-green-800/90 dark:text-green-200/90"
+      : tone === "warning"
+        ? "text-yellow-900/90 dark:text-yellow-100/90"
+        : tone === "info"
+          ? "text-blue-900/90 dark:text-blue-100/90"
+          : "text-gray-700 dark:text-ink-muted";
+  const Icon =
+    tone === "success"
+      ? CheckCircle2
+      : tone === "warning"
+        ? AlertTriangle
+        : tone === "info"
+          ? Loader2
+          : Info;
+  const iconClass =
+    tone === "success"
+      ? "text-green-600 dark:text-green-400"
+      : tone === "warning"
+        ? "text-yellow-700 dark:text-yellow-300"
+        : tone === "info"
+          ? "text-blue-600 dark:text-blue-300 animate-spin"
+          : "text-gray-500 dark:text-ink-muted";
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-2.5 py-2 text-[11px]",
+        wrapClass,
+      )}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-start gap-2">
+        <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", iconClass)} />
+        <div className="min-w-0 flex-1">
+          <p className={cn("font-semibold", titleClass)}>{copy.title}</p>
+          <p className={cn("mt-0.5", detailClass)}>{copy.detail}</p>
+          {/* Surface the backend error verbatim — useful for support
+              tickets without forcing the operator to re-trigger and
+              read DevTools. */}
+          {error && source !== "backend" && (
+            <p className="mt-1 font-mono text-[10px] text-red-700 dark:text-red-300 break-words">
+              {error}
+            </p>
+          )}
+        </div>
+        {/* Retry only makes sense when the last attempt failed and
+            we're not already retrying. */}
+        {source === "local" && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRetry}
+            disabled={loading}
+            title="Retry backend profile check."
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3K — Validation source audit (parity diagnostic)
+// ---------------------------------------------------------------------------
+//
+// Compact, secondary line that surfaces drift between the local
+// validator and the backend validator. Diagnostic only — never
+// overrides backend truth, never blocks the operator. Hidden when
+// parity has not been checked (backend not yet available, no local
+// estimate, or different profiles).
+
+function ValidationSourceAudit({
+  parityResult,
+}: {
+  parityResult: ExportValidationParityResult | null;
+}) {
+  if (!parityResult || !parityResult.checked) {
+    // Stay quiet — the panel already has a Source banner narrating
+    // backend vs local. Adding a "not checked" line here would just
+    // be noise for the operator.
+    return null;
+  }
+  const summary = summarizeExportValidationParity(parityResult);
+  const tone = parityResult.status;
+  const wrapClass =
+    tone === "aligned"
+      ? "border-green-200 bg-green-50/40 dark:border-green-900 dark:bg-green-950/10"
+      : tone === "minor_drift"
+        ? "border-yellow-200 bg-yellow-50/40 dark:border-yellow-900 dark:bg-yellow-950/10"
+        : "border-rose-200 bg-rose-50/40 dark:border-rose-900 dark:bg-rose-950/10";
+  const titleClass =
+    tone === "aligned"
+      ? "text-green-800 dark:text-green-200"
+      : tone === "minor_drift"
+        ? "text-yellow-900 dark:text-yellow-100"
+        : "text-rose-900 dark:text-rose-100";
+  const Icon =
+    tone === "aligned"
+      ? CheckCircle2
+      : tone === "minor_drift"
+        ? Info
+        : AlertTriangle;
+  const iconClass =
+    tone === "aligned"
+      ? "text-green-600 dark:text-green-400"
+      : tone === "minor_drift"
+        ? "text-yellow-700 dark:text-yellow-300"
+        : "text-rose-700 dark:text-rose-300";
+  // Aligned needs no expandable details — there are no
+  // differences to show. Drift cases get a <details> so the
+  // operator can choose to look at the technical breakdown.
+  const showDetails =
+    parityResult.status !== "aligned" && parityResult.differences.length > 0;
+  return (
+    <div
+      className={cn("rounded-md border px-2.5 py-1.5 text-[11px]", wrapClass)}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-start gap-2">
+        <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", iconClass)} />
+        <div className="min-w-0 flex-1">
+          <p className={cn("font-medium", titleClass)}>{summary}</p>
+          {/* Mini status comparison so the audit line stays useful
+              even when collapsed. */}
+          <p className="mt-0.5 text-[10px] text-gray-600 dark:text-ink-muted">
+            Local says <span className="font-mono">{parityResult.local_status ?? "—"}</span>
+            {" · "}
+            Backend says <span className="font-mono">{parityResult.backend_status ?? "—"}</span>
+            {" · "}
+            {parityResult.local_issue_count} local /{" "}
+            {parityResult.backend_issue_count} backend issues
+          </p>
+          {showDetails && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[11px] text-gray-700 dark:text-ink-muted">
+                Show {parityResult.differences.length} drift detail
+                {parityResult.differences.length === 1 ? "" : "s"}
+              </summary>
+              <ul className="mt-1 space-y-1">
+                {parityResult.differences.map((d, idx) => (
+                  <li
+                    key={`${d.area}-${idx}`}
+                    className="rounded border border-gray-200 px-2 py-1 dark:border-line bg-white/60 dark:bg-surface-subtle/60"
+                  >
+                    <div className="flex items-start gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide",
+                          d.severity === "blocked"
+                            ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
+                            : d.severity === "warning"
+                              ? "border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/30 dark:text-yellow-200"
+                              : "border-gray-200 bg-gray-50 text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted",
+                        )}
+                      >
+                        {d.severity}
+                      </span>
+                      <span className="font-mono text-[10px] text-gray-500 dark:text-ink-subtle uppercase tracking-wide shrink-0">
+                        {d.area}
+                      </span>
+                      <span className="text-[11px] text-gray-800 dark:text-ink min-w-0">
+                        {d.message}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 pl-1 text-[10px] text-gray-600 dark:text-ink-muted">
+                      Local: <span className="font-mono">{d.local_value}</span>
+                      {" · "}
+                      Backend: <span className="font-mono">{d.backend_value}</span>
+                    </p>
+                    <p className="mt-0.5 pl-1 text-[10px] text-gray-600 dark:text-ink-muted">
+                      <Info className="inline h-3 w-3 mr-1 -mt-0.5" />
+                      {d.recommendation}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3L — Export Readiness Boundary panel
+// ---------------------------------------------------------------------------
+//
+// Always-on small section that makes the gap between current
+// diagnostic surfaces and a future production export engine
+// explicit. NEVER says "ready to export" — always carries
+// production_export_ready=false through the contract. Tone is
+// blue/cyan when diagnostics are clear (so green doesn't get
+// misread as "good to go"), amber on needs_review, rose on
+// blocked.
+
+const _BOUNDARY_TONE: Record<
+  ExportReadinessBoundary["diagnostic_status"],
+  {
+    border: string;
+    title: string;
+    detail: string;
+    pillBorder: string;
+    pillBg: string;
+    pillText: string;
+    Icon: LucideIcon;
+    iconClass: string;
+  }
+> = {
+  clear: {
+    border: "border-cyan-200 bg-cyan-50/50 dark:border-cyan-900 dark:bg-cyan-950/20",
+    title: "text-cyan-900 dark:text-cyan-100",
+    detail: "text-cyan-900/90 dark:text-cyan-100/90",
+    pillBorder: "border-cyan-200 dark:border-cyan-900",
+    pillBg: "bg-cyan-50 dark:bg-cyan-950/40",
+    pillText: "text-cyan-800 dark:text-cyan-200",
+    Icon: Info,
+    iconClass: "text-cyan-600 dark:text-cyan-300",
+  },
+  needs_review: {
+    border:
+      "border-yellow-300 bg-yellow-50/60 dark:border-yellow-900 dark:bg-yellow-950/20",
+    title: "text-yellow-900 dark:text-yellow-100",
+    detail: "text-yellow-900/90 dark:text-yellow-100/90",
+    pillBorder: "border-yellow-200 dark:border-yellow-900",
+    pillBg: "bg-yellow-50 dark:bg-yellow-950/40",
+    pillText: "text-yellow-800 dark:text-yellow-200",
+    Icon: AlertTriangle,
+    iconClass: "text-yellow-700 dark:text-yellow-300",
+  },
+  blocked: {
+    border:
+      "border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/20",
+    title: "text-rose-900 dark:text-rose-100",
+    detail: "text-rose-900/90 dark:text-rose-100/90",
+    pillBorder: "border-rose-200 dark:border-rose-900",
+    pillBg: "bg-rose-50 dark:bg-rose-950/40",
+    pillText: "text-rose-800 dark:text-rose-200",
+    Icon: CircleAlert,
+    iconClass: "text-rose-600 dark:text-rose-300",
+  },
+  not_available: {
+    border:
+      "border-gray-200 bg-gray-50/70 dark:border-line dark:bg-surface-muted",
+    title: "text-gray-800 dark:text-ink",
+    detail: "text-gray-700 dark:text-ink-muted",
+    pillBorder: "border-gray-200 dark:border-line",
+    pillBg: "bg-gray-50 dark:bg-surface-muted",
+    pillText: "text-gray-700 dark:text-ink-muted",
+    Icon: Info,
+    iconClass: "text-gray-500 dark:text-ink-muted",
+  },
+};
+
+function ExportReadinessBoundaryPanel({
+  boundary,
+  source,
+  loading,
+  error,
+  onRetry,
+}: {
+  boundary: ExportReadinessBoundary;
+  // Phase 3N — backend boundary mirror plumbing.
+  source: ExportReadinessBoundarySource;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  const tone = _BOUNDARY_TONE[boundary.diagnostic_status];
+  const Icon = tone.Icon;
+  return (
+    <section
+      className={cn("rounded-md border px-3 py-2.5", tone.border)}
+      aria-label="Export readiness boundary"
+    >
+      <header className="flex items-start gap-2">
+        <Icon className={cn("h-4 w-4 mt-0.5 shrink-0", tone.iconClass)} />
+        <div className="min-w-0 flex-1">
+          <p className={cn("text-sm font-semibold", tone.title)}>
+            Export readiness boundary
+          </p>
+          <p className={cn("mt-0.5 text-[11px]", tone.detail)}>
+            Diagnostic checks can be clear, but production export is not
+            enabled yet.
+          </p>
+        </div>
+      </header>
+
+      {/* Phase 3N — Boundary source banner. Tells the operator
+          whether the verdict they're seeing is the backend mirror
+          (Phase 3M) or the local fallback (Phase 3L). Sits right
+          under the header so the source is visible BEFORE the
+          status row + operator messaging. NEVER says "ready" — the
+          boundary contract holds regardless of source. */}
+      <BoundarySourceBanner
+        source={source}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+      />
+
+      {/* Status row — three immutable claims */}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+        <span
+          className={cn(
+            "inline-flex items-center rounded-full border px-1.5 py-0.5 font-semibold uppercase tracking-wide",
+            tone.pillBorder,
+            tone.pillBg,
+            tone.pillText,
+          )}
+          title="Diagnostic verdict (operator-facing)."
+        >
+          Diagnostic: {EXPORT_DIAGNOSTIC_STATUS_LABEL[boundary.diagnostic_status]}
+        </span>
+        <span
+          className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+          title="Production export status (always unavailable in this phase)."
+        >
+          Production export:{" "}
+          {PRODUCTION_EXPORT_STATUS_LABEL[boundary.production_export_status]}
+        </span>
+        <span
+          className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono uppercase tracking-wide text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+          title="Hard contract — always No in this phase."
+        >
+          production_export_ready: No
+        </span>
+      </div>
+
+      {/* Operator headline + message */}
+      <div className="mt-2">
+        <p className={cn("text-xs font-semibold", tone.title)}>
+          {boundary.operator_title}
+        </p>
+        <p className={cn("mt-0.5 text-[11px]", tone.detail)}>
+          {boundary.operator_message}
+        </p>
+      </div>
+
+      {/* Reasons + next steps in a compact <details> so the
+          operator can choose to look at the full list. */}
+      <details className="mt-2">
+        <summary className="cursor-pointer text-[11px] text-gray-700 dark:text-ink-muted">
+          Why production export is unavailable ({boundary.reasons.length}{" "}
+          reason{boundary.reasons.length === 1 ? "" : "s"}) · Next steps (
+          {boundary.next_steps.length})
+        </summary>
+        <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="rounded border border-gray-200 px-2 py-1.5 dark:border-line bg-white/60 dark:bg-surface-subtle/60">
+            <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+              Reasons
+            </p>
+            <ul className="mt-1 space-y-0.5 text-[11px] text-gray-800 dark:text-ink">
+              {boundary.reasons.map((reason) => (
+                <li key={reason} className="flex items-start gap-1.5">
+                  <span className="mt-0.5 shrink-0 text-gray-400 dark:text-ink-subtle">
+                    •
+                  </span>
+                  <span>
+                    {EXPORT_READINESS_BOUNDARY_REASON_LABEL[reason]}{" "}
+                    <span className="font-mono text-[10px] text-gray-400 dark:text-ink-subtle">
+                      {reason}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded border border-gray-200 px-2 py-1.5 dark:border-line bg-white/60 dark:bg-surface-subtle/60">
+            <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+              Next steps
+            </p>
+            <ol className="mt-1 space-y-0.5 text-[11px] text-gray-800 dark:text-ink list-decimal list-inside">
+              {boundary.next_steps.map((step, idx) => (
+                <li key={idx}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </details>
+
+      {/* Disclaimers — always visible small print */}
+      <p className="mt-2 text-[10px] text-gray-600 dark:text-ink-muted">
+        {boundary.disclaimers.join(" · ")}
+      </p>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3N — Boundary source banner (backend mirror vs local fallback)
+// ---------------------------------------------------------------------------
+//
+// Sits inside ``ExportReadinessBoundaryPanel``. Tells the operator
+// whether the verdict above is the canonical backend boundary
+// (Phase 3M endpoint) or the local fallback (Phase 3L helper).
+// NEVER claims production export readiness regardless of source —
+// the boundary contract holds either way.
+
+function BoundarySourceBanner({
+  source,
+  loading,
+  error,
+  onRetry,
+}: {
+  source: ExportReadinessBoundarySource;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  const copy = BACKEND_BOUNDARY_SOURCE_COPY[source];
+  const tone = copy.tone;
+  const wrapClass =
+    tone === "success"
+      ? "border-green-200 bg-green-50/40 dark:border-green-900 dark:bg-green-950/15"
+      : tone === "warning"
+        ? "border-yellow-300 bg-yellow-50/50 dark:border-yellow-900 dark:bg-yellow-950/15"
+        : tone === "info"
+          ? "border-blue-200 bg-blue-50/40 dark:border-blue-900 dark:bg-blue-950/15"
+          : "border-gray-200 bg-gray-50/50 dark:border-line dark:bg-surface-muted/60";
+  const titleClass =
+    tone === "success"
+      ? "text-green-800 dark:text-green-200"
+      : tone === "warning"
+        ? "text-yellow-900 dark:text-yellow-100"
+        : tone === "info"
+          ? "text-blue-900 dark:text-blue-100"
+          : "text-gray-800 dark:text-ink";
+  const detailClass =
+    tone === "success"
+      ? "text-green-800/90 dark:text-green-200/90"
+      : tone === "warning"
+        ? "text-yellow-900/90 dark:text-yellow-100/90"
+        : tone === "info"
+          ? "text-blue-900/90 dark:text-blue-100/90"
+          : "text-gray-700 dark:text-ink-muted";
+  const Icon =
+    tone === "success"
+      ? CheckCircle2
+      : tone === "warning"
+        ? AlertTriangle
+        : tone === "info"
+          ? Loader2
+          : Info;
+  const iconClass =
+    tone === "success"
+      ? "text-green-600 dark:text-green-400"
+      : tone === "warning"
+        ? "text-yellow-700 dark:text-yellow-300"
+        : tone === "info"
+          ? "text-blue-600 dark:text-blue-300 animate-spin"
+          : "text-gray-500 dark:text-ink-muted";
+  return (
+    <div
+      className={cn("mt-2 rounded-md border px-2 py-1.5 text-[11px]", wrapClass)}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-start gap-2">
+        <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", iconClass)} />
+        <div className="min-w-0 flex-1">
+          <p className={cn("font-semibold", titleClass)}>{copy.title}</p>
+          <p className={cn("mt-0.5", detailClass)}>{copy.detail}</p>
+          {error && source !== "backend" && (
+            <p className="mt-1 font-mono text-[10px] text-red-700 dark:text-red-300 break-words">
+              {error}
+            </p>
+          )}
+        </div>
+        {/* Retry only makes sense when the last attempt failed and
+            we're not already retrying. */}
+        {source === "local" && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRetry}
+            disabled={loading}
+            title="Retry backend boundary check."
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4G — Export Run Draft panel
+// ---------------------------------------------------------------------------
+//
+// Wraps the Phase 4F backend draft endpoint result. Diagnostic
+// only — the backend draft contract is hard-pinned to
+// ``draft_only=true`` / ``finalized=false`` / ``file_generated=false``
+// / ``download_available=false`` / ``production_export_ready=false``
+// regardless of input. The panel narrates that contract verbatim
+// so the operator can never misread a "Draft clear" pill as
+// "ready to export". ``draft_clear`` uses cyan/blue styling, NOT
+// green, for the same reason the boundary panel does.
+
+const _DRAFT_STATUS_LABEL: Record<string, string> = {
+  draft_clear: "Draft clear",
+  needs_review: "Needs review",
+  blocked: "Blocked",
+  not_available: "Not available",
+};
+
+const _DRAFT_REASON_LABEL: Record<string, string> = {
+  diagnostic_only_pipeline: "Diagnostic-only pipeline",
+  no_export_engine: "No export engine",
+  no_file_generation: "No export file generation",
+  no_export_run_persistence: "No export run persistence",
+  no_final_approval: "No final approval workflow",
+  no_export_audit_trail: "No export run / audit trail",
+  no_external_posting: "No external posting (ResMan / Yardi / AppFolio)",
+  readiness_boundary_not_clear: "Readiness boundary not clear",
+  profile_not_persisted: "Selected profile is not persisted",
+  profile_validation_blocked: "Profile validation blocked",
+  profile_validation_needs_review: "Profile validation needs review",
+  no_rows_to_export: "No rows to export",
+  row_issues_present: "Row issues present",
+};
+
+function ExportRunDraftPanel({
+  data,
+  source,
+  loading,
+  error,
+  onRetry,
+  stale,
+  lastUpdatedAt,
+  // Phase 5B — manual save action + saved-record success card +
+  // notes input + stale-after-save notice. The persistence hook
+  // is manual-click only; no useEffect auto-save.
+  persistBusy,
+  persistError,
+  persistedRecord,
+  persistedAt,
+  draftNotes,
+  onChangeDraftNotes,
+  onSaveDraftAuditRecord,
+  onClearPersistStatus,
+  persistDisabled,
+  staleAfterSave,
+}: {
+  data: BackendExportRunDraftResult | null;
+  source: "backend" | "loading" | "unavailable" | "error";
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  // Phase 4H — when ``stale=true``, the panel is showing
+  // last-known-good data while a fresh request is in flight or
+  // just failed. The body labels itself accordingly.
+  stale: boolean;
+  lastUpdatedAt: string | null;
+  // Phase 5B — persistence wiring.
+  persistBusy: boolean;
+  persistError: string | null;
+  persistedRecord: PersistedExportRunRead | null;
+  persistedAt: string | null;
+  draftNotes: string;
+  onChangeDraftNotes: (next: string) => void;
+  onSaveDraftAuditRecord: () => void;
+  onClearPersistStatus: () => void;
+  /** Disable the Save button when prerequisites (result / option /
+   *  profile contract) are missing. */
+  persistDisabled: boolean;
+  /** TRUE when a record was saved AND the current diagnostic
+   *  fingerprint differs from the one captured at save time. */
+  staleAfterSave: boolean;
+}) {
+  // Pick a tone based on the draft status when we have data,
+  // otherwise fall back to the source state's tone.
+  const status = data?.status ?? null;
+  const tone = _draftToneFor(status, source);
+
+  // Phase 5B — Save button is enabled only when the panel has a
+  // backend-evaluated draft to persist. We deliberately allow saves
+  // when ``stale=true`` (the backend re-evaluates anyway) but
+  // disable while a fresh request is in flight with no prior data.
+  const canSaveDraft =
+    !persistBusy &&
+    !persistDisabled &&
+    !!data &&
+    source !== "loading" &&
+    source !== "unavailable";
+
+  return (
+    <section
+      className={cn("rounded-md border px-3 py-2.5", tone.border)}
+      aria-label="Export Run Draft"
+    >
+      <header className="flex items-start gap-2">
+        <tone.Icon className={cn("h-4 w-4 mt-0.5 shrink-0", tone.iconClass)} />
+        <div className="min-w-0 flex-1">
+          <p className={cn("text-sm font-semibold", tone.title)}>
+            Export Run Draft
+          </p>
+          <p className={cn("mt-0.5 text-[11px]", tone.detail)}>
+            Diagnostic draft only — no export file is generated.
+          </p>
+        </div>
+      </header>
+
+      {/* Phase 4G — source banner. Tells the operator whether the
+          verdict is backend-evaluated or fell back to a not-evaluated
+          state. NEVER claims production-export readiness.
+          Phase 4H — also surfaces stale labelling when the body
+          is showing last-known-good while a fresh request is in
+          flight or just failed. */}
+      <DraftSourceBanner
+        source={source}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+        stale={stale}
+        lastUpdatedAt={lastUpdatedAt}
+      />
+
+      {data ? (
+        <DraftBody data={data} tone={tone} stale={stale} />
+      ) : (
+        <p className={cn("mt-2 text-[11px]", tone.detail)}>
+          {source === "loading"
+            ? "Evaluating export draft…"
+            : source === "error"
+              ? "Backend draft evaluation failed. Operational Preview remains diagnostic."
+              : "Run an operational preview with export-style rows and select a saved profile before evaluating an export draft."}
+        </p>
+      )}
+
+      {/* Phase 5B — persistence action area. Sits BELOW the body so
+          the operator reads the verdict first, then the action.
+          Manual-click only; never fires on render. */}
+      <PersistDraftAuditAction
+        canSave={canSaveDraft}
+        busy={persistBusy}
+        error={persistError}
+        savedRecord={persistedRecord}
+        savedAt={persistedAt}
+        notes={draftNotes}
+        onChangeNotes={onChangeDraftNotes}
+        onSave={onSaveDraftAuditRecord}
+        onClearStatus={onClearPersistStatus}
+        staleAfterSave={staleAfterSave}
+      />
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5B — Save Draft Audit Record action area
+// ---------------------------------------------------------------------------
+//
+// Sits inside ``ExportRunDraftPanel``. Renders:
+//   * A small notes textarea (optional — operator may leave blank).
+//   * A Save button + helper text.
+//   * A success card with the saved record id, phase, status, and
+//     created_at — explicit "no export file was generated" disclaimer.
+//   * A stale-after-save notice when the diagnostic fingerprint has
+//     drifted since the last save (operator should save again to
+//     create a new audit row; the existing record is left alone).
+//   * An inline error banner on save failure.
+//
+// Tone uses cyan/blue (NOT green) so the saved card never reads as
+// proof of export. Same convention the boundary + draft body use.
+function PersistDraftAuditAction({
+  canSave,
+  busy,
+  error,
+  savedRecord,
+  savedAt,
+  notes,
+  onChangeNotes,
+  onSave,
+  onClearStatus,
+  staleAfterSave,
+}: {
+  canSave: boolean;
+  busy: boolean;
+  error: string | null;
+  savedRecord: PersistedExportRunRead | null;
+  savedAt: string | null;
+  notes: string;
+  onChangeNotes: (next: string) => void;
+  onSave: () => void;
+  onClearStatus: () => void;
+  staleAfterSave: boolean;
+}) {
+  const savedAtLabel = (() => {
+    if (!savedAt) return null;
+    try {
+      const parsed = new Date(savedAt);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleString();
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  })();
+
+  const recordCreatedAtLabel = (() => {
+    if (!savedRecord?.created_at) return null;
+    try {
+      const parsed = new Date(savedRecord.created_at);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleString();
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  })();
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-gray-200 pt-2 dark:border-line">
+      <div>
+        <label
+          className="block text-[11px] font-semibold text-gray-700 dark:text-ink-muted"
+          htmlFor="persist-draft-notes"
+        >
+          Notes for audit record
+          <span className="ml-1 text-[10px] font-normal text-gray-500 dark:text-ink-subtle">
+            (optional)
+          </span>
+        </label>
+        <textarea
+          id="persist-draft-notes"
+          className="mt-1 w-full resize-y rounded-md border border-gray-200 bg-white px-2 py-1 text-[12px] text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-line dark:bg-surface-subtle dark:text-ink dark:placeholder:text-ink-subtle"
+          rows={2}
+          value={notes}
+          onChange={(e) => onChangeNotes(e.target.value)}
+          placeholder="Optional context for the audit record. No file is generated."
+          disabled={busy}
+          maxLength={2000}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={onSave}
+          disabled={!canSave}
+          title={
+            canSave
+              ? "Persist this diagnostic draft as an audit record. No export file is generated."
+              : "Run an operational preview with a saved profile before saving an audit record."
+          }
+        >
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Bookmark className="h-3.5 w-3.5" />
+          )}
+          {busy ? "Saving…" : "Save draft audit record"}
+        </Button>
+        <p className="text-[11px] text-gray-600 dark:text-ink-muted">
+          Saves this diagnostic draft as an audit record. No export
+          file is generated.
+        </p>
+      </div>
+
+      {error && (
+        <div
+          className="rounded-md border border-rose-200 bg-rose-50/60 px-2 py-1.5 text-[11px] text-rose-900 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-100"
+          role="alert"
+        >
+          <p className="font-semibold">Could not save draft audit record</p>
+          <p className="mt-0.5 font-mono text-[10px] break-words">{error}</p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClearStatus}
+            title="Dismiss the error message."
+            className="mt-1"
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
+
+      {savedRecord && (
+        // Cyan/blue tone — never green — so the operator can never
+        // misread the success card as proof of export. Mirrors the
+        // boundary + draft-body conventions.
+        <div
+          className="rounded-md border border-cyan-200 bg-cyan-50/60 px-2 py-1.5 text-[11px] text-cyan-900 dark:border-cyan-900 dark:bg-cyan-950/20 dark:text-cyan-100"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-600 dark:text-cyan-300" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Draft audit record saved</p>
+              <ul className="mt-1 space-y-0.5 text-[11px]">
+                <li>
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-cyan-800/80 dark:text-cyan-200/80">
+                    ID:
+                  </span>{" "}
+                  <span className="font-mono break-all">{savedRecord.id}</span>
+                </li>
+                <li>
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-cyan-800/80 dark:text-cyan-200/80">
+                    Phase:
+                  </span>{" "}
+                  <span className="font-mono">{savedRecord.phase}</span>
+                </li>
+                <li>
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-cyan-800/80 dark:text-cyan-200/80">
+                    Status:
+                  </span>{" "}
+                  <span className="font-mono">
+                    {_DRAFT_STATUS_LABEL[savedRecord.status] ??
+                      savedRecord.status}
+                  </span>
+                </li>
+                {recordCreatedAtLabel && (
+                  <li>
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-cyan-800/80 dark:text-cyan-200/80">
+                      Created at:
+                    </span>{" "}
+                    {recordCreatedAtLabel}
+                  </li>
+                )}
+                {savedAtLabel &&
+                  savedAtLabel !== recordCreatedAtLabel && (
+                    <li>
+                      <span className="font-mono text-[10px] uppercase tracking-wide text-cyan-800/80 dark:text-cyan-200/80">
+                        Saved locally at:
+                      </span>{" "}
+                      {savedAtLabel}
+                    </li>
+                  )}
+              </ul>
+              <ul className="mt-1 space-y-0.5 text-[10px] text-cyan-900/90 dark:text-cyan-100/90">
+                {PERSISTED_DRAFT_RECORD_DISCLAIMERS.map((line) => (
+                  <li key={line}>· {line}</li>
+                ))}
+              </ul>
+              {staleAfterSave && (
+                <p className="mt-1 rounded border border-yellow-300 bg-yellow-50/70 px-1.5 py-1 text-[10px] font-semibold text-yellow-900 dark:border-yellow-900 dark:bg-yellow-950/30 dark:text-yellow-100">
+                  Current preview changed after save. Save again to
+                  create a new audit record; the existing record was
+                  not modified.
+                </p>
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onClearStatus}
+              title="Dismiss the success card."
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface _DraftTone {
+  border: string;
+  title: string;
+  detail: string;
+  pillBorder: string;
+  pillBg: string;
+  pillText: string;
+  Icon: LucideIcon;
+  iconClass: string;
+}
+
+const _DRAFT_TONE_BY_STATUS: Record<string, _DraftTone> = {
+  draft_clear: {
+    // Cyan, NOT green — green would imply "ready to export". The
+    // boundary panel uses the same convention.
+    border:
+      "border-cyan-200 bg-cyan-50/50 dark:border-cyan-900 dark:bg-cyan-950/20",
+    title: "text-cyan-900 dark:text-cyan-100",
+    detail: "text-cyan-900/90 dark:text-cyan-100/90",
+    pillBorder: "border-cyan-200 dark:border-cyan-900",
+    pillBg: "bg-cyan-50 dark:bg-cyan-950/40",
+    pillText: "text-cyan-800 dark:text-cyan-200",
+    Icon: Info,
+    iconClass: "text-cyan-600 dark:text-cyan-300",
+  },
+  needs_review: {
+    border:
+      "border-yellow-300 bg-yellow-50/60 dark:border-yellow-900 dark:bg-yellow-950/20",
+    title: "text-yellow-900 dark:text-yellow-100",
+    detail: "text-yellow-900/90 dark:text-yellow-100/90",
+    pillBorder: "border-yellow-200 dark:border-yellow-900",
+    pillBg: "bg-yellow-50 dark:bg-yellow-950/40",
+    pillText: "text-yellow-800 dark:text-yellow-200",
+    Icon: AlertTriangle,
+    iconClass: "text-yellow-700 dark:text-yellow-300",
+  },
+  blocked: {
+    border:
+      "border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/20",
+    title: "text-rose-900 dark:text-rose-100",
+    detail: "text-rose-900/90 dark:text-rose-100/90",
+    pillBorder: "border-rose-200 dark:border-rose-900",
+    pillBg: "bg-rose-50 dark:bg-rose-950/40",
+    pillText: "text-rose-800 dark:text-rose-200",
+    Icon: CircleAlert,
+    iconClass: "text-rose-600 dark:text-rose-300",
+  },
+  not_available: {
+    border:
+      "border-gray-200 bg-gray-50/70 dark:border-line dark:bg-surface-muted",
+    title: "text-gray-800 dark:text-ink",
+    detail: "text-gray-700 dark:text-ink-muted",
+    pillBorder: "border-gray-200 dark:border-line",
+    pillBg: "bg-gray-50 dark:bg-surface-muted",
+    pillText: "text-gray-700 dark:text-ink-muted",
+    Icon: Info,
+    iconClass: "text-gray-500 dark:text-ink-muted",
+  },
+};
+
+function _draftToneFor(
+  status: string | null,
+  source: "backend" | "loading" | "unavailable" | "error",
+): _DraftTone {
+  if (status && _DRAFT_TONE_BY_STATUS[status]) {
+    return _DRAFT_TONE_BY_STATUS[status]!;
+  }
+  // No data yet — pick a neutral tone unless there's an error.
+  if (source === "error") {
+    return _DRAFT_TONE_BY_STATUS.needs_review!;
+  }
+  return _DRAFT_TONE_BY_STATUS.not_available!;
+}
+
+function DraftSourceBanner({
+  source,
+  loading,
+  error,
+  onRetry,
+  stale,
+  lastUpdatedAt,
+}: {
+  source: "backend" | "loading" | "unavailable" | "error";
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  // Phase 4H — when ``stale=true`` AND source is loading / error,
+  // the banner uses the stale-aware copy bucket so the operator
+  // reads "Refreshing export draft…" / "Could not refresh export
+  // draft" instead of the first-time variants.
+  stale: boolean;
+  // Phase 4H — ISO timestamp of when ``data`` was last loaded.
+  // Renders a "Last evaluated: <localized time>" line when set.
+  lastUpdatedAt: string | null;
+}) {
+  // Phase 4H — pick the right source-copy bucket. When ``stale`` is
+  // true the loading / error cases swap to the "showing last
+  // evaluated draft…" wording.
+  const copy = pickExportRunDraftSourceCopy(source, stale);
+  const tone = copy.tone;
+  // Phase 4H — operator-facing localized time of the last successful
+  // backend draft. Wrapped in a try/catch so a malformed ISO string
+  // never breaks the panel render.
+  let lastEvaluatedLabel: string | null = null;
+  if (lastUpdatedAt) {
+    try {
+      const parsed = new Date(lastUpdatedAt);
+      if (!Number.isNaN(parsed.getTime())) {
+        lastEvaluatedLabel = parsed.toLocaleString();
+      }
+    } catch {
+      lastEvaluatedLabel = null;
+    }
+  }
+  const wrapClass =
+    tone === "success"
+      ? "border-green-200 bg-green-50/40 dark:border-green-900 dark:bg-green-950/15"
+      : tone === "warning"
+        ? "border-yellow-300 bg-yellow-50/50 dark:border-yellow-900 dark:bg-yellow-950/15"
+        : tone === "info"
+          ? "border-blue-200 bg-blue-50/40 dark:border-blue-900 dark:bg-blue-950/15"
+          : "border-gray-200 bg-gray-50/50 dark:border-line dark:bg-surface-muted/60";
+  const titleClass =
+    tone === "success"
+      ? "text-green-800 dark:text-green-200"
+      : tone === "warning"
+        ? "text-yellow-900 dark:text-yellow-100"
+        : tone === "info"
+          ? "text-blue-900 dark:text-blue-100"
+          : "text-gray-800 dark:text-ink";
+  const detailClass =
+    tone === "success"
+      ? "text-green-800/90 dark:text-green-200/90"
+      : tone === "warning"
+        ? "text-yellow-900/90 dark:text-yellow-100/90"
+        : tone === "info"
+          ? "text-blue-900/90 dark:text-blue-100/90"
+          : "text-gray-700 dark:text-ink-muted";
+  const Icon =
+    tone === "success"
+      ? CheckCircle2
+      : tone === "warning"
+        ? AlertTriangle
+        : tone === "info"
+          ? Loader2
+          : Info;
+  const iconClass =
+    tone === "success"
+      ? "text-green-600 dark:text-green-400"
+      : tone === "warning"
+        ? "text-yellow-700 dark:text-yellow-300"
+        : tone === "info"
+          ? "text-blue-600 dark:text-blue-300 animate-spin"
+          : "text-gray-500 dark:text-ink-muted";
+  return (
+    <div
+      className={cn("mt-2 rounded-md border px-2 py-1.5 text-[11px]", wrapClass)}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-start gap-2">
+        <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", iconClass)} />
+        <div className="min-w-0 flex-1">
+          <p className={cn("font-semibold", titleClass)}>{copy.title}</p>
+          <p className={cn("mt-0.5", detailClass)}>{copy.detail}</p>
+          {/* Phase 4H — last-evaluated timestamp. Always rendered when
+              we have one, regardless of source, so the operator can
+              see when the visible verdict was actually computed. */}
+          {lastEvaluatedLabel && (
+            <p
+              className={cn(
+                "mt-0.5 font-mono text-[10px]",
+                detailClass,
+              )}
+              title="When the currently displayed draft was evaluated by the backend."
+            >
+              Last evaluated: {lastEvaluatedLabel}
+            </p>
+          )}
+          {error && source === "error" && (
+            <p className="mt-1 font-mono text-[10px] text-red-700 dark:text-red-300 break-words">
+              {error}
+            </p>
+          )}
+        </div>
+        {source === "error" && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRetry}
+            disabled={loading}
+            title="Retry export draft evaluation."
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DraftBody({
+  data,
+  tone,
+  stale,
+}: {
+  data: BackendExportRunDraftResult;
+  tone: _DraftTone;
+  // Phase 4H — when ``stale=true`` the body renders a small label
+  // above the status row so the operator reads the verdict as
+  // last-known-good, not as the current backend state.
+  stale: boolean;
+}) {
+  const statusLabel = _DRAFT_STATUS_LABEL[data.status] ?? data.status;
+  return (
+    <div className="mt-2 space-y-2">
+      {/* Phase 4H — stale label. Visible only when the panel is
+          showing a previously-evaluated verdict while the latest
+          backend request is in flight or just failed. Always says
+          "Showing last evaluated draft…" so the operator never
+          misreads the body as the current backend verdict. */}
+      {stale && (
+        <p
+          className="text-[10px] font-semibold uppercase tracking-wide text-yellow-800 dark:text-yellow-200"
+          title="The draft below was evaluated earlier; Rivera is refreshing it now."
+        >
+          Showing last evaluated draft…
+        </p>
+      )}
+      {/* Status row — three immutable claims plus the dynamic
+          status pill. Same visual rhythm as the readiness boundary
+          panel for operator familiarity. */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+        <span
+          className={cn(
+            "inline-flex items-center rounded-full border px-1.5 py-0.5 font-semibold uppercase tracking-wide",
+            tone.pillBorder,
+            tone.pillBg,
+            tone.pillText,
+          )}
+          title="Draft verdict (operator-facing)."
+        >
+          Status: {statusLabel}
+        </span>
+        <span
+          className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono uppercase tracking-wide text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+          title="Hard contract — always Yes in this phase."
+        >
+          draft_only: Yes
+        </span>
+        <span
+          className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono uppercase tracking-wide text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+          title="Hard contract — always No in this phase."
+        >
+          finalized: No
+        </span>
+        <span
+          className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono uppercase tracking-wide text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+          title="Hard contract — always No in this phase."
+        >
+          file_generated: No
+        </span>
+        <span
+          className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono uppercase tracking-wide text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+          title="Hard contract — always No in this phase."
+        >
+          download_available: No
+        </span>
+        <span
+          className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono uppercase tracking-wide text-gray-700 dark:border-line dark:bg-surface-muted dark:text-ink-muted"
+          title="Hard contract — always No in this phase."
+        >
+          production_export_ready: No
+        </span>
+      </div>
+
+      {/* Operator headline + message */}
+      <div>
+        <p className={cn("text-xs font-semibold", tone.title)}>
+          {data.operator_title}
+        </p>
+        <p className={cn("mt-0.5 text-[11px]", tone.detail)}>
+          {data.operator_message}
+        </p>
+      </div>
+
+      {/* Compact row summary */}
+      <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <div className="rounded border border-gray-200 px-2 py-1 dark:border-line bg-white/60 dark:bg-surface-subtle/60">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+            Rows
+          </p>
+          <p className="text-sm font-semibold text-gray-800 dark:text-ink">
+            {data.row_count}
+          </p>
+        </div>
+        <div className="rounded border border-gray-200 px-2 py-1 dark:border-line bg-white/60 dark:bg-surface-subtle/60">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+            Blocked rows
+          </p>
+          <p className="text-sm font-semibold text-rose-700 dark:text-rose-200">
+            {data.blocked_row_count}
+          </p>
+        </div>
+        <div className="rounded border border-gray-200 px-2 py-1 dark:border-line bg-white/60 dark:bg-surface-subtle/60">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+            Warning rows
+          </p>
+          <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-200">
+            {data.warning_row_count}
+          </p>
+        </div>
+      </div>
+
+      {/* Reasons + next steps in a compact <details> so the operator
+          can choose to look at the full lists. */}
+      <details className="mt-1">
+        <summary className="cursor-pointer text-[11px] text-gray-700 dark:text-ink-muted">
+          Why this draft is {statusLabel.toLowerCase()} (
+          {data.reasons.length} reason
+          {data.reasons.length === 1 ? "" : "s"}) · Next steps (
+          {data.next_steps.length})
+        </summary>
+        <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="rounded border border-gray-200 px-2 py-1.5 dark:border-line bg-white/60 dark:bg-surface-subtle/60">
+            <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+              Reasons
+            </p>
+            <ul className="mt-1 space-y-0.5 text-[11px] text-gray-800 dark:text-ink">
+              {data.reasons.map((reason) => (
+                <li key={reason} className="flex items-start gap-1.5">
+                  <span className="mt-0.5 shrink-0 text-gray-400 dark:text-ink-subtle">
+                    •
+                  </span>
+                  <span>
+                    {_DRAFT_REASON_LABEL[reason] ?? reason}{" "}
+                    <span className="font-mono text-[10px] text-gray-400 dark:text-ink-subtle">
+                      {reason}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded border border-gray-200 px-2 py-1.5 dark:border-line bg-white/60 dark:bg-surface-subtle/60">
+            <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-ink-subtle">
+              Next steps
+            </p>
+            <ol className="mt-1 space-y-0.5 text-[11px] text-gray-800 dark:text-ink list-decimal list-inside">
+              {data.next_steps.map((step, idx) => (
+                <li key={idx}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </details>
+
+      {/* Disclaimers — always visible small print */}
+      <p className="mt-2 text-[10px] text-gray-600 dark:text-ink-muted">
+        {data.disclaimers.join(" · ")}
+      </p>
+    </div>
   );
 }
 
@@ -3347,6 +5710,72 @@ function OperationalNoteCard() {
       Future phases will use this same envelope to create review-ready
       records.
     </p>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3G — Copy full report row (renders directly under the
+// Operational Summary card)
+// ---------------------------------------------------------------------------
+//
+// Compact row that exposes a single "Copy full report" action +
+// a transient toast. Distinct from the per-section copy buttons
+// (Copy diagnostics / Copy preview / Copy profile check) so the
+// operator can grab one consolidated artefact without stitching
+// three reports together.
+
+function FullReportCopyRow({
+  copyStatus,
+  onCopy,
+}: {
+  copyStatus: { type: "success" | "error"; message: string } | null;
+  onCopy: () => void;
+}) {
+  return (
+    <section
+      className="rounded-md border border-gray-200 bg-white dark:border-line dark:bg-surface-subtle px-3 py-2"
+      aria-label="Copy full operational report"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-800 dark:text-ink">
+            Copy full report
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-ink-muted">
+            Copies a diagnostic Markdown report combining the
+            operational summary, review diagnostics, export-style
+            preview, and the selected profile check. No file is
+            generated.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {copyStatus && (
+            <span
+              className={cn(
+                "text-[11px] font-medium",
+                copyStatus.type === "success"
+                  ? "text-green-700 dark:text-green-300"
+                  : "text-red-700 dark:text-red-300",
+              )}
+              role={copyStatus.type === "error" ? "alert" : "status"}
+              aria-live="polite"
+            >
+              {copyStatus.message}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={onCopy}
+            title="Copy a consolidated diagnostic Markdown report to the clipboard. No file is generated."
+          >
+            <ClipboardCopy className="h-3.5 w-3.5" />
+            Copy full report
+          </Button>
+        </div>
+      </div>
+    </section>
   );
 }
 

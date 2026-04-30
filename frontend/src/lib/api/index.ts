@@ -23,3 +23,15 @@ export { propertyCatalogsApi } from "./property-catalogs";
 export { vendorCatalogsApi } from "./vendor-catalogs";
 // Phase 3A — Operational Resolution Pipeline.
 export { operationalResolutionApi } from "./operational-resolution";
+// Phase 3J — Diagnostic Export Profile validation (Phase 3I endpoint).
+export { exportProfilesApi } from "./export-profiles";
+// Phase 3N — Diagnostic Export Readiness Boundary (Phase 3M endpoint).
+export { exportReadinessBoundaryApi } from "./export-readiness-boundary";
+// Phase 4G — Diagnostic Export Run Draft (Phase 4F endpoint).
+export { exportRunDraftsApi } from "./export-run-drafts";
+// Phase 5B — Persisted Export Run draft / audit (Phase 5A endpoint
+// family). Sibling to ``exportRunDraftsApi`` — the evaluator stays
+// stateless and forbidden from returning any ``id`` /
+// ``export_run_id``; persistence happens ONLY through this client
+// on explicit user click.
+export { exportRunsApi } from "./export-runs";

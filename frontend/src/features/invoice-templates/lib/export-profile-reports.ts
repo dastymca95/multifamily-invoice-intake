@@ -29,6 +29,13 @@ import type {
   ExportProfileIssueSeverity,
   ExportProfileValidationResult,
 } from "./export-profile-validation";
+import type { ExportValidationParityResult } from "./export-validation-parity";
+import type { ExportReadinessBoundary } from "./export-readiness-boundary";
+import {
+  EXPORT_DIAGNOSTIC_STATUS_LABEL,
+  EXPORT_READINESS_BOUNDARY_REASON_LABEL,
+  PRODUCTION_EXPORT_STATUS_LABEL,
+} from "./export-readiness-boundary";
 
 // Re-export the existing Phase 2H clipboard helper so the panel
 // can import everything report-related from a single module.
@@ -48,6 +55,34 @@ export interface ExportProfileValidationReportArgs {
   contextLabel?: string | null;
   /** Override generation time — useful in tests / deterministic snapshots. */
   generatedAt?: Date;
+  /** Phase 3J — single-line marker describing the validation
+   *  source (Backend verified / Local estimate / etc.). When
+   *  provided, surfaced in the header so a paste-into-Slack
+   *  workflow makes the verdict's provenance visible. */
+  validationSourceMarker?: string | null;
+  /** Phase 3K — parity diagnostic comparing local vs backend.
+   *  Surfaced as a "Validation Source Audit" section. Diagnostic
+   *  only — never overrides the displayed verdict. */
+  parityResult?: ExportValidationParityResult | null;
+  /** Phase 3L — explicit boundary contract describing the gap to
+   *  a future production export. Surfaced as an "Export Readiness
+   *  Boundary" section. ALWAYS carries
+   *  ``production_export_ready: false`` — the section never claims
+   *  production readiness regardless of diagnostic status. */
+   readinessBoundary?: ExportReadinessBoundary | null;
+  /** Phase 3N — single-line marker describing the boundary source
+   *  (Backend boundary verified / Local estimate / etc.). Surfaced
+   *  inside the boundary section so a paste-into-Slack reader
+   *  knows whether the boundary verdict is backend-verified or a
+   *  local fallback. Only emitted when ``readinessBoundary`` is
+   *  also provided. */
+  boundarySourceMarker?: string | null;
+  /** Phase 4B — single-line marker describing the profile source
+   *  (Saved profile / Built-in starter). Surfaced in the header
+   *  so a paste-into-Slack reader knows whether the verdict is
+   *  reading a backend catalog row or a built-in starter, plus
+   *  whether the saved-profile contract is mid-load. */
+  profileSourceMarker?: string | null;
 }
 
 const SEVERITY_LABEL: Record<ExportProfileIssueSeverity, string> = {
@@ -106,6 +141,12 @@ export function buildExportProfileValidationMarkdownReport(
   }
   if (args.contextLabel) {
     lines.push(`**Launch context:** ${args.contextLabel}`);
+  }
+  if (args.validationSourceMarker) {
+    lines.push(`**${args.validationSourceMarker}**`);
+  }
+  if (args.profileSourceMarker) {
+    lines.push(`**${args.profileSourceMarker}**`);
   }
   lines.push("");
   lines.push(
@@ -198,6 +239,25 @@ export function buildExportProfileValidationMarkdownReport(
     }
   }
 
+  // -- Export Readiness Boundary (Phase 3L + 3N) ------------------
+  // Surfaced before the parity audit so a paste-into-Slack reader
+  // sees the boundary contract before the technical drift block.
+  // Phase 3N — also receives the optional source marker so the
+  // boundary section announces whether the verdict is backend-
+  // verified or a local fallback.
+  if (args.readinessBoundary) {
+    _appendBoundarySection(
+      lines,
+      args.readinessBoundary,
+      args.boundarySourceMarker ?? null,
+    );
+  }
+
+  // -- Validation Source Audit (Phase 3K) -------------------------
+  if (args.parityResult) {
+    _appendParitySection(lines, args.parityResult);
+  }
+
   // -- Footer reminder --------------------------------------------
   lines.push("---");
   lines.push("");
@@ -208,6 +268,79 @@ export function buildExportProfileValidationMarkdownReport(
   // keeping the arg in the public contract.
   void preview;
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3K — Validation Source Audit Markdown block
+// ---------------------------------------------------------------------------
+
+const PARITY_STATUS_LABEL: Record<
+  ExportValidationParityResult["status"],
+  string
+> = {
+  aligned: "Aligned",
+  minor_drift: "Minor drift",
+  major_drift: "Major drift",
+  not_checked: "Not checked",
+};
+
+/** Cap on rendered drift details so paste-into-Slack doesn't
+ *  blow past sensible message lengths. */
+const PARITY_DIFFERENCE_CAP = 20;
+
+function _appendParitySection(
+  lines: string[],
+  parity: ExportValidationParityResult,
+): void {
+  lines.push("## Validation Source Audit");
+  lines.push("");
+  lines.push(`- Status: **${PARITY_STATUS_LABEL[parity.status]}**`);
+  lines.push(`- Checked: ${parity.checked ? "yes" : "no"}`);
+  lines.push(`- Local status: \`${parity.local_status ?? "—"}\``);
+  lines.push(`- Backend status: \`${parity.backend_status ?? "—"}\``);
+  lines.push(`- Local issue count: ${parity.local_issue_count}`);
+  lines.push(`- Backend issue count: ${parity.backend_issue_count}`);
+  lines.push(`- Compared at: ${parity.compared_at}`);
+  // Summary booleans — give support a quick glance at which axis drifted.
+  lines.push("");
+  lines.push("Summary breakdown:");
+  lines.push(`- Status matches: ${_yn(parity.summary.status_matches)}`);
+  lines.push(`- Blocked count matches: ${_yn(parity.summary.blocked_count_matches)}`);
+  lines.push(`- Warning count matches: ${_yn(parity.summary.warning_count_matches)}`);
+  lines.push(`- Info count matches: ${_yn(parity.summary.info_count_matches)}`);
+  lines.push(`- Issue code set matches: ${_yn(parity.summary.issue_code_set_matches)}`);
+  lines.push(`- Column mapping matches: ${_yn(parity.summary.column_mapping_matches)}`);
+  lines.push(`- Row results match: ${_yn(parity.summary.row_status_matches)}`);
+  lines.push("");
+  if (parity.differences.length === 0) {
+    lines.push(
+      "_No drift differences. Backend remains the source of truth._",
+    );
+  } else {
+    const visible = parity.differences.slice(0, PARITY_DIFFERENCE_CAP);
+    const hidden = parity.differences.length - visible.length;
+    lines.push(`Top differences (${visible.length} of ${parity.differences.length}):`);
+    lines.push("");
+    for (const d of visible) {
+      lines.push(`- **${d.severity.toUpperCase()}** · _${d.area}_ · ${d.message}`);
+      lines.push(`  - Local: \`${d.local_value}\``);
+      lines.push(`  - Backend: \`${d.backend_value}\``);
+      lines.push(`  - Recommendation: ${d.recommendation}`);
+    }
+    if (hidden > 0) {
+      lines.push("");
+      lines.push(`_…and ${hidden} more drift detail${hidden === 1 ? "" : "s"} omitted._`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    "_Validation Source Audit is diagnostic only. Backend remains the active validation source when present._",
+  );
+  lines.push("");
+}
+
+function _yn(v: boolean): string {
+  return v ? "yes" : "no";
 }
 
 // ---------------------------------------------------------------------------
@@ -254,3 +387,49 @@ export type { ExportProfileColumn };
 // Internal re-export so the contract's literal type stays accessible
 // from a single import in the panel.
 export type { ExportTargetSystem };
+
+// ---------------------------------------------------------------------------
+// Phase 3L — Export Readiness Boundary Markdown block
+// ---------------------------------------------------------------------------
+
+function _appendBoundarySection(
+  lines: string[],
+  boundary: ExportReadinessBoundary,
+  boundarySourceMarker: string | null,
+): void {
+  lines.push("## Export Readiness Boundary");
+  lines.push("");
+  if (boundarySourceMarker) {
+    lines.push(`_${boundarySourceMarker}_`);
+    lines.push("");
+  }
+  lines.push(
+    `- Diagnostic status: **${EXPORT_DIAGNOSTIC_STATUS_LABEL[boundary.diagnostic_status]}**`,
+  );
+  lines.push(
+    `- Production export: \`${PRODUCTION_EXPORT_STATUS_LABEL[boundary.production_export_status]}\``,
+  );
+  lines.push(`- production_export_ready: **No**`);
+  lines.push(`- diagnostic_only: \`true\``);
+  lines.push("");
+  lines.push(`**${boundary.operator_title}**`);
+  lines.push("");
+  lines.push(boundary.operator_message);
+  lines.push("");
+  lines.push("Reasons:");
+  for (const reason of boundary.reasons) {
+    lines.push(
+      `- ${EXPORT_READINESS_BOUNDARY_REASON_LABEL[reason]} (\`${reason}\`)`,
+    );
+  }
+  lines.push("");
+  lines.push("Next steps:");
+  for (const step of boundary.next_steps) {
+    lines.push(`- ${step}`);
+  }
+  lines.push("");
+  lines.push(`_${boundary.developer_message}_`);
+  lines.push("");
+  lines.push(`_${boundary.disclaimers.join(" "  )}_`);
+  lines.push("");
+}

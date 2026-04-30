@@ -263,9 +263,16 @@ function _safeName(
 }
 
 function _footer(): string {
+  // Phase 3L — boundary contract reaffirmed inline. The panel
+  // attaches a full boundary block to the consolidated full-report
+  // and the per-section profile-check report; the export-preview
+  // report keeps the boundary as a footer line so the per-section
+  // call site doesn't need to thread the boundary through.
   return [
     "_This is a diagnostic export-style preview. No export file was generated._",
+    "_Production export is unavailable: no export engine, no persisted profiles, no export run records, no file generation, no external posting._",
     "_Future export depends on export profiles and final validation._",
+    "_Diagnostic clear does not mean production export ready._",
   ].join("\n");
 }
 

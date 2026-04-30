@@ -2,6 +2,8 @@
 
 import {
   Bell,
+  ClipboardList,
+  FileSpreadsheet,
   Palette,
   ShieldCheck,
   SlidersHorizontal,
@@ -73,6 +75,27 @@ const NAV_ITEMS: SettingsNavItem[] = [
     label: "Security",
     icon: ShieldCheck,
     hint: "Sign-in + session controls",
+  },
+  // Phase 4C — Export Profiles management. Configuration surface
+  // for the persisted profile catalog the Operational Preview
+  // picker (Phase 4B) consumes. Diagnostic only — no export
+  // engine, no file generation.
+  {
+    href: "/settings/export-profiles",
+    label: "Export Profiles",
+    icon: FileSpreadsheet,
+    hint: "Saved column / formatting profiles",
+  },
+  // Phase 5C — Export Runs audit list. Read-only view of the
+  // persisted draft / audit records produced by Phase 5B's
+  // "Save draft audit record" action in Operational Preview.
+  // Diagnostic only — no finalize / download / generate / post /
+  // mark-exported actions exist on this surface.
+  {
+    href: "/settings/export-runs",
+    label: "Export Runs",
+    icon: ClipboardList,
+    hint: "Draft audit records",
   },
 ];
 

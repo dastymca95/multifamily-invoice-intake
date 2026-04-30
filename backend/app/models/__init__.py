@@ -2,6 +2,8 @@ from app.models.base import Base
 from app.models.batch import Batch
 from app.models.document import Document
 from app.models.export_job import ExportJob
+from app.models.export_profile import ExportProfileRecord
+from app.models.export_run import ExportRunRecord
 from app.models.extraction_run import ExtractionRun
 from app.models.gl_catalog import GLCatalog
 from app.models.import_config import ImportConfig
@@ -20,6 +22,8 @@ __all__ = [
     "Batch",
     "Document",
     "ExportJob",
+    "ExportProfileRecord",
+    "ExportRunRecord",
     "ExtractionRun",
     "GLCatalog",
     "ImportConfig",

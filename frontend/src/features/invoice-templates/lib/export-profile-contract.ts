@@ -260,6 +260,38 @@ export function getBuiltInExportProfiles(
   ];
 }
 
+/**
+ * Phase 3H — single source of truth for "which profile is the
+ * Operational Preview actually showing right now?"
+ *
+ * Resolves the operator-selected profile id against the current
+ * profile bundle. Falls back to the first profile (Custom CSV
+ * mirror) whenever the selection is missing OR no longer present
+ * in the rebuilt list — which can happen after a re-run rebuilds
+ * the preview with different inferred columns.
+ *
+ * Returns ``null`` only when the bundle itself is empty (e.g. the
+ * preview produced no columns, so no profile builders had a basis
+ * to derive from).
+ *
+ * Used by:
+ *   * ``ExportPreviewSection`` — to drive both the inline Profile
+ *     selector display AND the validation memo.
+ *   * ``handleCopyFullReport`` — to make sure the consolidated
+ *     report's profile section matches the inline section.
+ */
+export function resolveSelectedExportProfile(
+  profiles: ExportProfile[],
+  selectedProfileId: string | null,
+): ExportProfile | null {
+  if (profiles.length === 0) return null;
+  if (selectedProfileId) {
+    const match = profiles.find((p) => p.id === selectedProfileId);
+    if (match) return match;
+  }
+  return profiles[0] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Public helpers (used by the validator + panel)
 // ---------------------------------------------------------------------------
